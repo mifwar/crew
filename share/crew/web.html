@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>crew web</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Martian+Mono:wght@400;500;600&family=Instrument+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: ops console — roster rail | channel timeline | inspector (board / files / pane) */
+:root {
+  --bg: #f3f4f1; --panel: #fbfbf9; --line: #dcded7; --fg: #1d211c; --muted: #6a7066;
+  --accent: #2f6f5e; --accent-soft: #dcebe5; --code-bg: #eef0ea;
+  --ok: #2e7d4f; --warn: #a86a12; --bad: #b3412f; --run: #2f5f9e;
+  --r0: #7a4fb0; --r1: #2f6f5e; --r2: #b0572f; --r3: #2f5f9e; --r4: #8a6d12; --r5: #a13d6b;
+  --mono: "Martian Mono", ui-monospace, Menlo, monospace;
+  --body: "Instrument Sans", system-ui, -apple-system, sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) { :root {
+  --bg: #141714; --panel: #1b1f1b; --line: #2c322c; --fg: #e3e7df; --muted: #8d958a;
+  --accent: #6fc2a6; --accent-soft: #1f3530; --code-bg: #111411;
+  --ok: #6cc78f; --warn: #e0a54a; --bad: #ec7d69; --run: #7fa9e8;
+  --r0: #b894e6; --r1: #6fc2a6; --r2: #eb9366; --r3: #7fa9e8; --r4: #d9b95c; --r5: #e68ab5;
+  color-scheme: dark; } }
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--fg); font: 14px/1.5 var(--body); padding-inline: 16px; padding-block: 12px; display: flex; flex-direction: column; }
+button, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.brand { font-family: var(--mono); font-weight: 600; font-size: 15px; letter-spacing: -0.02em; }
+.brand span { color: var(--accent); }
+select { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; font-family: var(--mono); font-size: 12px; }
+.meta { font-family: var(--mono); font-size: 11.5px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 14px; min-width: 0; overflow-wrap: anywhere; }
+.live { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+.dot.off { background: var(--bad); }
+
+.grid { flex: 1; min-height: 0; display: grid; grid-template-columns: 250px minmax(0, 1fr) 380px; gap: 14px; margin-top: 14px; }
+.col { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+.label { font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
+.roster { overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+
+.agent { text-align: left; background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--role); border-radius: 6px; padding: 10px 12px; display: grid; gap: 3px; }
+.agent[aria-pressed="true"] { border-color: var(--role); box-shadow: 0 0 0 1px var(--role); }
+.agent .top { display: flex; align-items: center; gap: 8px; }
+.agent .name { font-family: var(--mono); font-weight: 600; font-size: 13px; color: var(--role); }
+.agent .cli { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.agent .pill { margin-left: auto; flex-shrink: 0; }
+.agent .cli { flex: 1 1 auto; }
+.agent { grid-template-columns: minmax(0, 1fr); }
+.agent .model { font-weight: 500; color: var(--fg); }
+.agent .sub { font-family: var(--mono); font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+.agent .last { font-size: 12.5px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.agent.ring { animation: ring 1s ease-out; }
+@keyframes ring { from { box-shadow: 0 0 0 0 var(--role); } to { box-shadow: 0 0 0 10px transparent; } }
+
+.pill { font-family: var(--mono); font-size: 10.5px; padding: 1px 7px; border-radius: 99px; border: 1px solid currentColor; white-space: nowrap; color: var(--muted); }
+.s-working { color: var(--run); } .s-done, .s-agree { color: var(--ok); } .s-blocked, .s-gone, .s-stale, .s-disagree { color: var(--bad); }
+.s-needs-input, .s-queued { color: var(--warn); }
+
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; min-height: 0; flex: 1; display: flex; flex-direction: column; }
+.tl-head { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--line); align-items: center; }
+.chip { border: 1px solid var(--line); background: transparent; border-radius: 99px; padding: 2px 10px; font-size: 12px; }
+.chip[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
+.tl { overflow-y: auto; flex: 1; min-height: 0; padding: 6px 0; }
+.msg { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 10px; padding: 7px 14px; }
+.msg:hover { background: color-mix(in srgb, var(--accent-soft) 45%, transparent); }
+.msg .t { font-family: var(--mono); font-size: 11px; color: var(--muted); padding-top: 2px; font-variant-numeric: tabular-nums; }
+.route { font-family: var(--mono); font-size: 12px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.who { font-weight: 600; }
+.arrow { color: var(--muted); }
+.tag { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); border: 1px solid var(--line); border-radius: 3px; padding: 0 5px; }
+.tag.all { color: var(--warn); border-color: var(--warn); }
+.body { margin-top: 2px; overflow-wrap: anywhere; }
+.msg.sys { padding-block: 3px; }
+.msg.sys .body { font-family: var(--mono); font-size: 11px; color: var(--muted); margin: 0; }
+.msg.broadcast { background: color-mix(in srgb, var(--warn) 8%, transparent); }
+.msg.new { animation: slide .35s ease-out; }
+@keyframes slide { from { transform: translateY(6px); opacity: .3; } to { transform: none; opacity: 1; } }
+.file { font-family: var(--mono); font-size: 11.5px; background: var(--code-bg); border: 1px solid var(--line); border-radius: 3px; padding: 0 5px; cursor: pointer; color: var(--accent); }
+.file:hover { border-color: var(--accent); }
+.final { font-weight: 600; }
+.muted { color: var(--muted); }
+.empty { padding: 16px; color: var(--muted); font-size: 13px; }
+
+.tabs { display: flex; border-bottom: 1px solid var(--line); }
+.tab { flex: 1; border: 0; background: transparent; padding: 9px 6px; font-size: 12.5px; color: var(--muted); border-bottom: 2px solid transparent; }
+.tab[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent); font-weight: 600; }
+.insp { overflow-y: auto; flex: 1; min-height: 0; padding: 12px; }
+.task { display: grid; grid-template-columns: 30px minmax(0,1fr) auto; gap: 3px 8px; padding: 9px 0; border-bottom: 1px solid var(--line); align-items: start; }
+.task:last-child { border-bottom: 0; }
+.task .id { font-family: var(--mono); font-size: 11.5px; color: var(--muted); padding-top: 1px; }
+.task .sub { grid-column: 2 / 4; font-family: var(--mono); font-size: 11px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 11.5px/1.6 var(--mono); }
+pre.term { background: var(--code-bg); border-radius: 6px; padding: 10px; }
+.hint { font-size: 12px; color: var(--muted); margin-top: 10px; }
+
+@media (max-width: 1080px) { .grid { grid-template-columns: 220px minmax(0,1fr); } .col.right { grid-column: 1 / -1; min-height: 420px; } body { height: auto; } html { height: auto; } }
+@media (max-width: 720px) { .grid { grid-template-columns: minmax(0,1fr); } .roster { flex-direction: row; overflow-x: auto; } .agent { min-width: 220px; } .tl { max-height: 60vh; } .live { margin-left: 0; } }
+@media (prefers-reduced-motion: reduce) { .agent.ring, .msg.new { animation: none; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">crew<span>/</span>web</div>
+  <select id="session" aria-label="Crew"></select>
+  <div class="meta" id="meta"></div>
+  <div class="live"><span class="dot" id="dot"></span><span id="updated">connecting…</span></div>
+</header>
+
+<div class="grid">
+  <div class="col">
+    <div class="label">Crew</div>
+    <div class="roster" id="roster"></div>
+  </div>
+  <div class="col">
+    <div class="panel">
+      <div class="tl-head" id="filters"></div>
+      <div class="tl" id="timeline"></div>
+    </div>
+  </div>
+  <div class="col right">
+    <div class="panel">
+      <div class="tabs" role="tablist">
+        <button class="tab" role="tab" data-tab="board">Board</button>
+        <button class="tab" role="tab" data-tab="file">Files</button>
+        <button class="tab" role="tab" data-tab="pane">Pane</button>
+      </div>
+      <div class="insp" id="insp"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const ui = { s: new URLSearchParams(location.search).get("s") || "", filter: "all", agent: null, tab: "board", file: null, peek: null };
+let data = null, seenLog = 0, lastJson = "";
+
+const roleColor = (role) => {
+  if (!data) return "var(--muted)";
+  if (role === "you") return "var(--muted)";
+  const i = data.panes.findIndex((p) => p.role === role);
+  return i < 0 ? "var(--muted)" : `var(--r${i % 6})`;
+};
+// "codex --sandbox …" → codex; Claude's process is named after its version.
+const shortCli = (c) => { const w = String(c || "").split(" ")[0].split("/").pop(); return /^\d+\.\d+/.test(w) ? "claude" : w; };
+const pillClass = (text) => "s-" + String(text || "").trim().split(/\s+/).pop().toLowerCase();
+
+async function get(path) {
+  const r = await fetch(path, { cache: "no-store" });
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
+  return r.json();
+}
+
+async function loadSessions() {
+  const list = await get("/api/sessions");
+  if (!ui.s && list.length) ui.s = list[0].name;
+  $("session").innerHTML = list.length
+    ? list.map((x) => `<option value="${esc(x.name)}" ${x.name === ui.s ? "selected" : ""}>${esc(x.name)}${x.ended ? " (ended)" : ""}</option>`).join("")
+    : `<option>no crews in ~/.crew</option>`;
+}
+
+async function tick() {
+  try {
+    if (!ui.s) { await loadSessions(); if (!ui.s) { renderEmpty(); return; } }
+    const next = await get(`/api/state?s=${encodeURIComponent(ui.s)}`);
+    const js = JSON.stringify(next);
+    $("dot").classList.remove("off");
+    const lastT = next.log.length ? next.log[next.log.length - 1].t.slice(11, 19) : "";
+    $("updated").textContent = lastT ? `live · last activity ${lastT}` : "live · no activity yet";
+    if (js !== lastJson) {
+      const first = !data || data.name !== next.name;
+      const fresh = first ? [] : next.log.slice(data.log.length);
+      data = next; lastJson = js;
+      render(fresh, first);
+    }
+    if (ui.tab === "pane") renderPane();
+  } catch (e) {
+    $("dot").classList.add("off");
+    $("updated").textContent = "offline · " + e.message;
+  }
+}
+
+function renderEmpty() {
+  $("roster").innerHTML = "";
+  $("timeline").innerHTML = `<div class="empty">No crews yet. Start one with <code>crew up &lt;name&gt; role=cli …</code>.</div>`;
+}
+
+function render(fresh, first) {
+  $("meta").innerHTML = `<span>${esc(data.dir)}</span><span>${data.panes.length} agents · ${data.board.length} tasks</span>${data.ended ? "<span>ended</span>" : ""}`;
+  renderRoster(fresh);
+  renderFilters();
+  renderTimeline(fresh.length, first);
+  if (ui.tab !== "pane") renderInsp();
+}
+
+function lastFor(role) {
+  for (let i = data.log.length - 1; i >= 0; i--) {
+    const m = data.log[i];
+    if (m.kind !== "sys" && (m.from === role || m.to === role)) return m;
+  }
+  return null;
+}
+
+function renderRoster(fresh) {
+  $("roster").innerHTML = data.panes.map((p) => {
+    const st = !p.alive ? "gone" : p.stale ? "stale" : p.status || "";
+    const last = lastFor(p.role);
+    return `<button class="agent" data-agent="${esc(p.role)}" aria-pressed="${ui.agent === p.role}" style="--role:${roleColor(p.role)}">
+      <div class="top"><span class="name">${esc(p.role)}</span><span class="cli" title="${esc(p.cli)}">${esc(shortCli(p.cli))}${p.model ? ` · <b class="model">${esc(p.model)}</b>` : ""}</span>${st ? `<span class="pill ${pillClass(st)}">${esc(st)}</span>` : ""}</div>
+      <div class="sub">${esc(p.pane)}${!p.alive ? " · pane closed" : p.stale ? " · pane reused by something else" : ` · ${esc(p.where)} · ${esc(shortCli(p.cmd))}`}${p.origin === "adopted" ? " · adopted" : ""}</div>
+      ${last ? `<div class="last"><span class="muted">${esc(last.t.slice(11, 16))} ${last.from === p.role ? "→ " + esc(last.to === "all" ? "@all" : last.to) : "← " + esc(last.from)}:</span> ${esc(last.text)}</div>` : ""}
+    </button>`;
+  }).join("");
+  const rung = new Set(fresh.filter((m) => m.kind !== "sys").flatMap((m) => (m.to === "all" ? data.panes.map((p) => p.role) : [m.to])));
+  rung.forEach((r) => document.querySelector(`[data-agent="${CSS.escape(r)}"]`)?.classList.add("ring"));
+}
+
+function renderFilters() {
+  const opts = [["all", "All"], ["broadcast", "@all & you"], ["files", "Has file"], ["nosys", "Hide system"], ...data.panes.map((p) => [p.role, p.role])];
+  $("filters").innerHTML = `<span class="label" style="margin-right:4px">Channel</span>` +
+    opts.map(([k, l]) => `<button class="chip" data-filter="${esc(k)}" aria-pressed="${ui.filter === k}">${esc(l)}</button>`).join("");
+}
+
+const FILE_REF = /(?:[^\s"'`]*\/)?((?:out|inbox|roles)\/[A-Za-z0-9._-]+\.md)/g;
+function match(m) {
+  switch (ui.filter) {
+    case "all": return true;
+    case "nosys": return m.kind !== "sys";
+    case "broadcast": return m.kind === "all" || m.from === "you" || m.to === "you";
+    case "files": FILE_REF.lastIndex = 0; return FILE_REF.test(m.text);
+    default: return m.from === ui.filter || m.to === ui.filter || m.kind === "all";
+  }
+}
+function body(text) {
+  return esc(text)
+    .replace(FILE_REF, (all, rel) => `<span class="file" role="button" tabindex="0" data-file="${esc(rel)}" title="${all}">${rel}</span>`)
+    .replace(/FINAL: (AGREE|DISAGREE)/g, (_, v) => `<span class="final s-${v.toLowerCase()}">FINAL: ${v}</span>`)
+    .replace(/STATUS: (DONE|BLOCKED|NEEDS-INPUT)/g, (_, v) => `<span class="pill s-${v.toLowerCase()}">${v}</span>`);
+}
+
+function renderTimeline(freshCount, first = false) {
+  const tl = $("timeline");
+  const atBottom = tl.scrollHeight - tl.scrollTop - tl.clientHeight < 60;
+  const start = data.log.length - freshCount;
+  const rows = data.log.map((m, i) => ({ m, fresh: i >= start && freshCount > 0 })).filter(({ m }) => match(m));
+  tl.innerHTML = rows.map(({ m, fresh }) => {
+    const t = esc(m.t.slice(11, 19));
+    if (m.kind === "sys") return `<div class="msg sys ${fresh ? "new" : ""}"><div class="t">${t}</div><div class="body">${body(m.text)}</div></div>`;
+    const to = m.to === "all" ? "@all" : m.to;
+    const tag = m.kind === "all" ? `<span class="tag all">broadcast</span>` : m.from === "you" ? `<span class="tag">you</span>` : "";
+    return `<div class="msg ${m.kind === "all" ? "broadcast" : ""} ${fresh ? "new" : ""}"><div class="t">${t}</div><div>
+      <div class="route"><span class="who" style="color:${roleColor(m.from)}">${esc(m.from)}</span><span class="arrow">→</span>
+      <span class="who" style="color:${m.to === "all" ? "var(--warn)" : roleColor(m.to)}">${esc(to)}</span>${tag}</div>
+      <div class="body">${body(m.text)}</div></div></div>`;
+  }).join("") || `<div class="empty">No messages match this filter.</div>`;
+  if (atBottom || first) tl.scrollTop = tl.scrollHeight;
+}
+
+function setTab(t) {
+  ui.tab = t;
+  document.querySelectorAll(".tab").forEach((b) => b.setAttribute("aria-selected", b.dataset.tab === t));
+  t === "pane" ? renderPane() : renderInsp();
+}
+
+async function renderInsp() {
+  const el = $("insp");
+  if (!data) return;
+  if (ui.tab === "board") {
+    el.innerHTML = data.board.length ? `<div class="label" style="margin-bottom:4px">board.tsv</div>` + data.board.map((t) => `
+      <div class="task"><span class="id">${esc(t.id)}</span><span>${esc(t.title)}</span><span class="pill ${pillClass(t.status)}">${esc(t.status)}</span>
+      <div class="sub"><span style="color:${roleColor(t.owner)}">@${esc(t.owner)}</span>${t.dep !== "-" ? `<span>needs ${esc(t.dep)}</span>` : ""}
+      ${t.out && t.out !== "-" ? `<span class="file" role="button" tabindex="0" data-file="${esc(t.out.replace(/^.*\/(out\/)/, "$1"))}">${esc(t.out)}</span>` : ""}</div></div>`).join("")
+      : `<div class="empty">No tasks yet. The lead adds them with <code>crew task add</code>.</div>`;
+    return;
+  }
+  if (ui.tab === "file") {
+    if (!ui.file || !data.files.includes(ui.file)) ui.file = data.files.find((f) => f.startsWith("out/")) || data.files[0] || null;
+    const groups = ["out", "inbox", "roles"].map((g) => {
+      const fs = data.files.filter((f) => f.startsWith(g + "/"));
+      return fs.length ? `<div class="label" style="margin:4px 0">${g}/</div><div class="chips">${fs.map((f) => `<button class="chip" data-file="${esc(f)}" aria-pressed="${f === ui.file}">${esc(f.slice(g.length + 1))}</button>`).join("")}</div>` : "";
+    }).join("");
+    el.innerHTML = groups + `<pre id="filebody">${ui.file ? "loading…" : "No files yet."}</pre>`;
+    if (ui.file) {
+      try { const f = await get(`/api/file?s=${encodeURIComponent(ui.s)}&p=${encodeURIComponent(ui.file)}`); const pre = $("filebody"); if (pre) pre.innerHTML = body(f.text || "(empty)"); }
+      catch (e) { const pre = $("filebody"); if (pre) pre.textContent = e.message; }
+    }
+  }
+}
+
+async function renderPane() {
+  if (!data) return;
+  const who = ui.peek || ui.agent || data.panes[0]?.role;
+  if (!who) return;
+  let text;
+  try { const r = await get(`/api/peek?s=${encodeURIComponent(ui.s)}&role=${encodeURIComponent(who)}`); text = r.text ?? "(pane closed)"; }
+  catch (e) { text = e.message; }
+  if (ui.tab !== "pane") return;
+  const p = data.panes.find((x) => x.role === who);
+  $("insp").innerHTML = `<div class="label" style="margin-bottom:8px">tmux capture-pane · ${esc(who)} ${esc(p?.pane)}</div>
+    <div class="chips">${data.panes.map((x) => `<button class="chip" data-peek="${esc(x.role)}" aria-pressed="${x.role === who}">${esc(x.role)}</button>`).join("")}</div>
+    <pre class="term">${esc(text.split("\n").slice(-40).join("\n"))}</pre>
+    <p class="hint">Last 40 lines of the agent's pane, refreshed every 2 s.</p>`;
+}
+
+document.addEventListener("click", (e) => {
+  const a = e.target.closest("[data-agent]");
+  if (a) { const r = a.dataset.agent; ui.agent = ui.agent === r ? null : r; ui.filter = ui.agent || "all"; ui.peek = ui.agent; renderRoster([]); renderFilters(); renderTimeline(0); if (ui.agent) setTab("pane"); return; }
+  const f = e.target.closest("[data-filter]");
+  if (f) { ui.filter = f.dataset.filter; ui.agent = data.panes.some((p) => p.role === ui.filter) ? ui.filter : null; renderRoster([]); renderFilters(); renderTimeline(0); return; }
+  const file = e.target.closest("[data-file]");
+  if (file) { ui.file = file.dataset.file; setTab("file"); return; }
+  const pk = e.target.closest("[data-peek]");
+  if (pk) { ui.peek = pk.dataset.peek; renderPane(); return; }
+  const t = e.target.closest(".tab");
+  if (t) setTab(t.dataset.tab);
+});
+document.addEventListener("keydown", (e) => {
+  if ((e.key === "Enter" || e.key === " ") && e.target.matches(".file[role=button]")) { e.preventDefault(); e.target.click(); }
+});
+$("session").addEventListener("change", (e) => {
+  ui.s = e.target.value; data = null; lastJson = ""; ui.agent = null; ui.filter = "all"; ui.file = null; ui.peek = null;
+  history.replaceState(null, "", "?s=" + encodeURIComponent(ui.s));
+  tick();
+});
+
+setTab("board");
+loadSessions().then(tick);
+setInterval(tick, 2000);
+setInterval(loadSessions, 10000);
+</script>
+</body>
+</html>

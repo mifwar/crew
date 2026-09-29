@@ -1,0 +1,430 @@
+<title>crew web</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Martian+Mono:wght@400;500;600&family=Instrument+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: ops console — roster rail | channel timeline | inspector (board / file / pane), stacks on phones */
+:root {
+  --bg: #f3f4f1; --panel: #fbfbf9; --line: #dcded7; --fg: #1d211c; --muted: #6a7066;
+  --accent: #2f6f5e; --accent-soft: #dcebe5;
+  --ok: #2e7d4f; --warn: #a86a12; --bad: #b3412f; --run: #2f5f9e;
+  --lead: #7a4fb0; --impl: #2f6f5e; --rev: #b0572f; --test: #2f5f9e; --you: #6a7066;
+  --code-bg: #eef0ea;
+  --display: "Martian Mono", ui-monospace, Menlo, monospace;
+  --body: "Instrument Sans", system-ui, -apple-system, sans-serif;
+  --mono: "Martian Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #141714; --panel: #1b1f1b; --line: #2c322c; --fg: #e3e7df; --muted: #8d958a;
+  --accent: #6fc2a6; --accent-soft: #1f3530;
+  --ok: #6cc78f; --warn: #e0a54a; --bad: #ec7d69; --run: #7fa9e8;
+  --lead: #b894e6; --impl: #6fc2a6; --rev: #eb9366; --test: #7fa9e8; --you: #8d958a;
+  --code-bg: #111411; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #141714; --panel: #1b1f1b; --line: #2c322c; --fg: #e3e7df; --muted: #8d958a;
+  --accent: #6fc2a6; --accent-soft: #1f3530;
+  --ok: #6cc78f; --warn: #e0a54a; --bad: #ec7d69; --run: #7fa9e8;
+  --lead: #b894e6; --impl: #6fc2a6; --rev: #eb9366; --test: #7fa9e8; --you: #8d958a;
+  --code-bg: #111411; color-scheme: dark; }
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--fg); font: 14px/1.5 var(--body); padding-inline: 16px; padding-block: 12px; }
+button { font: inherit; color: inherit; cursor: pointer; }
+button:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.mono { font-family: var(--mono); font-size: 12px; }
+.muted { color: var(--muted); }
+
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; padding-block: 4px 12px; border-bottom: 1px solid var(--line); }
+.brand { font-family: var(--display); font-weight: 600; font-size: 15px; letter-spacing: -0.02em; }
+.brand span { color: var(--accent); }
+.sess { display: flex; flex-wrap: wrap; gap: 6px 16px; font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+.sess b { color: var(--fg); font-weight: 500; }
+.hdr-right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+.btn { border: 1px solid var(--line); background: var(--panel); border-radius: 6px; padding: 5px 10px; font-size: 12.5px; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--bg); font-weight: 600; }
+.example { font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; color: var(--warn); border: 1px dashed var(--warn); padding: 2px 6px; border-radius: 4px; }
+
+.grid { display: grid; grid-template-columns: 250px minmax(0, 1fr) 360px; gap: 14px; margin-top: 14px; height: calc(100% - 70px); min-height: 560px; }
+.col { min-width: 0; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+.label { font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
+
+/* Roster */
+.agent { text-align: left; background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--role); border-radius: 6px; padding: 10px 12px; display: grid; gap: 4px; transition: border-color .15s, box-shadow .15s; }
+.agent[aria-pressed="true"] { border-color: var(--role); box-shadow: 0 0 0 1px var(--role); }
+.agent .top { display: flex; align-items: center; gap: 8px; }
+.agent .name { font-family: var(--mono); font-weight: 600; font-size: 13px; color: var(--role); }
+.agent .cli { font-size: 12px; color: var(--muted); }
+.agent .pill { margin-left: auto; }
+.agent .meta { font-family: var(--mono); font-size: 11px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 2px 10px; }
+.agent .doing { font-size: 12.5px; }
+.ctx { height: 3px; background: var(--line); border-radius: 2px; overflow: hidden; }
+.ctx i { display: block; height: 100%; background: var(--role); }
+.agent.ring { animation: ring .9s ease-out; }
+@keyframes ring { 0% { box-shadow: 0 0 0 0 var(--role); } 100% { box-shadow: 0 0 0 10px transparent; } }
+
+.pill { font-family: var(--mono); font-size: 10.5px; padding: 1px 7px; border-radius: 99px; border: 1px solid currentColor; white-space: nowrap; }
+.s-working { color: var(--run); } .s-idle { color: var(--muted); } .s-waiting { color: var(--warn); }
+.s-done { color: var(--ok); } .s-blocked { color: var(--bad); } .s-queued { color: var(--muted); }
+.s-agree { color: var(--ok); } .s-disagree { color: var(--bad); }
+
+/* Timeline */
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; min-height: 0; display: flex; flex-direction: column; }
+.tl-head { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--line); align-items: center; }
+.chip { border: 1px solid var(--line); background: transparent; border-radius: 99px; padding: 2px 10px; font-size: 12px; }
+.chip[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--fg); }
+.tl { overflow-y: auto; padding: 6px 0; flex: 1; min-height: 0; }
+.msg { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 10px; padding: 7px 14px; }
+.msg:hover { background: color-mix(in srgb, var(--accent-soft) 45%, transparent); }
+.msg .t { font-family: var(--mono); font-size: 11px; color: var(--muted); padding-top: 2px; font-variant-numeric: tabular-nums; }
+.msg .route { font-family: var(--mono); font-size: 12px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.who { font-weight: 600; }
+.arrow { color: var(--muted); }
+.tag { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); border: 1px solid var(--line); border-radius: 3px; padding: 0 5px; }
+.tag.all { color: var(--warn); border-color: var(--warn); }
+.body { margin-top: 2px; overflow-wrap: anywhere; }
+.body code, .file { font-family: var(--mono); font-size: 11.5px; background: var(--code-bg); padding: 1px 5px; border-radius: 3px; }
+.file { border: 1px solid var(--line); cursor: pointer; color: var(--accent); }
+.file:hover { border-color: var(--accent); }
+.msg.sys { padding-block: 3px; }
+.msg.sys .body { font-family: var(--mono); font-size: 11px; color: var(--muted); margin: 0; }
+.msg.broadcast { background: color-mix(in srgb, var(--warn) 8%, transparent); }
+.msg.new { animation: slide .35s ease-out; }
+@keyframes slide { from { transform: translateY(6px); opacity: .3; } to { transform: none; opacity: 1; } }
+.compose { border-top: 1px solid var(--line); padding: 10px 12px; display: flex; gap: 8px; align-items: center; }
+.compose input { flex: 1; min-width: 0; font: 12px var(--mono); padding: 7px 10px; border: 1px dashed var(--line); border-radius: 6px; background: var(--bg); color: var(--muted); }
+
+/* Inspector */
+.tabs { display: flex; border-bottom: 1px solid var(--line); }
+.tab { flex: 1; border: 0; background: transparent; padding: 9px 6px; font-size: 12.5px; color: var(--muted); border-bottom: 2px solid transparent; }
+.tab[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent); font-weight: 600; }
+.pane-body { overflow-y: auto; flex: 1; min-height: 0; padding: 12px; }
+.task { display: grid; grid-template-columns: 30px minmax(0,1fr) auto; gap: 4px 8px; padding: 9px 0; border-bottom: 1px solid var(--line); align-items: start; }
+.task:last-child { border-bottom: 0; }
+.task .id { font-family: var(--mono); font-size: 11.5px; color: var(--muted); padding-top: 1px; }
+.task .ttl { font-size: 13px; }
+.task .sub { grid-column: 2 / 4; font-family: var(--mono); font-size: 11px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 10px; }
+pre.doc, pre.term { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 11.5px/1.6 var(--mono); }
+pre.term { background: var(--code-bg); border-radius: 6px; padding: 10px; }
+.file-head { display: flex; justify-content: space-between; gap: 8px; align-items: center; margin-bottom: 10px; }
+.final { font-weight: 600; }
+.hint { font-size: 12px; color: var(--muted); margin-top: 10px; }
+
+@media (max-width: 1080px) { .grid { grid-template-columns: 220px minmax(0,1fr); } .col.right { grid-column: 1 / -1; } .col.right .panel { max-height: 480px; } }
+@media (max-width: 720px) {
+  .grid { grid-template-columns: minmax(0,1fr); height: auto; }
+  .roster { flex-direction: row !important; overflow-x: auto; }
+  .roster .agent { min-width: 220px; }
+  .tl { max-height: 60vh; }
+  .hdr-right { margin-left: 0; }
+}
+@media (prefers-reduced-motion: reduce) { .agent.ring, .msg.new { animation: none; } }
+</style>
+
+<header>
+  <div class="brand">crew<span>/</span>web</div>
+  <div class="sess">
+    <span>session <b>voucher-redeem</b></span>
+    <span>tmux <b>fsfe:7</b></span>
+    <span>lead <b>claude %4</b></span>
+    <span>up <b id="uptime">38m</b></span>
+    <span>~/.crew/voucher-redeem/</span>
+  </div>
+  <div class="hdr-right">
+    <span class="example">example data</span>
+    <button class="btn" id="reset">Reset</button>
+    <button class="btn primary" id="play">▶ Play live</button>
+  </div>
+</header>
+
+<div class="grid">
+  <div class="col">
+    <div class="label">Crew</div>
+    <div class="col roster" id="roster" style="gap:8px"></div>
+  </div>
+
+  <div class="col">
+    <div class="panel" style="flex:1">
+      <div class="tl-head" id="filters"></div>
+      <div class="tl" id="timeline" aria-live="polite"></div>
+      <div class="compose">
+        <input id="compose" disabled value="crew send @all … (read-only in v1 — send from the CLI)">
+      </div>
+    </div>
+  </div>
+
+  <div class="col right">
+    <div class="panel" style="flex:1">
+      <div class="tabs" role="tablist">
+        <button class="tab" role="tab" data-tab="board" aria-selected="true">Board</button>
+        <button class="tab" role="tab" data-tab="file" aria-selected="false">File</button>
+        <button class="tab" role="tab" data-tab="pane" aria-selected="false">Pane</button>
+      </div>
+      <div class="pane-body" id="inspector"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const AGENTS = {
+  lead: { cli: "claude", pane: "%4", role: "lead", wt: "board only", ctx: 31 },
+  impl: { cli: "codex", pane: "%7", role: "impl", wt: "/private/tmp/znet-fe-voucher", ctx: 58 },
+  rev:  { cli: "pi · deepseek-v4.1", pane: "%9", role: "rev", wt: "read-only · out/ only", ctx: 24 },
+  test: { cli: "claude", pane: "%11", role: "test", wt: "read-only · runs gates", ctx: 12 },
+};
+const ROLE_VAR = { lead: "--lead", impl: "--impl", rev: "--rev", test: "--test", you: "--you" };
+
+const INITIAL_STATE = {
+  lead: { status: "waiting", doing: "Waiting on T4 (gates)", last: "1m ago" },
+  impl: { status: "idle", doing: "T3 done — fix pushed to worktree", last: "4m ago" },
+  rev:  { status: "done", doing: "T2 round 2 · FINAL: AGREE", last: "6m ago" },
+  test: { status: "working", doing: "T4 · npx tsc --noEmit", last: "now" },
+};
+
+const INITIAL_TASKS = [
+  { id: "T1", title: "Port POST /web-app-api/voucher/redeem (route → use-case → repo)", owner: "impl", status: "done", dep: "—", out: "out/T1-impl.md" },
+  { id: "T2", title: "Review T1 independently, then cross-check", owner: "rev", status: "done", dep: "T1", out: "out/T2-r2-rev.md", verdict: "agree" },
+  { id: "T3", title: "Apply accepted review items (A1, A2)", owner: "impl", status: "done", dep: "T2", out: "out/T3-impl.md" },
+  { id: "T4", title: "Run gates: tsc, next build, build:worker, vitest", owner: "test", status: "working", dep: "T3", out: "out/T4-test.md" },
+  { id: "T5", title: "Update lode/voucher/ to current state", owner: "lead", status: "queued", dep: "T4", out: "—" },
+];
+
+// kind: dm | all | sys | you
+const HISTORY = [
+  ["13:41", "sys", null, null, "crew up voucher-redeem · 4 panes · role prompts sent"],
+  ["13:42", "dm", "lead", "impl", "T1: port voucher redeem to /web-app-api. Follow route → use-case → repo, withWebAuth, Swagger JSDoc. Worktree only."],
+  ["13:42", "dm", "lead", "rev", "Stand by for T2. Round 1 is independent: do not read other out/ files until I say round 2."],
+  ["13:58", "dm", "impl", "lead", "T1 DONE → [out/T1-impl.md]. 3 files added, 1 test. STATUS: DONE"],
+  ["13:58", "sys", null, null, "doorbell → lead (%4)"],
+  ["13:59", "dm", "lead", "rev", "T2 round 1: review the diff in /private/tmp/znet-fe-voucher. Write out/T2-r1-rev.md."],
+  ["14:07", "dm", "rev", "lead", "Round 1 → [out/T2-r1-rev.md]. 3 findings. FINAL: DISAGREE"],
+  ["14:08", "you", "you", "all", "skip the Redis cache for now, keep it straight to Postgres"],
+  ["14:08", "all", "lead", "all", "Plan change: no Redis cache in this slice. Drop R3 from scope."],
+  ["14:09", "dm", "lead", "impl", "T3: apply A1 (missing expiry check) and A2 (idempotency on double redeem). R3 rejected — out of scope."],
+  ["14:15", "dm", "impl", "lead", "T3 DONE → [out/T3-impl.md]. STATUS: DONE"],
+  ["14:15", "dm", "lead", "rev", "Round 2: check T3 against your findings. Per-item verdict."],
+  ["14:18", "dm", "rev", "lead", "Round 2 → [out/T2-r2-rev.md]. A1 ✓ A2 ✓ R3 accepted as deferred. FINAL: AGREE"],
+  ["14:19", "dm", "lead", "test", "T4: run the four gates unwrapped in the worktree, report exit codes."],
+];
+
+const LIVE = [
+  { at: 1200, msg: ["14:21", "sys", null, null, "test: npx tsc --noEmit → exit 0"] },
+  { at: 2600, msg: ["14:23", "sys", null, null, "test: npm run build → exit 0"], state: { test: { doing: "T4 · npx vitest run" } } },
+  { at: 4200, msg: ["14:24", "dm", "test", "lead", "T4 BLOCKED → [out/T4-test.md]. vitest: 1 failed (redeem.use-case.test.ts › rejects expired voucher). STATUS: BLOCKED"],
+    state: { test: { status: "blocked", doing: "T4 · 1 vitest failure", last: "now" }, lead: { status: "working", doing: "Triaging T4 failure", last: "now" } },
+    task: { T4: "blocked" }, ring: "lead" },
+  { at: 5800, msg: ["14:25", "dm", "lead", "impl", "T6: fix expiry test — clock is not frozen, use vi.setSystemTime. See [out/T4-test.md]."],
+    state: { impl: { status: "working", doing: "T6 · fix expiry test", last: "now" } },
+    newTask: { id: "T6", title: "Fix flaky expiry test (freeze clock)", owner: "impl", status: "working", dep: "T4", out: "out/T6-impl.md" }, ring: "impl" },
+  { at: 8200, msg: ["14:31", "dm", "impl", "lead", "T6 DONE → [out/T6-impl.md]. vitest 412/412 locally. STATUS: DONE"],
+    state: { impl: { status: "idle", doing: "T6 done", last: "now" } }, task: { T6: "done" }, ring: "lead" },
+  { at: 9600, msg: ["14:32", "dm", "lead", "test", "Re-run T4 gates."], state: { test: { status: "working", doing: "T4 · re-running gates", last: "now" } }, task: { T4: "working" }, ring: "test" },
+  { at: 11800, msg: ["14:36", "dm", "test", "lead", "T4 DONE → [out/T4-test.md]. tsc 0 · build 0 · build:worker 0 · vitest 0. STATUS: DONE"],
+    state: { test: { status: "done", doing: "T4 · all gates exit 0", last: "now" }, lead: { status: "working", doing: "T5 · updating lode", last: "now" } },
+    task: { T4: "done", T5: "working" }, ring: "lead" },
+];
+
+const FILES = {
+  "out/T1-impl.md": `# T1 — voucher redeem (impl · codex)
+
+Added
+- src/app/web-app-api/voucher/redeem/route.ts
+- src/server/use-cases/voucher/redeem-voucher.use-case.ts
+- src/server/repositories/voucher-redemption.repository.ts
+- redeem-voucher.use-case.test.ts (1 test)
+
+Route: POST, httpHandler(withWebAuth, handler), Swagger JSDoc.
+Not run: next build (tester owns gates).
+
+STATUS: DONE`,
+  "out/T2-r1-rev.md": `# T2 round 1 — review (rev · pi)
+
+A1  redeem-voucher.use-case.ts:41
+    No expiry check: an expired voucher redeems.
+A2  voucher-redemption.repository.ts:18
+    Double submit creates two redemptions; no
+    unique (user_id, voucher_id) guard.
+R3  Consider Redis cache for voucher lookup.
+
+FINAL: DISAGREE`,
+  "out/T2-r2-rev.md": `# T2 round 2 — cross-check (rev · pi)
+
+A1  AGREE  expiry check at use-case:44, test added
+A2  AGREE  upsert on unique (user_id, voucher_id)
+R3  AGREE  deferred per lead broadcast 14:08
+
+FINAL: AGREE`,
+  "out/T3-impl.md": `# T3 — apply review (impl · codex)
+
+A1  expiry check + "rejects expired voucher" test
+A2  unique index + ON CONFLICT DO NOTHING
+R3  skipped (lead: out of scope)
+
+STATUS: DONE`,
+  "out/T4-test.md": `# T4 — gates (test · claude)
+
+npx tsc --noEmit        exit 0
+npm run build           exit 0
+npm run build:worker    exit 0
+npx vitest run          exit 1
+  ✗ redeem.use-case.test.ts › rejects expired voucher
+    expected VoucherExpiredError, got success
+    (test uses real clock; voucher expires 2026-09-30)
+
+STATUS: BLOCKED`,
+  "out/T6-impl.md": `# T6 — freeze clock (impl · codex)
+
+vi.useFakeTimers(); vi.setSystemTime("2026-10-01")
+in the expiry test. 412/412 passing locally.
+
+STATUS: DONE`,
+};
+
+const PANES = {
+  lead: `● Waiting for doorbell from test (T4).
+  board: T1 ✓  T2 ✓ AGREE  T3 ✓  T4 …  T5 queued
+
+✻ Idle · 31% context used`,
+  impl: `• Edited redeem-voucher.use-case.ts (+6 -1)
+• Edited voucher-redemption.repository.ts (+4 -2)
+• Ran crew bell lead "T3 DONE → out/T3-impl.md"
+
+  Worked for 5m 48s
+› _`,
+  rev: `Round 2 cross-check written to out/T2-r2-rev.md
+A1 AGREE · A2 AGREE · R3 AGREE (deferred)
+FINAL: AGREE
+$ crew bell lead "Round 2 → out/T2-r2-rev.md"
+done.`,
+  test: `● Bash(npx tsc --noEmit; echo "exit $?")
+  └ exit 0
+● Bash(npm run build; echo "exit $?")
+  └ Running…`,
+};
+
+const PANE_TEST0 = PANES.test;
+let state, tasks, shown, filter, selectedAgent, tab, openFile, timers = [];
+
+function reset() {
+  timers.forEach(clearTimeout); timers = []; PANES.test = PANE_TEST0;
+  state = structuredClone(INITIAL_STATE);
+  tasks = structuredClone(INITIAL_TASKS);
+  shown = HISTORY.map(m => ({ m, fresh: false }));
+  filter = "all"; selectedAgent = null; tab = "board"; openFile = "out/T2-r1-rev.md";
+  document.getElementById("play").disabled = false;
+  document.getElementById("play").textContent = "▶ Play live";
+  renderAll();
+  const tl = document.getElementById("timeline"); tl.scrollTop = tl.scrollHeight;
+}
+
+const roleColor = r => `var(${ROLE_VAR[r] || "--muted"})`;
+const esc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+
+function renderRoster() {
+  document.getElementById("roster").innerHTML = Object.entries(AGENTS).map(([name, a]) => {
+    const s = state[name];
+    return `<button class="agent" data-agent="${name}" aria-pressed="${selectedAgent === name}" style="--role:${roleColor(a.role)}">
+      <div class="top"><span class="name">${name}</span><span class="cli">${a.cli}</span><span class="pill s-${s.status}">${s.status}</span></div>
+      <div class="doing">${esc(s.doing)}</div>
+      <div class="meta"><span>${a.pane}</span><span>${s.last}</span></div>
+      <div class="meta" title="write scope">${a.wt}</div>
+      <div class="ctx" title="context used ${a.ctx}%"><i style="width:${a.ctx}%"></i></div>
+    </button>`;
+  }).join("");
+}
+
+function renderFilters() {
+  const opts = [["all", "All"], ["broadcast", "@all only"], ["files", "Has file"], ...Object.keys(AGENTS).map(n => [n, n])];
+  document.getElementById("filters").innerHTML =
+    `<span class="label" style="margin-right:4px">Channel</span>` +
+    opts.map(([k, l]) => `<button class="chip" data-filter="${k}" aria-pressed="${filter === k}">${l}</button>`).join("");
+}
+
+function matches(m) {
+  const [, kind, from, to, text] = m;
+  if (filter === "all") return true;
+  if (filter === "broadcast") return kind === "all" || kind === "you";
+  if (filter === "files") return /\[out\//.test(text);
+  return from === filter || to === filter || (kind === "all" && filter !== "you");
+}
+
+function renderBody(text) {
+  return esc(text).replace(/\[(out\/[^\]]+)\]/g, (_, f) => `<span class="file" role="button" tabindex="0" data-file="${f}">${f}</span>`)
+    .replace(/FINAL: (AGREE|DISAGREE)/g, (_, v) => `<span class="final s-${v.toLowerCase()}">FINAL: ${v}</span>`)
+    .replace(/STATUS: (\w+)/g, (_, v) => `<span class="pill s-${v.toLowerCase()}">${v}</span>`);
+}
+
+function renderTimeline() {
+  const tl = document.getElementById("timeline");
+  const atBottom = tl.scrollHeight - tl.scrollTop - tl.clientHeight < 40;
+  tl.innerHTML = shown.filter(x => matches(x.m)).map(({ m, fresh }) => {
+    const [t, kind, from, to, text] = m;
+    if (kind === "sys") return `<div class="msg sys ${fresh ? "new" : ""}"><div class="t">${t}</div><div class="body">${esc(text)}</div></div>`;
+    const toLabel = to === "all" ? "@all" : to;
+    const tag = kind === "all" ? `<span class="tag all">broadcast</span>` : kind === "you" ? `<span class="tag">you · crew send</span>` : `<span class="tag">dm</span>`;
+    return `<div class="msg ${kind === "all" ? "broadcast" : ""} ${fresh ? "new" : ""}">
+      <div class="t">${t}</div>
+      <div><div class="route"><span class="who" style="color:${roleColor(AGENTS[from]?.role || "you")}">${from}</span><span class="arrow">→</span>
+        <span class="who" style="color:${to === "all" ? "var(--warn)" : roleColor(AGENTS[to]?.role)}">${toLabel}</span>${tag}</div>
+      <div class="body">${renderBody(text)}</div></div></div>`;
+  }).join("") || `<div class="hint" style="padding:14px">No messages match this filter.</div>`;
+  shown.forEach(x => x.fresh = false);
+  if (atBottom) tl.scrollTop = tl.scrollHeight;
+}
+
+function renderInspector() {
+  document.querySelectorAll(".tab").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === tab));
+  const el = document.getElementById("inspector");
+  if (tab === "board") {
+    el.innerHTML = `<div class="label" style="margin-bottom:4px">board.md</div>` + tasks.map(t => `
+      <div class="task"><span class="id">${t.id}</span><span class="ttl">${esc(t.title)}</span>
+        <span class="pill s-${t.status}">${t.status}${t.verdict ? " · " + t.verdict : ""}</span>
+        <div class="sub"><span style="color:${roleColor(AGENTS[t.owner].role)}">@${t.owner}</span><span>needs ${t.dep}</span>
+        ${t.out !== "—" && FILES[t.out] ? `<span class="file" role="button" tabindex="0" data-file="${t.out}">${t.out}</span>` : `<span>${t.out}</span>`}</div></div>`).join("");
+  } else if (tab === "file") {
+    const names = Object.keys(FILES);
+    el.innerHTML = `<div class="file-head"><span class="label">~/.crew/voucher-redeem/</span></div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">${names.map(n => `<button class="chip" data-file="${n}" aria-pressed="${openFile === n}">${n.replace("out/", "")}</button>`).join("")}</div>
+      <pre class="doc">${renderBody(FILES[openFile])}</pre>`;
+  } else {
+    const who = selectedAgent || "test";
+    el.innerHTML = `<div class="file-head"><span class="label">tmux capture-pane · ${who} ${AGENTS[who].pane}</span></div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">${Object.keys(AGENTS).map(n => `<button class="chip" data-peek="${n}" aria-pressed="${who === n}">${n}</button>`).join("")}</div>
+      <pre class="term">${esc(PANES[who])}</pre>
+      <p class="hint">Last lines of the agent's real pane, refreshed every 2s. Handy for seeing what an agent is doing between messages.</p>`;
+  }
+}
+
+function renderAll() { renderRoster(); renderFilters(); renderTimeline(); renderInspector(); }
+
+function play() {
+  const btn = document.getElementById("play");
+  btn.disabled = true; btn.textContent = "● Live";
+  LIVE.forEach(ev => timers.push(setTimeout(() => {
+    shown.push({ m: ev.msg, fresh: true });
+    if (ev.state) for (const [k, v] of Object.entries(ev.state)) Object.assign(state[k], v);
+    if (ev.task) for (const [id, s] of Object.entries(ev.task)) { const t = tasks.find(x => x.id === id); if (t) t.status = s; }
+    if (ev.newTask) tasks.push(ev.newTask);
+    if (ev.msg[1] === "sys" && ev.msg[4].includes("test:")) PANES.test += "\n" + ev.msg[4].replace("test: ", "  └ ");
+    renderAll();
+    if (ev.ring) { const c = document.querySelector(`[data-agent="${ev.ring}"]`); c?.classList.add("ring"); }
+    if (ev === LIVE[LIVE.length - 1]) { btn.textContent = "Replay done"; }
+  }, ev.at)));
+}
+
+document.addEventListener("click", e => {
+  const a = e.target.closest("[data-agent]");
+  if (a) { const n = a.dataset.agent; selectedAgent = selectedAgent === n ? null : n; filter = selectedAgent || "all"; if (selectedAgent) tab = "pane"; renderAll(); return; }
+  const f = e.target.closest("[data-filter]");
+  if (f) { filter = f.dataset.filter; selectedAgent = AGENTS[filter] ? filter : null; renderAll(); return; }
+  const file = e.target.closest("[data-file]");
+  if (file) { openFile = file.dataset.file; tab = "file"; renderInspector(); return; }
+  const peek = e.target.closest("[data-peek]");
+  if (peek) { selectedAgent = peek.dataset.peek; renderRoster(); renderInspector(); return; }
+  const t = e.target.closest(".tab");
+  if (t) { tab = t.dataset.tab; renderInspector(); }
+});
+document.addEventListener("keydown", e => { if ((e.key === "Enter" || e.key === " ") && e.target.matches(".file[role=button]")) { e.preventDefault(); e.target.click(); } });
+document.getElementById("play").addEventListener("click", play);
+document.getElementById("reset").addEventListener("click", reset);
+reset();
+</script>
