@@ -59,6 +59,12 @@ debugging. Extend it whenever behaviour changes — it is the only test suite.
 - Sender labels are advisory ([plans/declined.md](plans/declined.md)); don't
   describe them as security in docs or messages.
 
+## Git
+
+The user's global gitignore (`~/.config/git/ignore`) excludes `skills/`; this
+repo's `.gitignore` re-includes it with `!skills/`. After adding files there,
+check `git ls-files skills` before pushing.
+
 ## Style
 
 - One function per command (`cmd_up`, `cmd_send`, …); helpers above them.
