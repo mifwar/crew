@@ -1,2 +1,4 @@
 lode/tmp/
 .DS_Store
+# the global gitignore excludes skills/; this repo ships one
+!skills/
