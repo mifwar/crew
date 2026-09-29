@@ -20,7 +20,8 @@ as() { # role, then crew args — run crew as that agent
   local role="$1"; shift
   CREW_SESSION=t CREW_AGENT="$role" "$CREW" "$@"
 }
-screen_has() { tmux capture-pane -p -t "$1" | grep -qF -- "$2"; }
+screen_has() { tmux capture-pane -p -J -t "$1" | grep -qF -- "$2"; }
+human() { script -q /dev/null "$@" </dev/null >/dev/null 2>&1; }  # run with a tty, as the human would
 cleanup() {
   [ -n "${KEEP:-}" ] && { echo "kept: tmux session $TS, CREW_HOME=$CREW_HOME"; return; }
   tmux kill-session -t "$TS" 2>/dev/null
@@ -47,7 +48,18 @@ check "dm rings recipient pane"         screen_has "$lead" "[crew] impl → lead
 check "dm logged"                       awk -F'\t' '$2=="dm" && $3=="impl" && $4=="lead" && $5=="T1 done"{f=1} END{exit !f}' "$D/channel.log"
 check "dm saved to inbox"               grep -q 'T1 done' "$D/inbox/lead.md"
 check "worker cannot broadcast"         bash -c "! CREW_SESSION=t CREW_AGENT=rev '$CREW' send @all hi"
-check "you can broadcast"               "$CREW" -s t send @all "pause"
+check "you (terminal) can broadcast"    human "$CREW" -s t send @all "pause"
+check "broadcast rung as you (terminal)" screen_has "$impl" "[crew] you (terminal) → @all: pause"
+"$CREW" -s t send lead "from nowhere" >/dev/null 2>&1; sleep 0.3
+check "non-tty non-member is 'outside'" screen_has "$lead" "[crew] outside"
+check "outside cannot broadcast"        bash -c "! '$CREW' -s t send @all nope"
+check "crew say refuses without a tty"  bash -c "! '$CREW' -s t say lead hi"
+check "crew say works for the human"    human "$CREW" -s t say lead "ship it"
+sleep 0.3
+check "say rung as you (terminal)"      screen_has "$lead" "[crew] you (terminal) → lead: ship it"
+as lead note "rejected R3" >/dev/null
+check "note lands in the log"           grep -qF 'note (lead): rejected R3' "$D/channel.log"
+check "whoami hints in a foreign pane"  bash -c "TMUX_PANE=%999999 '$CREW' -s t whoami 2>&1 | grep -q \"isn't in crew t\""
 check "identity from env"               bash -c "CREW_SESSION=t CREW_AGENT=rev '$CREW' whoami | grep -q '^rev '"
 check "identity from pane id"           bash -c "TMUX_PANE=$impl '$CREW' whoami | grep -q '^impl '"
 
@@ -57,6 +69,25 @@ for i in $(seq 1 15); do as rev task set "T$i" done >/dev/null 2>&1 & done; wait
 check "15 parallel sets all applied"    test "$(awk -F'\t' '$3=="done"' "$D/board.tsv" | wc -l | tr -d ' ')" = 15
 check "no stale board lock"             test ! -e "$D/.board.lock"
 check "task message has absolute path"  grep -qF "Write $D/out/T1-rev.md" "$D/inbox/rev.md"
+id=$(as lead task add --to impl --out R1-impl.md "review round 1")
+check "task add --out sets the one path" awk -F'\t' -v id="$id" '$1==id && $5=="out/R1-impl.md"{f=1} END{exit !f}' "$D/board.tsv"
+check "task message uses the --out path" grep -qF "Write $D/out/R1-impl.md" "$D/inbox/impl.md"
+check "task add rejects --out outside out/" bash -c "! CREW_SESSION=t CREW_AGENT=lead '$CREW' task add --to impl --out ../x.md oops"
+as impl task set "$id" done --evidence out/R1-tests.log >/dev/null
+check "task set --evidence is stored"   awk -F'\t' -v id="$id" '$1==id && $7=="out/R1-tests.log"{f=1} END{exit !f}' "$D/board.tsv"
+check "board shows EVIDENCE column"     bash -c "'$CREW' -s t board | head -1 | grep -q EVIDENCE"
+
+# rebind: impl moves to a new pane (running cat, like the others)
+newp=$(tmux split-window -d -P -F '#{pane_id}' -t "$impl" cat)
+as lead rebind impl "$newp" >/dev/null
+check "rebind rewrites the panes row"   awk -F'\t' -v p="$newp" '$1=="impl" && $2==p && $3=="cat" && $4=="adopted"{f=1} END{exit !f}' "$D/panes"
+check "rebind labels the new pane"      test "$(tmux display -p -t "$newp" '#{@crew_session}/#{@crew_role}')" = "t/impl"
+check "rebind unlabels the old pane"    test -z "$(tmux display -p -t "$impl" '#{@crew_role}')"
+as lead send impl "after rebind" >/dev/null; sleep 0.3
+check "messages ring the new pane"      screen_has "$newp" "[crew] lead → impl: after rebind"
+check "rebind refuses a crew member's pane" bash -c "! CREW_SESSION=t CREW_AGENT=lead '$CREW' rebind impl $lead"
+check "restyle runs"                    "$CREW" -s t restyle
+impl=$newp
 
 if command -v bun >/dev/null; then
   port=$((20000 + $$ % 20000))
@@ -65,6 +96,18 @@ if command -v bun >/dev/null; then
   check "web: state lists 3 agents"     bash -c "curl -s 'http://127.0.0.1:$port/api/state?s=t' | grep -o '\"role\"' | wc -l | grep -q 3"
   check "web: rejects path traversal"   bash -c "curl -s 'http://127.0.0.1:$port/api/file?s=t&p=../panes' | grep -q 'bad path'"
   check "web: rejects foreign Host"     bash -c "test \$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: evil.example' http://127.0.0.1:$port/) = 403"
+  check "web: send off by default"      bash -c "test \$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Origin: http://127.0.0.1:$port' 'http://127.0.0.1:$port/api/send?s=t') = 403"
+  kill "$web" 2>/dev/null; wait "$web" 2>/dev/null
+  CREW_WEB_PORT=$port CREW_WEB_ALLOW_SEND=1 CREW_BIN="$CREW" bun "$ROOT/share/crew/web.ts" >/dev/null 2>&1 & web=$!
+  sleep 1
+  tok=$(curl -s "http://127.0.0.1:$port/api/config" | sed -E 's/.*"token":"([0-9a-f]+)".*/\1/')
+  post() { curl -s -o /dev/null -w '%{http_code}' -X POST -H "Origin: $1" -H "x-crew-token: $2" -H 'content-type: application/json' \
+    -d '{"to":"lead","text":"hello from the browser"}' "http://127.0.0.1:$port/api/send?s=t"; }
+  check "web send: needs the token"     test "$(post "http://127.0.0.1:$port" wrong)" = 403
+  check "web send: needs our Origin"    test "$(post "http://evil.example" "$tok")" = 403
+  check "web send: delivers"            test "$(post "http://127.0.0.1:$port" "$tok")" = 200
+  sleep 0.3
+  check "web send rung as you (web)"    screen_has "$lead" "[crew] you (web) → lead: hello from the browser"
   kill "$web" 2>/dev/null; wait "$web" 2>/dev/null
 fi
 
@@ -82,7 +125,8 @@ check "status marks reused pane STALE"  bash -c "'$CREW' -s t status | grep -q '
 
 "$CREW" -s t down >/dev/null 2>&1
 check "down leaves the reused pane open" tmux display -p -t "$rev" '#{pane_id}'
-check "down closes spawned panes"       bash -c "! tmux display -p -t $impl '#{pane_id}' 2>/dev/null | grep -q ."
+check "down closes spawned panes"       bash -c "! tmux display -p -t $lead '#{pane_id}' 2>/dev/null | grep -q ."
+check "down leaves rebound pane open"   tmux display -p -t "$impl" '#{pane_id}'
 check "down marks crew ended"           test -f "$D/ended"
 
 # --self --here: an existing pane joins as lead; others split into its window.

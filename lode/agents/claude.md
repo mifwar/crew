@@ -20,12 +20,14 @@ the lead hit one prompt for a debugging compound command.
 ## Process name
 
 `#{pane_current_command}` for Claude Code is its version (`2.1.284`), not
-`claude`. `short_cli` / `shortCli` map any `N.N…` word to `claude`. Adopted
-Claude panes store the version in `panes`; labels show `claude`.
+`claude`. `detect_cli` reads the pane's tty process list instead and finds
+`claude`, so adopted / `--self` / rebound Claude panes are recorded as
+`claude`. `short_cli` / `shortCli` still map a bare `N.N…` to `claude` for
+crews recorded before detection.
 
 ```mermaid
 flowchart LR
-  pcc["pane_current_command = 2.1.284"] --> sc["short_cli: [0-9]*.[0-9]* → claude"] --> label["lead · claude Opus 5.5 · %124"]
+  ps["ps -o args= -t ttys048 → -zsh, claude, …"] --> dc["detect_cli → claude"] --> label["lead · claude Opus 5.5 · %124"]
 ```
 
 ## Model
@@ -42,16 +44,27 @@ crew up pr358 --self lead --here "rev2=codex …" rev=pi
 ```
 
 It reads the "You are agent 'lead' …" line from the command's stdout (not
-typed into its prompt), then follows `roles/lead.md`. It learns the tool from
-`crew --help`; there is no Claude skill for it yet
-([../plans/roadmap.md](../plans/roadmap.md)).
+typed into its prompt), then follows `roles/lead.md`.
+
+## Skill
+
+`skills/crew/SKILL.md` (installed by `install.sh` as a symlink at
+`~/.claude/skills/crew`) tells any Claude session when to use crew, to ask the
+user how Codex should run (never choosing the unsandboxed option itself), and
+the lead's command set. Keep it in sync with `--help` when commands change.
+
+## No tty
+
+Claude Code's Bash tool runs without a tty, so a Claude session that is not a
+crew member is labelled `outside`, and a human's `! crew send …` typed into
+Claude Code is `outside` too ([../cli/messaging.md](../cli/messaging.md)).
 
 ## Observed in real runs
 
 - Read its role file and waited correctly after the intro.
 - Created tasks with `crew task add`, then waited for the doorbell.
-- As lead it relayed "the user approved X" from a reviewer's message; the
-  protocol forbids treating that as the human's approval, but nothing
-  technical prevents the claim.
+- A reviewer once relayed "the user approved X" to the lead. It was true, but
+  indistinguishable from a false claim; the protocol now routes decisions
+  through `crew say`, and the relayed message is visibly from the reviewer.
 
 Related: [summary.md](summary.md).

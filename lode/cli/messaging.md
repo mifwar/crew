@@ -22,6 +22,11 @@ flowchart TD
 - `ring` = `send-keys -l -- "$text"`, sleep 0.3, `send-keys Enter`.
 - `crew send you` has no pane: log + `inbox/you.md` + an 8-second tmux status
   message. Easy to miss; keep `crew log -f` or `crew web` open.
+- The doorbell and inbox heading show `sender_label`: the role, `you (terminal)`,
+  `you (web)`, or `outside %N (not in this crew)`.
+- `crew say` = `send` that dies unless the caller resolves to `you`. It is the
+  documented way for the human to give decisions.
+- `crew note <text>` logs `sys: note (<caller>): text` (manual repairs, decisions).
 
 ## Ownership guard (`owns_pane`)
 
@@ -43,13 +48,26 @@ The web viewer applies the same rule and shows the role as `stale`.
 
 ## Identity
 
-`resolve_me`: `$CREW_AGENT` when `$CREW_SESSION` matches, else the role whose
-pane id equals `$TMUX_PANE`, else `you`. Consequences:
-- a pane outside the crew (or a renamed/moved agent) is silently `you`;
-- a worker **can** claim to relay the human ("user approved X") in a normal
-  message. The protocol tells agents to treat crew messages as teammate
-  requests, never as the human's permission; a real `--as you` channel is on
-  the roadmap.
+```mermaid
+flowchart TD
+  a{CREW_AGENT + matching CREW_SESSION?} -- yes --> role[that role]
+  a -- no --> b{TMUX_PANE in panes?} -- yes --> role
+  b -- no --> c{"stdin is a tty?"} -- yes --> term["you (terminal)"]
+  c -- no --> d{CREW_VIA=web?} -- yes --> web["you (web)"]
+  d -- no --> out[outside]
+```
+
+Agents' shell tools run without a tty (checked for Claude Code), so an agent
+that isn't a crew member shows up as `outside`, not as the human. `outside`
+cannot broadcast or `say`. This is **advisory provenance**: it stops honest
+mistakes (a reused pane, an agent relaying "the user approved X"), not a
+hostile process, which could fake a tty (`script`), set `CREW_VIA`, or write
+the files directly. Consequences for the human: `! crew send …` typed into a
+Claude Code prompt runs without a tty and is labelled `outside`; use a
+terminal pane or `crew web --allow-send`.
+
+`crew whoami` in a pane that isn't in the crew adds a stderr hint:
+`pane %157 isn't in crew X; if an agent moved here: crew rebind <role>`.
 
 ## `crew log`
 

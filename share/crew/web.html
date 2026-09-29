@@ -87,6 +87,12 @@ select { background: var(--panel); border: 1px solid var(--line); border-radius:
 .muted { color: var(--muted); }
 .empty { padding: 16px; color: var(--muted); font-size: 13px; }
 
+.compose { border-top: 1px solid var(--line); padding: 10px 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.compose input { flex: 1 1 200px; min-width: 0; font: 12.5px var(--body); padding: 7px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); }
+.compose button { border: 1px solid var(--accent); background: var(--accent); color: var(--bg); border-radius: 6px; padding: 6px 12px; font-weight: 600; }
+.compose button:disabled { opacity: .5; cursor: default; }
+.compose .note { flex-basis: 100%; font-size: 11.5px; color: var(--muted); }
+.compose .note.err { color: var(--bad); }
 .tabs { display: flex; border-bottom: 1px solid var(--line); }
 .tab { flex: 1; border: 0; background: transparent; padding: 9px 6px; font-size: 12.5px; color: var(--muted); border-bottom: 2px solid transparent; }
 .tab[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent); font-weight: 600; }
@@ -122,6 +128,12 @@ pre.term { background: var(--code-bg); border-radius: 6px; padding: 10px; }
     <div class="panel">
       <div class="tl-head" id="filters"></div>
       <div class="tl" id="timeline"></div>
+      <form class="compose" id="compose" hidden>
+        <select id="to" aria-label="Recipient"></select>
+        <input id="text" autocomplete="off" placeholder="Message as you (web)" aria-label="Message">
+        <button id="sendbtn" type="submit">Send</button>
+        <div class="note" id="sendnote">Sends with crew send as “you (web)”. Enabled by crew web --allow-send.</div>
+      </form>
     </div>
   </div>
   <div class="col right">
@@ -197,6 +209,7 @@ function render(fresh, first) {
   renderRoster(fresh);
   renderFilters();
   renderTimeline(fresh.length, first);
+  renderCompose();
   if (ui.tab !== "pane") renderInsp();
 }
 
@@ -228,7 +241,7 @@ function renderFilters() {
     opts.map(([k, l]) => `<button class="chip" data-filter="${esc(k)}" aria-pressed="${ui.filter === k}">${esc(l)}</button>`).join("");
 }
 
-const FILE_REF = /(?:[^\s"'`]*\/)?((?:out|inbox|roles)\/[A-Za-z0-9._-]+\.md)/g;
+const FILE_REF = /(?:[^\s"'`]*\/)?((?:out|inbox|roles)\/[A-Za-z0-9._-]+\.md|out\/[A-Za-z0-9._-]+\.(?:log|txt))/g;
 function match(m) {
   switch (ui.filter) {
     case "all": return true;
@@ -276,7 +289,8 @@ async function renderInsp() {
     el.innerHTML = data.board.length ? `<div class="label" style="margin-bottom:4px">board.tsv</div>` + data.board.map((t) => `
       <div class="task"><span class="id">${esc(t.id)}</span><span>${esc(t.title)}</span><span class="pill ${pillClass(t.status)}">${esc(t.status)}</span>
       <div class="sub"><span style="color:${roleColor(t.owner)}">@${esc(t.owner)}</span>${t.dep !== "-" ? `<span>needs ${esc(t.dep)}</span>` : ""}
-      ${t.out && t.out !== "-" ? `<span class="file" role="button" tabindex="0" data-file="${esc(t.out.replace(/^.*\/(out\/)/, "$1"))}">${esc(t.out)}</span>` : ""}</div></div>`).join("")
+      ${t.out && t.out !== "-" ? `<span class="file" role="button" tabindex="0" data-file="${esc(t.out.replace(/^.*\/(out\/)/, "$1"))}">${esc(t.out)}</span>` : ""}
+      ${t.evidence && t.evidence !== "-" ? `<span>evidence ${body(t.evidence)}</span>` : t.status === "done" ? `<span class="s-needs-input">no evidence</span>` : ""}</div></div>`).join("")
       : `<div class="empty">No tasks yet. The lead adds them with <code>crew task add</code>.</div>`;
     return;
   }
@@ -330,7 +344,43 @@ $("session").addEventListener("change", (e) => {
   tick();
 });
 
+let config = { allowSend: false, token: null };
+function renderCompose() {
+  const f = $("compose");
+  f.hidden = !config.allowSend || !data;
+  if (f.hidden) return;
+  const cur = $("to").value;
+  const opts = ["@all", ...data.panes.map((p) => p.role)];
+  $("to").innerHTML = opts.map((r) => `<option value="${esc(r)}" ${r === (cur || "lead") ? "selected" : ""}>${esc(r)}</option>`).join("");
+}
+$("compose").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const text = $("text").value.trim();
+  if (!text) return;
+  const note = $("sendnote");
+  $("sendbtn").disabled = true;
+  try {
+    const r = await fetch(`/api/send?s=${encodeURIComponent(ui.s)}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-crew-token": config.token },
+      body: JSON.stringify({ to: $("to").value, text }),
+    });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || r.statusText);
+    $("text").value = "";
+    note.className = "note";
+    note.textContent = j.warning ? `Sent. ${j.warning}` : `Sent to ${$("to").value}.`;
+    tick();
+  } catch (err) {
+    note.className = "note err";
+    note.textContent = `Not sent: ${err.message}`;
+  } finally {
+    $("sendbtn").disabled = false;
+  }
+});
+
 setTab("board");
+get("/api/config").then((c) => { config = c; renderCompose(); }).catch(() => {});
 loadSessions().then(tick);
 setInterval(tick, 2000);
 setInterval(loadSessions, 10000);

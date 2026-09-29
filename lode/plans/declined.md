@@ -58,11 +58,20 @@ rounds and escalates to the human.
 - Labels are pane user options in the border, not pane titles (agents
   overwrite titles).
 
-## Web viewer is read-only (v1)
+## Web viewer: read-only unless `--allow-send`
 
-Watching/debugging was the goal; sending from a browser page to agents with
-write access needs an explicit opt-in design ([roadmap.md](roadmap.md) item 8).
-Not a claude.ai artifact: it can't read local files/tmux and would ship agent
-output off-machine.
+Watching/debugging is the default use. Sending from a browser page prompts
+agents that can write code, so it exists only behind `crew web --allow-send`,
+with Origin + per-run token checks ([../web/summary.md](../web/summary.md)).
+Don't make it the default. Not a claude.ai artifact: it can't read local
+files/tmux and would ship agent output off-machine.
+
+## Sender provenance is advisory, not authentication
+
+`you (terminal)` / `you (web)` / `outside` come from tty and env checks that
+a hostile local process can fake. Real authentication (signing, a human-held
+secret) was not built: agents can write the crew files directly anyway, so it
+would add friction without closing the gap. The labels target honest
+mistakes, which is what occurred in practice.
 
 Related: [roadmap.md](roadmap.md), [../practices.md](../practices.md).

@@ -9,13 +9,13 @@ flowchart TD
   home --> d["name/"]
   d --> panes["panes  role⇥pane⇥cli⇥origin"]
   d --> meta["meta  key=value"]
-  d --> board["board.tsv  id⇥owner⇥status⇥dep⇥out⇥title"]
+  d --> board["board.tsv  id⇥owner⇥status⇥dep⇥out⇥title⇥evidence"]
   d --> log["channel.log  time⇥kind⇥from⇥to⇥text"]
   d --> inbox["inbox/role.md  full message text"]
   d --> out["out/  result files"]
   d --> roles["roles/role.md  rendered instructions"]
   d --> ended["ended  (exists after crew down)"]
-  d --> lock[".board.lock/  (dir, held during board writes)"]
+  d --> lock[".board.lock/ .panes.lock/  (dirs, held during rewrites)"]
 ```
 
 ## `panes`
@@ -26,8 +26,10 @@ rev	%132	pi	spawned
 rev2	%133	codex -c sandbox_workspace_write.network_access=true …	spawned
 ```
 
-- `cli` is the role spec as typed (spawned) or `#{pane_current_command}`
-  (adopted — Claude shows up as its version number, e.g. `2.1.284`).
+- `cli` is the role spec as typed (spawned) or the detected program (adopted,
+  `--self`, rebound: `claude`, `pi`, `codex`). Crews created before detection
+  existed may hold `2.1.284` (Claude) or `node` (pi).
+- Rewritten only by `crew rebind`, under `.panes.lock`.
 - `origin` is `spawned` or `adopted`. Files written before this column existed
   have 3 fields; readers default a missing origin to `spawned`.
 
@@ -45,12 +47,15 @@ cwd=/private/tmp/tryout-pr358
 ## `board.tsv`
 
 ```
-T1	rev	done	-	out/T1-rev.md	Round 1: independent review of PR #358
-T2	rev2	queued	T1	-	Cross-check
+T1	rev	done	-	out/T1-rev.md	Round 1: independent review of PR #358	out/T1-tests.log
+T2	rev2	queued	T1	out/R2-rev2.md	Cross-check	-
 ```
 
 Ids are `T<line count + 1>`, allocated under `.board.lock` (mkdir lock, 5 s
-timeout, released by an EXIT trap even on `die`). `dep` and `out` use `-` for none.
+timeout, released by an EXIT trap even on `die`). `out` is set at add time
+(`--out` or `out/<id>-<owner>.md`); `dep` and `evidence` use `-` for none.
+Rows written before the evidence column have 6 fields; `board`, `task set`
+and the web viewer treat a missing 7th as `-`.
 
 ## `channel.log`
 
@@ -60,8 +65,10 @@ timeout, released by an EXIT trap even on `die`). `dep` and `out` use `-` for no
 2026-09-29T17:24:02	all	you	all	pause
 ```
 
-`kind` is `sys` (events), `dm` (to one role or `you`) or `all` (broadcast).
-`from`/`to` are `-` for pure system lines.
+`kind` is `sys` (events, notes, rebinds), `dm` (to one role or `you`) or
+`all` (broadcast). `from` is a role, `you` or `outside`; `from`/`to` are `-`
+for pure system lines. The log does not record *how* `you` sent (terminal vs
+web); the doorbell and inbox heading do.
 
 ## Lifecycle
 

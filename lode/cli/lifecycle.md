@@ -39,7 +39,8 @@ crew up pr358 --self lead --here "rev2=codex -c …" rev=pi   # agent starts its
 ## `crew adopt <name> role=<pane> …`
 
 Pane refs are anything tmux resolves: `%7`, `.2`, `6.1`. Labels each pane,
-styles its window, records it as `adopted` with `pane_current_command` as cli,
+styles its window, records it as `adopted` with the detected program as cli
+(`detect_cli`, [summary.md](summary.md)),
 renders role files, rings the intro into every pane. Nothing is started or
 moved. Adopted agents can't get `CREW_*` env vars, so identity comes from the
 pane-id lookup.
@@ -61,8 +62,25 @@ Roles are bound to tmux pane ids (`%124`). Ids are stable for a pane's life
 them), so users can rearrange freely and add their own panes (e.g. nvim).
 Ids restart after a tmux **server** restart, so an old crew's `%144` can
 become an unrelated session — hence `owns_pane` ([messaging.md](messaging.md)).
-If an agent's pane is closed and the agent restarted elsewhere, the role is
-orphaned; there is no `rebind` yet ([../plans/roadmap.md](../plans/roadmap.md)).
+If an agent's pane is closed and the agent restarted elsewhere, fix it with
+`crew rebind`.
+
+## `crew rebind <role> [pane] [--intro]`
+
+```sh
+crew rebind lead            # run inside the lead's new pane
+crew rebind rev %201        # from anywhere
+```
+
+- Target defaults to the caller's `$TMUX_PANE`. Refuses if the target is
+  already a role in this crew, or carries another crew's labels.
+- Unlabels the old pane only if it still `owns_pane` (a reused id belongs to
+  someone else — don't touch it).
+- Rewrites the `panes` row under `.panes.lock`: new id, detected cli,
+  `origin=adopted` (so `down` never closes a pane crew didn't create).
+- Labels + styles the new pane, logs `sys: <caller> rebound <role> %old → %new`.
+- Sends no intro unless `--intro` (the agent usually already knows its role);
+  when run from the new pane it prints a reminder line on stdout.
 
 ## Readiness heuristic
 

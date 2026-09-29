@@ -12,5 +12,16 @@ if [ -e "$BIN/crew" ] && [ ! -L "$BIN/crew" ]; then
 fi
 ln -sfn "$ROOT/bin/crew" "$BIN/crew"
 echo "installed: $BIN/crew -> $ROOT/bin/crew"
+# Claude Code skill: ~/.claude/skills/crew → skills/crew (skip if a real dir is there).
+SKILLS="${CLAUDE_SKILLS_DIR:-$HOME/.claude/skills}"
+if [ -d "$HOME/.claude" ]; then
+  mkdir -p "$SKILLS"
+  if [ -e "$SKILLS/crew" ] && [ ! -L "$SKILLS/crew" ]; then
+    echo "note: $SKILLS/crew exists and isn't a symlink; left it alone"
+  else
+    ln -sfn "$ROOT/skills/crew" "$SKILLS/crew"
+    echo "installed: $SKILLS/crew -> $ROOT/skills/crew"
+  fi
+fi
 case ":$PATH:" in *":$BIN:"*) ;; *) echo "note: $BIN is not on your PATH" ;; esac
 command -v bun >/dev/null || echo "note: 'crew web' needs bun (brew install oven-sh/bun/bun)"

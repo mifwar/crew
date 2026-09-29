@@ -8,13 +8,17 @@ after a command prints the full usage (exit 0); unknown commands exit 1.
 |---|---|---|
 | `up <name> [--self R] [--here] [--in S] role=cli …` | create panes, start CLIs, send intros | [lifecycle.md](lifecycle.md) |
 | `adopt <name> role=<pane> …` | label existing panes, send intros | [lifecycle.md](lifecycle.md) |
+| `rebind <role> [pane] [--intro]` | move a role to another pane (default: caller's) | [lifecycle.md](lifecycle.md) |
 | `send <role\|@all\|you> <msg>` | log + inbox + doorbell | [messaging.md](messaging.md) |
-| `task add --to R [--dep T] [--msg M] <title>` | new board row + notify owner | [tasks.md](tasks.md) |
-| `task set <id> <status> [--out F]` | update row, pane label, log | [tasks.md](tasks.md) |
+| `say <role\|@all> <msg>` | `send`, but refuses unless the caller is the human | [messaging.md](messaging.md) |
+| `note <text>` | `sys` line in the timeline | [messaging.md](messaging.md) |
+| `task add --to R [--dep T] [--out out/x.md] [--msg M] <title>` | new board row + notify owner | [tasks.md](tasks.md) |
+| `task set <id> <status> [--out F] [--evidence F]` | update row, pane label, log | [tasks.md](tasks.md) |
 | `board` / `status` | board table / agents + model + board | [tasks.md](tasks.md) |
 | `log [-f] [-n N]` | formatted `channel.log` | [messaging.md](messaging.md) |
 | `peek <role> [N]` | last N lines of the pane (`capture-pane -J`) | — |
-| `web [--port N] [--open]` | exec the Bun viewer | [../web/summary.md](../web/summary.md) |
+| `web [--port N] [--open] [--allow-send]` | exec the Bun viewer | [../web/summary.md](../web/summary.md) |
+| `restyle` | re-apply the border format to the crew's windows | below |
 | `down` | close spawned panes, unlabel adopted ones, mark ended | [lifecycle.md](lifecycle.md) |
 | `ls`, `whoami`, `path` | list crews, caller identity, crew dir | — |
 
@@ -36,6 +40,8 @@ flowchart TD
 | `CREW_NO_SWITCH` | unset | don't `select-window` after `up` (tests) |
 | `CREW_WEB_PORT` | `7777` | viewer port |
 | `CREW_SESSION`, `CREW_AGENT` | set in spawned panes | identity |
+| `CREW_VIA=web` | set only by the web server | sender shown as `you (web)` |
+| `CREW_WEB_ALLOW_SEND`, `CREW_BIN` | set by `crew web` | enable `/api/send`, path of `bin/crew` |
 
 ## Pane labels and border
 
@@ -53,7 +59,16 @@ escape codes. Pane user options survive that, and move with the pane through
 swaps, re-layouts and `join-pane`. The border format is a **window** option,
 so a crew pane moved to another window shows its label only after that window
 gets `pane-border-status top`. Windows styled before a format change keep the
-old format until restyled.
+old format until `crew restyle` (styles every window holding an owned pane,
+refreshes models).
+
+## Agent names (`detect_cli`)
+
+Labels and `panes` use the program found in the pane's tty process list (the
+first non-shell process in `ps -o args= -t <tty>`), falling back to
+`#{pane_current_command}`. That turns Claude's `2.1.284` and pi's `node` into
+`claude` / `pi` for adopted, `--self` and rebound panes. Spawned panes use the
+role spec. `short_cli` still maps a bare version to `claude` for old files.
 
 ## Model detection
 

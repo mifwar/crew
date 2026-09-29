@@ -1,84 +1,46 @@
 # Roadmap
 
-Ordered by value. Items marked **(field)** came from a lead agent's report
-after running crew on a real PR review (pr357); **(design)** from the design
-discussion. When one ships, move its description into the matching lode file
-and delete it here.
+Nothing from the first field report (pr357 lead) or the design discussion is
+pending: rebind, whoami hint, `crew say` + sender labels, `task add --out`,
+`--evidence`, `note`, `restyle`, agent-name detection, the Claude skill and
+opt-in web sending are all in place (see [../lode-map.md](../lode-map.md)).
+What remains are open questions and candidate improvements. When one ships,
+describe it in the matching lode file and delete it here.
 
 ```mermaid
 flowchart TD
-  rebind["1 crew rebind"] --> whoami["2 whoami hint"]
-  asyou["3 human-authored messages"] --> tmpl["3b template: no relayed approvals"]
-  out["4 task add --out"]
-  evidence["5 --evidence"]
-  small["6 note, short RUNNING, restyle"]
-  skill["7 Claude skill"] --> web2["8 web compose (opt-in)"]
+  q1[pi: tty? queues input?] --> id[identity labels for pi]
+  q2[readiness heuristic] --> ready[per-CLI ready patterns]
+  q3[ring floods] --> coalesce[coalesce doorbells]
+  log[log how 'you' sent] --> web2[web: show terminal vs web]
+  sse[SSE instead of polling]
 ```
-
-## 1. `crew rebind <role> [pane]` (field)
-
-An orphaned role (pane closed, agent restarted elsewhere, or a STALE id)
-currently needs hand-editing `panes`, moving `@crew_*` labels and appending a
-log line. `adopt` can't help: it creates a new crew, fails "duplicate role",
-and re-sends every intro. Wanted: default pane = caller's `$TMUX_PANE`;
-refuse if the target pane `owns_pane`s another role or crew; rewrite the
-`panes` row (keep `origin=adopted`), unset labels on the old pane only if it
-still `owns_pane`s, label the new one, style its window, log
-`sys: <caller> rebound <role> %old → %new`; send **no** intros (optionally
-`--intro`). Add a smoke check.
-
-## 2. `whoami` hint (field)
-
-In a pane not in the crew, `whoami` prints `you in crew X` silently. Print a
-stderr hint when `$TMUX_PANE` is set but unregistered:
-`pane %157 isn't in crew X; run crew rebind <role>`.
-
-## 3. Human-authored messages (field)
-
-A worker can write "User approved the fix…" and the lead can't tell it from
-the human. Add `crew say <to> <msg>` (or `send --as you`) that refuses to run
-when the caller resolves to a crew role, logs `from=you`, and rings with a
-distinct prefix. 3b: tell agents in `protocol.md` to ask the human to send
-decisions (`crew say`) instead of relaying them.
-
-## 4. `crew task add --out <path>` (field)
-
-Replace the template's `Write …/out/Tn-role.md` path, so `--msg` and the
-template can't name two outputs (pi wrote both). Store it in the `out` column
-at add time.
-
-## 5. Evidence for claims (field)
-
-`crew task set Tn done --evidence <file>` (stored in a new board column or
-logged), and a line in `lead.md` asking briefs to cite evidence for anything
-"already verified". Mind the TSV column change in `web.ts`.
-
-## 6. Small items (field)
-
-- `crew note "<text>"` → a `sys` log line (for manual repairs, decisions).
-- `status` RUNNING already shows the short cli; adopted pi panes still show
-  `node` — map via the role spec when known.
-- `crew restyle` to apply the current border format to a crew's windows (old
-  crews keep the format they were started with).
-
-## 7. Claude skill for crew (design)
-
-A `~/.claude/skills/crew/SKILL.md` so a normal Claude session knows when and
-how to `crew up --self lead …` without being told to read `--help`.
-
-## 8. Web viewer write path (design, opt-in)
-
-Compose box that calls `crew send` as `you`. Must stay opt-in
-(`crew web --allow-send`) since it turns the page into a way to prompt agents
-that can write code; keep the Host check and add a per-run token.
 
 ## Open questions
 
-- pi: does it queue input during a turn? Does its sandboxing change with config?
-- `wait_ready` false positives (trust dialogs) and false negatives (animated
-  status bars); a per-CLI ready pattern may be better than screen stability.
-- Doorbells typed mid-turn into Codex/Claude arrive as queued prompts — fine so
-  far, but a flood of rings could stack up. Consider coalescing.
-- SSE instead of 2 s polling for the viewer, if it ever matters.
+- **pi**: does its shell tool have a tty (would a non-member pi be labelled
+  `you (terminal)`)? Does it queue text typed during a turn?
+- **Codex**: does its shell tool have a tty? Checked only for Claude Code.
+  Test: from inside the agent run `crew -s <crew> whoami` in a crew it isn't
+  part of; expect `outside`.
+- **Readiness**: `wait_ready` (screen stable) misfires on trust dialogs and
+  animated status bars. A per-CLI "ready" regex (e.g. codex `› Ask Codex`,
+  claude `❯`) may be more reliable; keep stability as the fallback.
+- **Doorbell floods**: many rings to a busy agent become many queued prompts.
+  Consider coalescing ("3 new messages, read inbox/x.md") when a pane got a
+  ring within the last N seconds.
+
+## Candidate improvements
+
+1. **Record the channel in the log.** `channel.log` says `from=you` for both
+   terminal and web; the doorbell shows the difference, the log doesn't. A
+   6th column (`via`) would let the web viewer show it; keep readers tolerant
+   of 5-field lines.
+2. **`crew rebind` for adopt-style bulk moves** after a tmux server restart:
+   `crew rebind --all` matching roles to panes by detected cli + cwd, with a
+   confirmation list.
+3. **SSE for the viewer** instead of 2 s polling, only if polling cost shows up.
+4. **Evidence checks**: warn in `task set … done` when a result file contains
+   words like "tests pass" / "verified" but no `--evidence` was given.
 
 Related: [declined.md](declined.md), [../summary.md](../summary.md).

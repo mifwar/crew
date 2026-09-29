@@ -11,7 +11,13 @@ flowchart LR
 - agent - one CLI process (claude, codex, pi, …) running in its own tmux pane.
 - role - an agent's name inside a crew (`lead`, `impl`, `rev`, `rev2`, `test`); also picks its template (`rev2` → `roles/rev.md`).
 - lead - the coordinating role; creates tasks, verifies claims, may broadcast. Special-cased by name.
-- you - the human; any `crew` call from a pane not registered in the crew is attributed to `you`.
+- you - the human: a `crew` call from outside the crew typed at a terminal (`you (terminal)`) or sent from `crew web --allow-send` (`you (web)`).
+- outside - a caller that is neither a crew role nor at a terminal (e.g. another agent's shell tool); can't broadcast or `say`.
+- sender label - how a doorbell names the sender: role, `you (terminal)`, `you (web)`, `outside %N (not in this crew)`. Advisory, not authentication.
+- say - `crew say`, the human-only form of `send`.
+- rebind - pointing a role at a different pane without recreating the crew.
+- evidence - a file (command + output) attached to a task with `--evidence` to back a "ran/verified" claim.
+- detect_cli - naming a pane's agent from its tty process list (fixes `2.1.284` / `node`).
 - role spec - `role=cli` argument to `crew up`; everything after `=` is typed verbatim into the new pane (flags included).
 - spawned pane - a pane `crew up` created; `crew down` closes it.
 - adopted pane - a pane that already existed (`crew adopt`, `crew up --self`); `crew down` only removes its labels.

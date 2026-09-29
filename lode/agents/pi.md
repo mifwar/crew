@@ -33,7 +33,10 @@ flowchart LR
 ## Unknowns
 
 - Whether pi queues text typed into its prompt during a turn.
-- `pane_current_command` shows `node`; `short_cli` uses the role spec (`pi`)
-  for spawned panes, but an adopted pi pane would be labelled `node`.
+- Whether pi's shell tool has a tty (if it did, a non-member pi would be
+  labelled `you (terminal)` instead of `outside`).
+
+`pane_current_command` shows `node`; `detect_cli` finds `pi` in the tty's
+process list, so adopted/rebound pi panes are labelled `pi`.
 
 Related: [summary.md](summary.md).

@@ -5,13 +5,13 @@
 ## What this is
 
 `crew`: run several coding-agent CLIs (Claude Code, Codex, pi) as a team in
-tmux panes. Bash CLI `bin/crew`, templates in `share/crew/`, read-only Bun web
-viewer `share/crew/web.ts` + `web.html`. Messages are files in `~/.crew/<name>/`;
+tmux panes. Bash CLI `bin/crew`, templates in `share/crew/`, Bun web
+viewer `share/crew/web.ts` + `web.html` (read-only unless `--allow-send`). Messages are files in `~/.crew/<name>/`;
 `tmux send-keys` rings a one-line doorbell. Full picture: `lode/summary.md`.
 
 ## Commands
 
-- `./install.sh` — symlink `~/.local/bin/crew` → `bin/crew` (the installed crew *is* this checkout).
+- `./install.sh` — symlink `~/.local/bin/crew` → `bin/crew` and `~/.claude/skills/crew` → `skills/crew` (the installed crew *is* this checkout).
 - `test/smoke.sh` — the test suite; throwaway crew of `cat` agents in a detached tmux session. Must print `all passed`.
 - `bash -n bin/crew` — syntax.
 - Web checks: `node --check` on `web.html`'s script, `bun build --no-bundle share/crew/web.ts` (see `lode/practices.md`).
@@ -22,7 +22,9 @@ viewer `share/crew/web.ts` + `web.html`. Messages are files in `~/.crew/<name>/`
 - **Never test in the user's tmux session or `~/.crew`.** Use `--in <detached session>`, `CREW_NO_SWITCH=1`, a scratch `CREW_HOME`. The user has live crews; read-only commands on them are fine.
 - **Any code that types into or kills a pane must pass `owns_pane`.** Pane ids get reused after a tmux server restart.
 - **Don't add flags that weaken an agent's safeguards** (`--yolo` shortcuts, auto `--dangerously-*`, auto sandbox overrides, auto permission allowlists). The launch command is exactly the user's role spec. See `lode/plans/declined.md`.
-- `crew web` stays bound to 127.0.0.1 with the Host check and path regexes; no write endpoints without the opt-in design in `lode/plans/roadmap.md`.
+- `crew web` stays bound to 127.0.0.1 with the Host check and path regexes; its only write path stays behind `--allow-send` + Origin + per-run token.
+- Sender labels (`you (terminal)`, `you (web)`, `outside`) are advisory; never present them as authentication.
+- When commands change, update `crew --help`, `skills/crew/SKILL.md` and the lode together.
 
 # LODE Coding
 

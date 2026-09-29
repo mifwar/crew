@@ -14,9 +14,9 @@ flowchart TD
   - [state-files.md](architecture/state-files.md) — exact formats of `~/.crew/<name>/*`
 - cli/
   - [summary.md](cli/summary.md) — command table, env knobs, pane labels/border, model detection
-  - [lifecycle.md](cli/lifecycle.md) — `up` / `adopt` / `down`, `--self` / `--here`, pane ids, readiness
-  - [messaging.md](cli/messaging.md) — `send`, doorbell, `owns_pane` guard, identity, `log`
-  - [tasks.md](cli/tasks.md) — board, `task add/set`, locking, result-file contract
+  - [lifecycle.md](cli/lifecycle.md) — `up` / `adopt` / `rebind` / `down`, `--self` / `--here`, pane ids, readiness
+  - [messaging.md](cli/messaging.md) — `send`/`say`/`note`, doorbell, `owns_pane`, sender identity, `log`
+  - [tasks.md](cli/tasks.md) — board, `task add --out` / `set --evidence`, locking, result-file contract
 - agents/
   - [summary.md](agents/summary.md) — per-CLI needs table, shared behaviour, adding a CLI
   - [claude.md](agents/claude.md) — permission prompts, version-named process, `--self` lead
@@ -25,10 +25,11 @@ flowchart TD
 - roles/
   - [summary.md](roles/summary.md) — protocol.md, role templates, rendering, editing
 - web/
-  - [summary.md](web/summary.md) — `crew web` API, security, client, checks
+  - [summary.md](web/summary.md) — `crew web` API, opt-in send, security, client, checks
 - plans/
-  - [roadmap.md](plans/roadmap.md) — next work (rebind, `say`, `--out`, evidence, …) and open questions
-  - [declined.md](plans/declined.md) — settled decisions (no `--yolo`, no group chat, read-only web)
+  - [roadmap.md](plans/roadmap.md) — open questions (pi/codex tty, readiness, ring floods) and candidates
+  - [declined.md](plans/declined.md) — settled decisions (no `--yolo`, no group chat, opt-in web send, advisory provenance)
+- skill: `../skills/crew/SKILL.md` — Claude Code skill (documented in [agents/claude.md](agents/claude.md))
 - examples/
   - [crew-web-mockup.html](examples/crew-web-mockup.html) — interactive design mockup (sample data)
 - tmp/ — git-ignored session scraps and handovers

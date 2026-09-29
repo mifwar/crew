@@ -14,7 +14,12 @@ crew down
 ```
 
 From inside a running agent: `crew up pr42 --self lead --here rev=pi`.
-Existing panes: `crew adopt pr42 lead=%4 rev=%9`.
+Existing panes: `crew adopt pr42 lead=%4 rev=%9`. An agent moved panes:
+`crew rebind rev %12`. Decisions from you: `crew say lead "ship it"` (in a
+terminal), or `crew web --allow-send` for a compose box.
+
+`install.sh` also links a Claude Code skill (`skills/crew`) so Claude knows
+how to lead a crew.
 
 How it works: messages are files in `~/.crew/<name>/`, and `tmux send-keys`
 types a one-line `[crew] from → to: …` doorbell into the recipient's prompt.
