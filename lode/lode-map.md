@@ -29,7 +29,7 @@ flowchart TD
 - plans/
   - [roadmap.md](plans/roadmap.md) — open questions (pi/codex tty, readiness, ring floods) and candidates
   - [declined.md](plans/declined.md) — settled decisions (no `--yolo`, no group chat, opt-in web send, advisory provenance)
-- skill: `../skills/crew/SKILL.md` — Claude Code skill (documented in [agents/claude.md](agents/claude.md))
+- skill: `../skills/crew/SKILL.md` — lead skill for claude, codex and pi (documented in [agents/summary.md](agents/summary.md#skill))
 - examples/
   - [crew-web-mockup.html](examples/crew-web-mockup.html) — interactive design mockup (sample data)
 - tmp/ — git-ignored session scraps and handovers

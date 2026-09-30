@@ -13,8 +13,13 @@ notes: `~/code/crew` (see its `lode/`).
 ## Before starting
 
 - You must be running inside tmux (`$TMUX_PANE` set).
-- Every `crew …` command you run needs permission. If each one prompts, ask the
-  user to allow `Bash(crew:*)` rather than stopping.
+- Your own shell must be able to run `crew` and reach tmux:
+  - Claude Code: every `crew …` command needs permission. If each one
+    prompts, ask the user to allow `Bash(crew:*)` rather than stopping.
+  - Codex: check `tmux list-sessions` and `crew ls` both work. If the sandbox
+    blocks them, tell the user you must be restarted with the flags below;
+    you can't lead from inside the default sandbox.
+  - pi: nothing to set up.
 - Agents are started with exactly the command the user wants. Ask how to run
   Codex if they haven't said: its default sandbox can't reach tmux, so it needs
   either `-c sandbox_workspace_write.network_access=true -c sandbox_workspace_write.writable_roots=["$HOME/.crew"]`

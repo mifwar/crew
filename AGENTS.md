@@ -11,7 +11,7 @@ viewer `share/crew/web.ts` + `web.html` (read-only unless `--allow-send`). Messa
 
 ## Commands
 
-- `./install.sh` — symlink `~/.local/bin/crew` → `bin/crew` and `~/.claude/skills/crew` → `skills/crew` (the installed crew *is* this checkout).
+- `./install.sh` — symlink `~/.local/bin/crew` → `bin/crew` and `skills/crew` into `~/.claude/skills`, `~/.codex/skills`, `~/.pi/agent/skills` (the installed crew *is* this checkout).
 - `test/smoke.sh` — the test suite; throwaway crew of `cat` agents in a detached tmux session. Must print `all passed`.
 - `bash -n bin/crew` — syntax.
 - Web checks: `node --check` on `web.html`'s script, `bun build --no-bundle share/crew/web.ts` (see `lode/practices.md`).

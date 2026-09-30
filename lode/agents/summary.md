@@ -34,6 +34,20 @@ flowchart LR
   ([../cli/lifecycle.md](../cli/lifecycle.md#readiness-heuristic)). A new CLI's
   dialog footer may need adding to `DIALOG_RE`.
 
+## Skill
+
+`skills/crew/SKILL.md` teaches any agent to lead a crew: when to use it, its
+own shell setup (claude: allow `Bash(crew:*)`; codex: its sandbox must reach
+tmux and `~/.crew`, else it asks to be restarted; pi: nothing), asking the
+user how Codex workers should run (never choosing the unsandboxed option
+itself), and the lead's command set. Workers don't need it: the intro and
+`roles/<role>.md` carry the protocol.
+
+`install.sh` symlinks it into each agent's user skills dir, if that agent's
+home exists: `~/.claude/skills/crew`, `~/.codex/skills/crew`,
+`~/.pi/agent/skills/crew` (pi also reads `~/.agents/skills`; not used, to
+avoid a duplicate). Keep it in sync with `--help` when commands change.
+
 ## Adding a new CLI
 
 1. Confirm its shell tool can run `crew` and reach `$TMUX` (try `crew whoami`

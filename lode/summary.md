@@ -18,8 +18,8 @@ this crew's labels, because tmux pane ids are reused after a server restart;
 `crew rebind` moves a role to a new pane. The web viewer (`crew web`,
 127.0.0.1:7777) polls a small JSON API and shows roster (detected agent and
 model names), timeline, board, files and pane captures; it is read-only unless
-started with `--allow-send`. A Claude Code skill (`skills/crew`) teaches any
-Claude session to lead a crew. Verification is `test/smoke.sh`, which runs a
+started with `--allow-send`. A skill (`skills/crew`, installed for Claude
+Code, Codex and pi) teaches any of them to lead a crew. Verification is `test/smoke.sh`, which runs a
 throwaway crew of `cat` agents in a detached tmux session.
 
 ```mermaid

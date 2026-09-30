@@ -12,16 +12,19 @@ if [ -e "$BIN/crew" ] && [ ! -L "$BIN/crew" ]; then
 fi
 ln -sfn "$ROOT/bin/crew" "$BIN/crew"
 echo "installed: $BIN/crew -> $ROOT/bin/crew"
-# Claude Code skill: ~/.claude/skills/crew → skills/crew (skip if a real dir is there).
-SKILLS="${CLAUDE_SKILLS_DIR:-$HOME/.claude/skills}"
-if [ -d "$HOME/.claude" ]; then
-  mkdir -p "$SKILLS"
-  if [ -e "$SKILLS/crew" ] && [ ! -L "$SKILLS/crew" ]; then
-    echo "note: $SKILLS/crew exists and isn't a symlink; left it alone"
+# The crew skill, for each agent CLI that is set up here (skip a real dir).
+link_skill() { # agent-home skills-dir
+  [ -d "$1" ] || return 0
+  mkdir -p "$2"
+  if [ -e "$2/crew" ] && [ ! -L "$2/crew" ]; then
+    echo "note: $2/crew exists and isn't a symlink; left it alone"
   else
-    ln -sfn "$ROOT/skills/crew" "$SKILLS/crew"
-    echo "installed: $SKILLS/crew -> $ROOT/skills/crew"
+    ln -sfn "$ROOT/skills/crew" "$2/crew"
+    echo "installed: $2/crew -> $ROOT/skills/crew"
   fi
-fi
+}
+link_skill "$HOME/.claude" "${CLAUDE_SKILLS_DIR:-$HOME/.claude/skills}"
+link_skill "$HOME/.codex" "$HOME/.codex/skills"
+link_skill "$HOME/.pi" "$HOME/.pi/agent/skills"
 case ":$PATH:" in *":$BIN:"*) ;; *) echo "note: $BIN is not on your PATH" ;; esac
 command -v bun >/dev/null || echo "note: 'crew web' needs bun (brew install oven-sh/bun/bun)"
