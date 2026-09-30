@@ -161,4 +161,11 @@ check "no intro typed into a dialog"    bash -c "! tmux capture-pane -p -J -t $d
 check "  and crew says how to send it"  bash -c "printf '%s' \"\$1\" | grep -q 'startup dialog'" _ "$err"
 "$CREW" -s dlg down >/dev/null 2>&1
 
+# A spec whose command exits leaves a bare shell: warn, send no intro.
+err=$("$CREW" up gone --in "$TS" "g=true" 2>&1 >/dev/null)
+gone=$(awk -F'\t' '$1=="g"{print $2}' "$CREW_HOME/gone/panes")
+check "failed command gets no intro"    bash -c "! tmux capture-pane -p -J -t $gone | grep -q \"You are agent 'g'\""
+check "  and crew says it failed"       bash -c "printf '%s' \"\$1\" | grep -q 'back at a shell prompt'" _ "$err"
+"$CREW" -s gone down >/dev/null 2>&1
+
 [ "$fail" = 0 ] && echo "all passed" || { echo "some checks failed"; exit 1; }

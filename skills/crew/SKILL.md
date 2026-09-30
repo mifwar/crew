@@ -17,8 +17,10 @@ notes: `~/code/crew` (see its `lode/`).
   user to allow `Bash(crew:*)` rather than stopping.
 - Agents are started with exactly the command the user wants. Ask how to run
   Codex if they haven't said: its default sandbox can't reach tmux, so it needs
-  either `-c sandbox_workspace_write.network_access=true -c sandbox_workspace_write.writable_roots=["$HOME/.crew"]`
-  or `--dangerously-bypass-approvals-and-sandbox`. Never pick the unsandboxed
+  either `-c sandbox_workspace_write.network_access=true -c 'sandbox_workspace_write.writable_roots=["$HOME/.crew"]'`
+  or `--dangerously-bypass-approvals-and-sandbox`. Keep the single quotes around
+  `writable_roots=[…]`: the spec is typed into the user's shell, and zsh globs a
+  bare `[...]` ("no matches found"), so codex never starts. Never pick the unsandboxed
   option yourself. pi needs no flags.
 
 ## Start a crew with yourself as lead

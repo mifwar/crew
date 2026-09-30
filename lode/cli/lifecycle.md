@@ -27,8 +27,9 @@ stateDiagram-v2
 7. Type each spec into its pane (the CLI starts), warn if a codex spec is
    sandboxed without network access ([../agents/codex.md](../agents/codex.md)).
 8. In parallel per pane: `wait_ready` (screen `cksum` unchanged twice, ≥3 s,
-   max `CREW_BOOT_WAIT`), then `intro` (which refuses dialogs, see Readiness),
-   then `refresh_model`.
+   max `CREW_BOOT_WAIT`). If `detect_cli` finds only a shell, the command
+   failed (see Readiness): warn with the pane's last line and send no intro.
+   Otherwise `intro` (which refuses dialogs, see Readiness), then `refresh_model`.
 9. `select-window` to the new window unless `--self`, `--here` or `CREW_NO_SWITCH`.
 10. With `--self`, print the intro line on stdout: the calling agent reads it
     from its own command output instead of having it typed into its prompt.
@@ -104,6 +105,13 @@ A startup dialog also "settles", and Enter picks its highlighted choice
 | claude | folder trust, footer `Enter to confirm · Esc to cancel` | `❯ No, exit` |
 | codex | update, footer `enter continue · esc skip` | `› 1. Update now` (`brew upgrade`) |
 | codex | folder trust, `Trust this folder?`, `enter continue · esc back` | `› 1. Trust and continue` |
+
+A command that fails also "settles". The spec is typed into the user's shell,
+so a shell error such as zsh's `no matches found` for an unquoted `[...]` in a
+codex `-c` value (seen 2026-09-30) leaves the pane at a prompt. The intro would
+then run as a shell command too. So `up` checks `detect_cli` after
+`wait_ready`: no non-shell process means the agent isn't running. This check is
+only in `up`, because `adopt` may take a pane the human runs a shell in.
 
 So `in_dialog` greps the last 15 non-blank lines for
 `DIALOG_RE='enter (to )?(confirm|continue)|trust this folder'` (case-blind).
