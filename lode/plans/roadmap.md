@@ -10,7 +10,6 @@ describe it in the matching lode file and delete it here.
 ```mermaid
 flowchart TD
   q1[pi: tty? queues input?] --> id[identity labels for pi]
-  q2[readiness heuristic] --> ready[per-CLI ready patterns]
   q3[ring floods] --> coalesce[coalesce doorbells]
   log[log how 'you' sent] --> web2[web: show terminal vs web]
   sse[SSE instead of polling]
@@ -23,12 +22,12 @@ flowchart TD
 - **Codex**: does its shell tool have a tty? Checked only for Claude Code.
   Test: from inside the agent run `crew -s <crew> whoami` in a crew it isn't
   part of; expect `outside`.
-- **Readiness**: `wait_ready` (screen stable) misfires on trust dialogs and
-  animated status bars. A per-CLI "ready" regex (e.g. codex `› Ask Codex`,
-  claude `❯`) may be more reliable; keep stability as the fallback.
-- **Doorbell floods**: many rings to a busy agent become many queued prompts.
-  Consider coalescing ("3 new messages, read inbox/x.md") when a pane got a
-  ring within the last N seconds.
+- **Doorbell floods**: rings to one pane are serialized (`.ring<pane>.lock`),
+  but many rings to a busy agent still become many queued prompts. Consider
+  coalescing ("3 new messages, read inbox/x.md") when a ring for that pane is
+  already waiting on the lock.
+- **pi startup dialogs**: none seen so far; if one appears, add its footer to
+  `DIALOG_RE` ([../cli/lifecycle.md](../cli/lifecycle.md#readiness-heuristic)).
 
 ## Candidate improvements
 

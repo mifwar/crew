@@ -35,7 +35,9 @@ lead to name paths only with `--out` (pi once wrote both files when it wasn't).
 
 ## `crew task set <id> <status> [--out <file>] [--evidence <file>]`
 
-Status must be `queued|working|done|blocked|needs-input`. Under the lock,
+Status must be `queued|working|done|blocked|needs-input`. Only the task's
+owner, `lead` or `you` may set it (advisory, like sender labels: it stops a
+worker closing someone else's task by mistake). Under the lock,
 rewrites the row via `awk` → `board.tsv.tmp` → `mv`; `--evidence` fills
 column 7 (old 6-column rows gain it). Then updates the owner's
 pane label (only if `owns_pane`) and logs `"<caller> set Tn → status (file)"`.

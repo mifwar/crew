@@ -16,6 +16,7 @@ flowchart TD
   d --> roles["roles/role.md  rendered instructions"]
   d --> ended["ended  (exists after crew down)"]
   d --> lock[".board.lock/ .panes.lock/  (dirs, held during rewrites)"]
+  d --> rlock[".ring<pane>.lock/  (dir, held while typing a doorbell)"]
 ```
 
 ## `panes`

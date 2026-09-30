@@ -313,7 +313,7 @@ async function renderPane() {
   const who = ui.peek || ui.agent || data.panes[0]?.role;
   if (!who) return;
   let text;
-  try { const r = await get(`/api/peek?s=${encodeURIComponent(ui.s)}&role=${encodeURIComponent(who)}`); text = r.text ?? "(pane closed)"; }
+  try { const r = await get(`/api/peek?s=${encodeURIComponent(ui.s)}&role=${encodeURIComponent(who)}`); text = r.text ?? "(pane closed or reused)"; }
   catch (e) { text = e.message; }
   if (ui.tab !== "pane") return;
   const p = data.panes.find((x) => x.role === who);

@@ -34,6 +34,16 @@ function model(pane: string): string {
   return tail.match(MODEL_RE)?.pop() ?? "";
 }
 
+// Same ownership rule as `crew`'s owns_pane: a reused pane id no longer
+// carries our labels (crews from before the guard have no @crew_session).
+// null = the pane is gone.
+function owned(s: string, pane: string, role: string): boolean | null {
+  const got = tmux(["display-message", "-p", "-t", pane, "#{@crew_session}\t#{@crew_role}"]);
+  if (got === null) return null;
+  const [labelSession, labelRole] = got.replace(/\n$/, "").split("\t");
+  return labelRole === role && (labelSession === s || labelSession === "");
+}
+
 function sessions() {
   if (!existsSync(HOME)) return [];
   return readdirSync(HOME)
@@ -49,11 +59,10 @@ function sessions() {
 function state(s: string) {
   const d = join(HOME, s);
   const panes = tsv(join(d, "panes")).map(([role, pane, cli, origin]) => {
-    const info = tmux(["display-message", "-p", "-t", pane, "#{pane_current_command}\t#{@crew_status}\t#{session_name}:#{window_index}\t#{@crew_session}\t#{@crew_role}"]);
-    const [cmd, status, where, labelSession, labelRole] = info ? info.replace(/\n$/, "").split("\t") : ["", "", "", "", ""];
-    // Same ownership rule as `crew`: a reused pane id no longer carries our labels.
-    const owned = info !== null && labelRole === role && (labelSession === s || labelSession === "");
-    return { role, pane, cli, origin: origin ?? "spawned", alive: info !== null, stale: info !== null && !owned, cmd, status, where, model: owned ? model(pane) : "" };
+    const info = tmux(["display-message", "-p", "-t", pane, "#{pane_current_command}\t#{@crew_status}\t#{session_name}:#{window_index}"]);
+    const [cmd, status, where] = info ? info.replace(/\n$/, "").split("\t") : ["", "", ""];
+    const own = owned(s, pane, role);
+    return { role, pane, cli, origin: origin ?? "spawned", alive: own !== null, stale: own === false, cmd, status, where, model: own ? model(pane) : "" };
   });
   const board = tsv(join(d, "board.tsv")).map(([id, owner, status, dep, out, title, evidence]) => ({ id, owner, status, dep, out, title, evidence: evidence ?? "-" }));
   const log = tsv(join(d, "channel.log")).map(([t, kind, from, to, text]) => ({ t, kind, from, to, text }));
@@ -113,6 +122,8 @@ Bun.serve({
       const role = u.searchParams.get("role") ?? "";
       const row = tsv(join(HOME, s, "panes")).find((r) => r[0] === role);
       if (!row) return json({ error: `no agent ${role}` }, 404);
+      // A reused pane id shows someone else's screen.
+      if (!owned(s, row[1], role)) return json({ role, pane: row[1], text: null });
       const out = tmux(["capture-pane", "-p", "-J", "-t", row[1], "-S", "-80"]);
       return json({ role, pane: row[1], text: out === null ? null : out.replace(/\s+$/, "") });
     }

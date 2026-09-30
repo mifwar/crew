@@ -19,7 +19,11 @@ flowchart TD
 - The body goes to `inbox/<role>.md` in full (markdown heading per message).
 - The doorbell is the message flattened to one line. Over `RING_MAX` (500)
   chars it becomes `long message; read the latest entry in …/inbox/<role>.md`.
-- `ring` = `send-keys -l -- "$text"`, sleep 0.3, `send-keys Enter`.
+- `ring` = `send-keys -l -- "$text"`, sleep 0.3, `send-keys Enter`, holding
+  `$D/.ring<pane>.lock` (mkdir) throughout. Without it, parallel sends to one
+  pane typed all texts into one prompt line and then N Enters (seen with 5
+  parallel `crew send`s). After 10 s of waiting the lock counts as left by
+  a killed call and the ring goes ahead; the ring removes it either way.
 - `crew send you` has no pane: log + `inbox/you.md` + an 8-second tmux status
   message. Easy to miss; keep `crew log -f` or `crew web` open.
 - The doorbell and inbox heading show `sender_label`: the role, `you (terminal)`,

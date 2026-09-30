@@ -17,6 +17,13 @@ RING_MAX=500                         # longer messages ring with a pointer inste
 die() { printf 'crew: %s\n' "$*" >&2; exit 1; }
 now() { date '+%Y-%m-%dT%H:%M:%S'; }
 oneline() { printf '%s' "$*" | tr '\t\n\r' '   '; }
+take_lock() { # dir tries — mkdir lock, retried every 0.1 s; fails after <tries>
+  local i=0
+  until mkdir "$1" 2>/dev/null; do
+    i=$((i + 1)); [ "$i" -lt "$2" ] || return 1
+    sleep 0.1
+  done
+}
 
 usage() {
   cat <<'EOF'
@@ -127,8 +134,15 @@ log_line() { # kind from to text
 
 # ---------- tmux helpers ----------
 
+# Two crew calls ringing one pane at once would interleave their keystrokes
+# into one garbled prompt, so a ring holds a per-pane mkdir lock. A ring takes
+# ~0.3 s, so a lock still held after 10 s is left by a killed call: ring anyway.
 ring() { # pane text — type one line into the pane and submit it
-  tmux send-keys -t "$1" -l -- "$2" && sleep 0.3 && tmux send-keys -t "$1" Enter
+  local l="$D/.ring${1#%}.lock" rc=0
+  take_lock "$l" 100 || true
+  tmux send-keys -t "$1" -l -- "$2" && sleep 0.3 && tmux send-keys -t "$1" Enter || rc=$?
+  rmdir "$l" 2>/dev/null || true
+  return "$rc"
 }
 
 # Program name for labels: "codex --sandbox …" → codex. Claude's process is
@@ -150,6 +164,11 @@ detect_cli() { # pane
     case "$w" in zsh|bash|sh|fish|dash|login|tmux|"") continue ;; esac
     printf '%s' "$w"; break
   done
+}
+# "%7", ".2", "6.1" → pane id. tmux 3.5 prints nothing and exits 0 for a
+# missing pane, so empty output counts as not found.
+pane_id() { # ref
+  local p; p=$(tmux display-message -p -t "$1" '#{pane_id}' 2>/dev/null) && [ -n "$p" ] && printf '%s' "$p"
 }
 pane_cli() { # pane — detected program, else tmux's view
   local c; c=$(detect_cli "$1")
@@ -197,6 +216,15 @@ set_pane_status() { # role text
   [ -n "$p" ] && owns_pane "$p" "$1" && tmux set-option -p -t "$p" @crew_status "$2" 2>/dev/null || true
 }
 
+# Startup dialogs take Enter as their highlighted choice: claude's trust
+# dialog "No, exit", codex's update "Update now" and trust "Trust and
+# continue". The intro must never land in one, and crew must not answer it.
+# Footers seen: claude "Enter to confirm · Esc to cancel", codex "enter continue · esc skip".
+DIALOG_RE='enter (to )?(confirm|continue)|trust this folder'
+in_dialog() { # pane
+  tmux capture-pane -p -t "$1" 2>/dev/null | sed '/^[[:space:]]*$/d' | tail -n 15 | grep -qiE "$DIALOG_RE"
+}
+
 wait_ready() { # pane — wait until the pane's screen stops changing
   local prev="" cur i=0 stable=0
   while [ "$i" -lt "$BOOT_WAIT" ]; do
@@ -212,6 +240,17 @@ wait_ready() { # pane — wait until the pane's screen stops changing
 # ---------- session setup ----------
 
 check_name() { printf '%s' "$1" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._-]*$' || die "bad name: $1"; }
+
+# Run before anything is created, so a bad spec can't leave a half-made crew.
+check_roles() { # role=value ...
+  local seen=" " spec role
+  for spec in "$@"; do
+    role="${spec%%=*}"; check_name "$role"
+    [ -n "${spec#*=}" ] || die "nothing given for $role"
+    case "$seen" in *" $role "*) die "duplicate role: $role" ;; esac
+    seen="$seen$role "
+  done
+}
 
 init_dir() { # name
   S="$1"; D="$CREW_HOME/$S"
@@ -241,8 +280,11 @@ write_role_files() {
   done
 }
 
-intro() { # role pane
-  ring "$2" "[crew] You are agent '$1' in crew '$S'. Read $D/roles/$1.md now and follow it for the rest of this session. Do not reply until you receive a task."
+intro() { # role pane — never typed into a startup dialog (see in_dialog)
+  local msg="You are agent '$1' in crew '$S'. Read $D/roles/$1.md now and follow it for the rest of this session. Do not reply until you receive a task."
+  if in_dialog "$2"; then
+    echo "crew: $1 ($2) is showing a startup dialog; answer it there yourself, then: crew -s $S send $1 \"$msg\"" >&2
+  else ring "$2" "[crew] $msg"; fi
 }
 
 cmd_up() {
@@ -262,6 +304,7 @@ cmd_up() {
   if [ -n "$self" ] || [ "$here" = 1 ]; then
     [ -n "${TMUX_PANE:-}" ] || die "--self and --here must run inside a tmux pane"
   fi
+  check_roles ${self:+"$self=$TMUX_PANE"} "${specs[@]}"
   if [ -z "$target" ]; then
     [ -n "${TMUX:-}" ] || die "run inside tmux, or pass --in <tmux-session>"
     target=$(tmux display-message -p ${TMUX_PANE:+-t "$TMUX_PANE"} '#S')
@@ -269,7 +312,6 @@ cmd_up() {
   init_dir "$name"
 
   if [ -n "$self" ]; then
-    check_name "$self"
     cli=$(pane_cli "$TMUX_PANE")
     label_pane "$TMUX_PANE" "$self" "$cli"
     refresh_model "$TMUX_PANE"
@@ -280,8 +322,6 @@ cmd_up() {
 
   for spec in "${specs[@]}"; do
     role="${spec%%=*}"; cli="${spec#*=}"
-    check_name "$role"
-    [ -z "$(pane_of "$role")" ] || die "duplicate role: $role"
     if [ -z "$win" ]; then
       pane=$(tmux new-window -d -P -F '#{pane_id}' -t "$target:" -n "$name" -c "$PWD" \
         -e "CREW_SESSION=$S" -e "CREW_AGENT=$role" -e "CREW_HOME=$CREW_HOME")
@@ -327,7 +367,7 @@ cmd_up() {
 }
 
 cmd_adopt() {
-  local name="" specs=() spec role ref pane cli
+  local name="" specs=() spec role pane cli seen=" " i
   while [ $# -gt 0 ]; do
     case "$1" in
       *=*) specs+=("$1"); shift ;;
@@ -336,12 +376,15 @@ cmd_adopt() {
   done
   [ -n "$name" ] && [ ${#specs[@]} -gt 0 ] || die 'usage: crew adopt <name> role=<pane> ...'
   check_name "$name"
+  check_roles "${specs[@]}"
+  for i in "${!specs[@]}"; do  # resolve every pane (role=%id) before labelling any
+    pane=$(pane_id "${specs[$i]#*=}") || die "no tmux pane '${specs[$i]#*=}'"
+    case "$seen" in *" $pane "*) die "pane $pane given twice" ;; esac
+    seen="$seen$pane "; specs[$i]="${specs[$i]%%=*}=$pane"
+  done
   init_dir "$name"
   for spec in "${specs[@]}"; do
-    role="${spec%%=*}"; ref="${spec#*=}"
-    check_name "$role"
-    pane=$(tmux display-message -p -t "$ref" '#{pane_id}' 2>/dev/null) || die "no tmux pane '$ref'"
-    [ -z "$(pane_of "$role")" ] || die "duplicate role: $role"
+    role="${spec%%=*}"; pane="${spec#*=}"
     cli=$(pane_cli "$pane")
     label_pane "$pane" "$role" "$cli"
     refresh_model "$pane"
@@ -410,11 +453,7 @@ cmd_note() {
 
 # board.tsv and panes are rewritten in place, so writers take a mkdir lock.
 lock() { # name (board | panes)
-  local i=0
-  while ! mkdir "$D/.$1.lock" 2>/dev/null; do
-    i=$((i + 1)); [ "$i" -lt 50 ] || die "$1 is locked (remove $D/.$1.lock if it's stale)"
-    sleep 0.1
-  done
+  take_lock "$D/.$1.lock" 50 || die "$1 is locked (remove $D/.$1.lock if it's stale)"
   trap "rmdir '$D/.$1.lock' 2>/dev/null || true" EXIT
 }
 unlock() { rmdir "$D/.$1.lock" 2>/dev/null || true; trap - EXIT; }
@@ -461,12 +500,14 @@ cmd_task() {
       done
       case "$st" in queued|working|done|blocked|needs-input) ;; *) die "bad status: $st" ;; esac
       lock board
-      awk -F'\t' -v id="$id" 'BEGIN{f=0} $1==id{f=1} END{exit !f}' "$D/board.tsv" || die "no task $id"
+      local owner; owner=$(awk -F'\t' -v id="$id" '$1==id{print $2; exit}' "$D/board.tsv")
+      [ -n "$owner" ] || die "no task $id"
+      # Advisory like sender labels: catches a worker closing someone else's task.
+      [ "$ME" = "$owner" ] || [ "$ME" = lead ] || [ "$ME" = you ] || die "$id is $owner's; only $owner, lead or you can set it"
       awk -F'\t' -v OFS='\t' -v id="$id" -v st="$st" -v out="$out" -v ev="$ev" \
         '$1==id{$3=st; if(out!="") $5=out; if(ev!="") $7=ev; else if($7=="") $7="-"} {print}' "$D/board.tsv" > "$D/board.tsv.tmp"
       mv "$D/board.tsv.tmp" "$D/board.tsv"
       unlock board
-      local owner; owner=$(awk -F'\t' -v id="$id" '$1==id{print $2}' "$D/board.tsv")
       set_pane_status "$owner" "$id $st"
       log_line sys "$ME" - "$ME set $id → $st${out:+ ($out)}${ev:+ evidence: $ev}" ;;
     *) die 'usage: crew task add|set ...' ;;
@@ -493,7 +534,7 @@ cmd_rebind() {
   [ -n "$role" ] || die 'usage: crew rebind <role> [pane] [--intro]'
   old=$(pane_of "$role"); [ -n "$old" ] || die "no agent '$role' in crew $S"
   ref="${ref:-${TMUX_PANE:-}}"; [ -n "$ref" ] || die "give a pane (%7, .2) or run inside the new pane"
-  new=$(tmux display-message -p -t "$ref" '#{pane_id}' 2>/dev/null) || die "no tmux pane '$ref'"
+  new=$(pane_id "$ref") || die "no tmux pane '$ref'"
   [ "$new" != "$old" ] || die "$role is already $new"
   got=$(awk -F'\t' -v p="$new" '$2==p{print $1; exit}' "$D/panes")
   [ -z "$got" ] || die "$new is already '$got' in this crew"
@@ -577,6 +618,7 @@ cmd_peek() {
   resolve_session
   [ $# -ge 1 ] || die 'usage: crew peek <role> [lines]'
   local pane; pane=$(pane_of "$1"); [ -n "$pane" ] || die "no agent '$1'"
+  owns_pane "$pane" "$1" || die "$1's pane $pane is gone or now belongs to something else (crew rebind $1 <pane>)"
   tmux capture-pane -p -J -t "$pane" -S -300 | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' | tail -n "${2:-25}"
 }
 

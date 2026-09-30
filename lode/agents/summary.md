@@ -29,8 +29,10 @@ flowchart LR
 - **Model name** is scraped from the status bar
   ([../cli/summary.md](../cli/summary.md)): claude `Opus 5.5`, codex
   `GPT-6-Sol`, pi `deepseek-v4.1-flash`.
-- **Trust dialogs:** a CLI opened in an untrusted directory shows a dialog
-  first; `wait_ready` settles on it and the intro is typed into the dialog.
+- **Startup dialogs** (folder trust, codex update): `intro()` detects them and
+  holds the intro until the human answers
+  ([../cli/lifecycle.md](../cli/lifecycle.md#readiness-heuristic)). A new CLI's
+  dialog footer may need adding to `DIALOG_RE`.
 
 ## Adding a new CLI
 

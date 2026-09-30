@@ -32,6 +32,10 @@ Then read the role file the command prints (`~/.crew/<name>/roles/lead.md`)
 and follow it. Tell the user they can watch with `crew log -f` or
 `crew web --open`.
 
+If `crew up` reports an agent "is showing a startup dialog" (folder trust,
+update), don't answer it: ask the user to, then run the `crew send` line it
+printed.
+
 ## Working as lead
 
 ```sh
