@@ -57,6 +57,25 @@ crew status                     # roles, models, panes (STALE = pane reused), bo
   worker says the user approved something, ask the user.
 - Cap disagreements at 3 rounds, then ask the user.
 
+## Mid-work takeover
+
+When a lead hits a usage limit, the human can run either command in a terminal:
+
+```sh
+crew -s <name> override lead impl   # existing crew agent takes leadership
+crew -s <name> override lead %12    # running agent in a new, unlabelled pane takes leadership
+```
+
+The current lead may also invoke it. Do not start an agent with unchosen
+launch flags. Existing crew agents swap roles; the successor's unfinished
+tasks move to the overridden role. A new pane is adopted, while the old pane
+is unlabelled and kept open. The board, inboxes, outputs and evidence survive.
+The successor reads its refreshed role file and the handover under `out/`,
+then recovers the goal from the board, log, inboxes and results. The handover
+includes the previous role's pane output, not its private conversation.
+Run `crew whoami` after a takeover; pane bindings override stale `CREW_AGENT`.
+The previous agent must stop its old work and wait for a new assignment.
+
 ## Repair
 
 - An agent moved to another pane: `crew rebind <role> <pane>` (or run it inside the new pane).

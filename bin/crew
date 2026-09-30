@@ -35,6 +35,7 @@ crew — coding agents working together in tmux
       --in <session>   tmux session for the new window (default: the caller's)
   crew adopt <name> role=<pane> ...                   use panes you already have (%7, .2, 6.1)
   crew rebind <role> [pane]                           point a role at another pane (default: this one)
+  crew override <role> <replacement-role|pane>       hand a role's ongoing work to another crew agent
   crew send <role|@all|you> <message>                 message an agent (@all: lead/you only)
   crew say <role|@all> <message>                      same, but only for the human at a terminal
   crew note <text>                                    add a note to the timeline
@@ -55,6 +56,7 @@ crew — coding agents working together in tmux
     crew up voucher "lead=claude --allowedTools 'Bash(crew:*)'" impl=codex rev=pi
     crew up pr1068 --self lead impl=codex rev=pi
     crew adopt pr1068 lead=%4 rev=%9 rev2=%11
+    crew -s voucher override lead impl                impl takes over when lead hits a limit
 
   Agents run `crew send` from their shell tool, so each needs permission to:
     claude  pre-allow it: claude --allowedTools 'Bash(crew:*)'  (or use auto mode)
@@ -107,8 +109,10 @@ resolve_session() {
 # visible, but any process can write the crew files directly.
 resolve_me() {
   ME=""; VIA=""
-  if [ -n "${CREW_AGENT:-}" ] && [ "${CREW_SESSION:-}" = "$S" ]; then ME="$CREW_AGENT"
-  elif [ -n "${TMUX_PANE:-}" ]; then ME=$(awk -F'\t' -v p="$TMUX_PANE" '$2==p{print $1; exit}' "$D/panes")
+  # Spawned processes retain CREW_AGENT after a role override. The current
+  # pane binding is authoritative; only pane-less callers use the env hint.
+  if [ -n "${TMUX_PANE:-}" ]; then ME=$(awk -F'\t' -v p="$TMUX_PANE" '$2==p{print $1; exit}' "$D/panes")
+  elif [ -n "${CREW_AGENT:-}" ] && [ "${CREW_SESSION:-}" = "$S" ]; then ME="$CREW_AGENT"
   fi
   [ -z "$ME" ] || return 0
   if [ -t 0 ]; then ME=you; VIA=terminal
@@ -414,6 +418,14 @@ deliver() { # role text label
     echo "crew: not ringing $1: pane $pane is gone or now belongs to something else (saved to inbox/$1.md)" >&2
     return 0
   fi
+  if [ "$pane" = "${TMUX_PANE:-}" ]; then
+    printf '%s\n' "$2"
+    return 0
+  fi
+  if in_dialog "$pane"; then
+    echo "crew: $1 ($pane) is showing a startup dialog; message saved to inbox/$1.md, no input typed" >&2
+    return 0
+  fi
   refresh_model "$pane"
   line=$(oneline "$2")
   [ ${#line} -le "$RING_MAX" ] || line="long message; read the latest entry in $D/inbox/$1.md"
@@ -457,11 +469,20 @@ cmd_note() {
 # ---------- tasks ----------
 
 # board.tsv and panes are rewritten in place, so writers take a mkdir lock.
-lock() { # name (board | panes)
-  take_lock "$D/.$1.lock" 50 || die "$1 is locked (remove $D/.$1.lock if it's stale)"
-  trap "rmdir '$D/.$1.lock' 2>/dev/null || true" EXIT
+lock() { # names (board | panes); all acquired locks share one cleanup path
+  local name
+  for name in "$@"; do
+    take_lock "$D/.$name.lock" 50 || die "$name is locked (remove $D/.$name.lock if it's stale)"
+    HELD_LOCKS="${HELD_LOCKS:+$HELD_LOCKS }$name"
+    trap unlock EXIT
+  done
 }
-unlock() { rmdir "$D/.$1.lock" 2>/dev/null || true; trap - EXIT; }
+unlock() {
+  local name
+  for name in ${HELD_LOCKS:-}; do rmdir "$D/.$name.lock" 2>/dev/null || true; done
+  HELD_LOCKS=""
+  trap - EXIT
+}
 
 cmd_task() {
   resolve_session; resolve_me
@@ -488,7 +509,7 @@ cmd_task() {
       local id="T$(( $(wc -l < "$D/board.tsv") + 1 ))"
       [ -n "$out" ] || out="out/$id-$to.md"
       printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$id" "$to" queued "${dep:--}" "$out" "$(oneline "$title")" - >> "$D/board.tsv"
-      unlock board
+      unlock
       log_line sys "$ME" "$to" "$ME added $id → $to: $title"
       set_pane_status "$to" "$id queued"
       cmd_send "$to" "$id for you: $title${dep:+ (needs $dep)}${msg:+ — ${msg%.}}. Write $D/$out (not in your working directory), then: crew task set $id done [--evidence <file>] && crew send lead \"$id done\"" >/dev/null
@@ -505,6 +526,7 @@ cmd_task() {
       done
       case "$st" in queued|working|done|blocked|needs-input) ;; *) die "bad status: $st" ;; esac
       lock board
+      resolve_me
       local owner; owner=$(awk -F'\t' -v id="$id" '$1==id{print $2; exit}' "$D/board.tsv")
       [ -n "$owner" ] || die "no task $id"
       # Advisory like sender labels: catches a worker closing someone else's task.
@@ -512,7 +534,7 @@ cmd_task() {
       awk -F'\t' -v OFS='\t' -v id="$id" -v st="$st" -v out="$out" -v ev="$ev" \
         '$1==id{$3=st; if(out!="") $5=out; if(ev!="") $7=ev; else if($7=="") $7="-"} {print}' "$D/board.tsv" > "$D/board.tsv.tmp"
       mv "$D/board.tsv.tmp" "$D/board.tsv"
-      unlock board
+      unlock
       set_pane_status "$owner" "$id $st"
       log_line sys "$ME" - "$ME set $id → $st${out:+ ($out)}${ev:+ evidence: $ev}" ;;
     *) die 'usage: crew task add|set ...' ;;
@@ -530,6 +552,92 @@ cmd_board() {
 
 # ---------- repair ----------
 
+cmd_override() {
+  resolve_session; resolve_me
+  [ $# -eq 2 ] || die 'usage: crew override <role> <replacement-role|pane>'
+  local role="$1" replacement="$2" old new caller="$ME" context msg r p cli origin swap=1 got
+  [ "$ME" = you ] || [ "$ME" = lead ] || die 'only lead or you can override a role'
+  [ "$role" != "$replacement" ] || die 'replacement must be a different role'
+  [ ! -f "$D/ended" ] || die "crew '$S' has ended"
+  lock panes board
+  resolve_me
+  caller="$ME"
+  [ "$ME" = you ] || [ "$ME" = lead ] || die 'only lead or you can override a role'
+  old=$(pane_of "$role"); [ -n "$old" ] || die "no agent '$role' in crew $S"
+  new=$(pane_of "$replacement")
+  if [ -n "$new" ]; then
+    owns_pane "$new" "$replacement" || die "$replacement's pane is stale; rebind it first"
+  else
+    swap=0
+    new=$(pane_id "$replacement") || die "no agent or tmux pane '$replacement'"
+    got=$(awk -F'\t' -v p="$new" '$2==p{print $1; exit}' "$D/panes")
+    [ -z "$got" ] || die "$new is already '$got' in this crew; use its role"
+    got=$(tmux display-message -p -t "$new" '#{@crew_session}/#{@crew_role}')
+    [ "$got" = "/" ] || die "$new is already labelled $got; use its role or an unlabelled pane"
+    cli=$(pane_cli "$new")
+  fi
+  owns_pane "$old" "$role" || die "$role's pane is stale; rebind it first"
+
+  context="out/override-$role-$(date +%Y%m%d-%H%M%S)-$$.md"
+  {
+    printf '# Role handover: %s → %s\n\n' "$replacement" "$role"
+    if [ "$swap" = 0 ]; then
+      printf 'The previous role pane is detached from the crew and kept open.\n\n'
+    fi
+    printf 'You now act as %s. Previous role: %s; replacement: %s. Read roles/%s.md, board.tsv, channel.log, inbox/%s.md in %s, plus relevant out/ results and evidence. Continue the existing goal; verify incomplete claims. Conversation history inside the old agent is not transferred.\n\n' \
+      "$role" "$role" "$replacement" "$role" "$role" "$D"
+    if [ "$swap" = 1 ]; then
+      printf 'Also read inbox/%s.md for your earlier assignments.\n\n' "$replacement"
+      printf 'Unfinished tasks owned by %s move to %s; existing %s tasks also remain yours. Completed tasks, result paths, evidence and history stay unchanged.\n\n' "$replacement" "$role" "$role"
+    else
+      printf 'Existing tasks, result paths, evidence and history stay unchanged.\n\n'
+    fi
+    printf '## Previous %s pane (visible output and up to 200 scrollback lines)\n\n```text\n' "$role"
+    tmux capture-pane -p -J -S -200 -t "$old"
+    printf '\n```\n'
+  } > "$D/$context"
+  if [ "$swap" = 1 ]; then
+    # Swap occupants, keeping CLI and lifecycle origin attached to each pane.
+    awk -F'\t' -v OFS='\t' -v r="$role" -v s="$replacement" \
+      '$1==r{$1=s; print; next} $1==s{$1=r} {print}' "$D/panes" > "$D/panes.tmp"
+    awk -F'\t' -v OFS='\t' -v r="$role" -v s="$replacement" \
+      '$2==s && $3!="done"{$2=r} {print}' "$D/board.tsv" > "$D/board.tsv.tmp"
+    mv "$D/board.tsv.tmp" "$D/board.tsv"
+    mv "$D/panes.tmp" "$D/panes"
+  else
+    awk -F'\t' -v OFS='\t' -v r="$role" -v p="$new" -v c="$cli" \
+      '$1==r{$2=p; $3=c; $4="adopted"} {print}' "$D/panes" > "$D/panes.tmp"
+    mv "$D/panes.tmp" "$D/panes"
+    if owns_pane "$old" "$role"; then
+      for got in @crew_session @crew_role @crew_cli @crew_status @crew_model; do
+        tmux set-option -p -u -t "$old" "$got" 2>/dev/null || true
+      done
+    fi
+  fi
+  while IFS="$(printf '\t')" read -r r p cli origin; do
+    case "$r" in "$role"|"$replacement") label_pane "$p" "$r" "$cli" ;; esac
+  done < "$D/panes"
+  style_window "$(tmux display-message -p -t "$new" '#{window_id}')"
+  refresh_model "$new"
+  write_role_files
+  unlock
+  local previous="previous $role ($old) is now $replacement"
+  [ "$swap" = 1 ] || previous="previous $role ($old) detached and kept open"
+  log_line sys "$caller" "$role" "$caller overrode $role: $replacement ($new) takes over; $previous; context: $D/$context"
+  for r in $(roles); do
+    if [ "$r" = "$role" ]; then
+      msg="You are now '$role'. Read $D/roles/$role.md and $D/$context, recover the ongoing work from the board, inboxes and results, and continue."
+    elif [ "$r" = "$replacement" ]; then
+      msg="You are now '$replacement'; '$role' has taken over your unfinished tasks. Read $D/roles/$replacement.md. Stop your previous role's work; wait for a new assignment."
+    else
+      msg="Role override: $replacement ($new) is now $role; $previous. Continue your tasks and address reports to the current roles."
+    fi
+    log_line dm "$ME" "$r" "$msg"
+    deliver "$r" "$msg" "$r"
+  done
+  echo "$role → $new ($previous). Handover: $D/$context"
+}
+
 cmd_rebind() {
   resolve_session; resolve_me
   local role="" ref="" intro_too=0 old new got cli
@@ -537,6 +645,7 @@ cmd_rebind() {
     case "$1" in --intro) intro_too=1; shift ;; *) if [ -z "$role" ]; then role="$1"; else ref="$1"; fi; shift ;; esac
   done
   [ -n "$role" ] || die 'usage: crew rebind <role> [pane] [--intro]'
+  lock panes
   old=$(pane_of "$role"); [ -n "$old" ] || die "no agent '$role' in crew $S"
   ref="${ref:-${TMUX_PANE:-}}"; [ -n "$ref" ] || die "give a pane (%7, .2) or run inside the new pane"
   new=$(pane_id "$ref") || die "no tmux pane '$ref'"
@@ -550,13 +659,12 @@ cmd_rebind() {
     for opt in @crew_session @crew_role @crew_cli @crew_status @crew_model; do tmux set-option -p -u -t "$old" "$opt" 2>/dev/null || true; done
   fi
   cli=$(pane_cli "$new")
-  lock panes
   awk -F'\t' -v OFS='\t' -v r="$role" -v p="$new" -v c="$cli" '$1==r{$2=p; $3=c; $4="adopted"} {print}' "$D/panes" > "$D/panes.tmp"
   mv "$D/panes.tmp" "$D/panes"
-  unlock panes
   label_pane "$new" "$role" "$cli"
   refresh_model "$new"
   style_window "$(tmux display-message -p -t "$new" '#{window_id}')"
+  unlock
   log_line sys "$ME" "$role" "$ME rebound $role $old → $new"
   echo "$role → $new (was $old)"
   if [ "$intro_too" = 1 ]; then intro "$role" "$new"
@@ -689,6 +797,7 @@ case "$cmd" in
   say) cmd_say "$@" ;;
   note) cmd_note "$@" ;;
   rebind) cmd_rebind "$@" ;;
+  override) cmd_override "$@" ;;
   restyle) cmd_restyle ;;
   task) cmd_task "$@" ;;
   board) cmd_board ;;

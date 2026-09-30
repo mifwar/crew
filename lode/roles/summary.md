@@ -48,7 +48,9 @@ independent first opinion, verifying every claim, and explicit final lines.
 ## Editing templates
 
 Rendered role files are snapshots taken at `crew up`/`adopt`; edits to
-templates affect **new** crews only. Keep templates short: agents read them
+templates affect **new** crews and crews refreshed by `override`.
+An override regenerates role files with the current roster; inbox history is
+kept under its original role names. Keep templates short: agents read them
 once, at the intro. Add a role by dropping `roles/<name>.md` in; trailing
 digits fall back to the base (`test2` → `test.md`).
 

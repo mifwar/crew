@@ -18,6 +18,20 @@ Existing panes: `crew adopt pr42 lead=%4 rev=%9`. An agent moved panes:
 `crew rebind rev %12`. Decisions from you: `crew say lead "ship it"` (in a
 terminal), or `crew web --allow-send` for a compose box.
 
+If the leader hits a usage limit mid-work, hand control to another running
+crew agent or an agent you started in a new tmux pane:
+
+```sh
+crew -s voucher override lead impl   # existing impl becomes lead; old lead becomes impl
+crew -s voucher override lead %12    # new, unlabelled pane becomes lead; old pane stays open
+```
+
+Run from a terminal (or the current lead). The successor receives role
+instructions and a handover with the old leader's pane output. It reads the
+existing board, inboxes and results to continue. Private agent conversation
+history is not transferred. With an existing agent, its unfinished tasks
+move to the new lead too; completed tasks and output paths stay unchanged.
+
 `install.sh` also links a Claude Code skill (`skills/crew`) so Claude knows
 how to lead a crew.
 

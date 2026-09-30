@@ -8,6 +8,7 @@ after a command prints the full usage (exit 0); unknown commands exit 1.
 |---|---|---|
 | `up <name> [--self R] [--here] [--in S] role=cli …` | create panes, start CLIs, send intros | [lifecycle.md](lifecycle.md) |
 | `adopt <name> role=<pane> …` | label existing panes, send intros | [lifecycle.md](lifecycle.md) |
+| `override <role> <replacement-role\|pane>` | hand ongoing work to another agent | [lifecycle.md](lifecycle.md) |
 | `rebind <role> [pane] [--intro]` | move a role to another pane (default: caller's) | [lifecycle.md](lifecycle.md) |
 | `send <role\|@all\|you> <msg>` | log + inbox + doorbell | [messaging.md](messaging.md) |
 | `say <role\|@all> <msg>` | `send`, but refuses unless the caller is the human | [messaging.md](messaging.md) |
@@ -39,7 +40,7 @@ flowchart TD
 | `CREW_BOOT_WAIT` | `30` | max seconds to wait for a new CLI to settle |
 | `CREW_NO_SWITCH` | unset | don't `select-window` after `up` (tests) |
 | `CREW_WEB_PORT` | `7777` | viewer port |
-| `CREW_SESSION`, `CREW_AGENT` | set in spawned panes | identity |
+| `CREW_SESSION`, `CREW_AGENT` | set in spawned panes | crew selection and fallback identity; pane bindings take precedence |
 | `CREW_VIA=web` | set only by the web server | sender shown as `you (web)` |
 | `CREW_WEB_ALLOW_SEND`, `CREW_BIN` | set by `crew web` | enable `/api/send`, path of `bin/crew` |
 

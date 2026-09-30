@@ -85,11 +85,58 @@ crew rebind rev %201        # from anywhere
   already a role in this crew, or carries another crew's labels.
 - Unlabels the old pane only if it still `owns_pane` (a reused id belongs to
   someone else — don't touch it).
-- Rewrites the `panes` row under `.panes.lock`: new id, detected cli,
+- Holds `.panes.lock` through validation, rewriting and labelling, so a
+  concurrent override cannot overwrite a validated binding. Rewrites the row: new id, detected cli,
   `origin=adopted` (so `down` never closes a pane crew didn't create).
 - Labels + styles the new pane, logs `sys: <caller> rebound <role> %old → %new`.
 - Sends no intro unless `--intro` (the agent usually already knows its role);
   when run from the new pane it prints a reminder line on stdout.
+
+## `crew override <role> <replacement-role|pane>`
+
+```sh
+crew -s voucher override lead impl   # promote the running implementation agent
+crew -s voucher override lead %12    # take over from an agent in a new pane
+```
+
+Manual mid-work recovery when a role hits a usage limit. Only `you` or the
+current `lead` may invoke it; sender identity remains advisory. Both existing
+crew panes must pass `owns_pane`; a new pane must be unlabelled. Validation
+runs under `.panes.lock` and `.board.lock`, before changing bindings. Caller
+identity is checked again after acquiring the locks; `task set` also refreshes
+identity under its board lock. The shared lock helper cleans up all locks
+acquired by a command, including on validation failure. Both TSV rewrites
+are prepared before publishing; updates are not crash-atomic across files.
+
+- An existing replacement swaps occupants with the overridden role. CLI and
+  spawned/adopted origin follow the pane. Its unfinished board rows move to
+  the overridden role; existing tasks for that role remain there. Completed
+  rows, result paths, dependencies and evidence stay unchanged.
+- A new pane replaces the binding with `origin=adopted`; the previous pane is
+  unlabelled and kept open, as with `rebind`. Board ownership is unchanged.
+- Save the old pane's visible output and up to 200 scrollback lines to
+  `out/override-<role>-<timestamp>-<pid>.md`, with recovery instructions.
+  Private conversation history is unavailable: the successor must read the
+  board, channel log, relevant inboxes, results and evidence.
+- Refresh rendered role files and pane labels, log the override, notify all
+  roles. Inboxes retain their history under the original role names.
+  Startup dialogs receive no typed input; the notice stays in the inbox.
+  A calling pane receives its own notice on stdout rather than a doorbell.
+- The old agent must stop its previous work and wait for a new assignment.
+  Crew changes routing and instructions; it does not interrupt an active turn.
+- `resolve_me` uses current pane bindings before `CREW_AGENT`, since running
+  processes retain the role environment from startup.
+
+```mermaid
+flowchart TD
+  override[override role replacement] --> validate[validate caller and panes]
+  validate --> capture[save recovery context]
+  capture --> kind{replacement}
+  kind -- crew role --> swap[swap pane occupants and transfer unfinished tasks]
+  kind -- new pane --> adopt[adopt successor and detach previous pane]
+  swap & adopt --> refresh[refresh roles and notify agents]
+  refresh --> recover[successor reads board and history and continues]
+```
 
 ## Readiness heuristic
 

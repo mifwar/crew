@@ -30,7 +30,9 @@ rev2	%133	codex -c sandbox_workspace_write.network_access=true …	spawned
 - `cli` is the role spec as typed (spawned) or the detected program (adopted,
   `--self`, rebound: `claude`, `pi`, `codex`). Crews created before detection
   existed may hold `2.1.284` (Claude) or `node` (pi).
-- Rewritten only by `crew rebind`, under `.panes.lock`.
+- Rewritten by `crew rebind` or `crew override`, under `.panes.lock`.
+  Overrides also hold `.board.lock` while transferring unfinished replacement
+  tasks; completed task owners and output paths stay unchanged.
 - `origin` is `spawned` or `adopted`. Files written before this column existed
   have 3 fields; readers default a missing origin to `spawned`.
 

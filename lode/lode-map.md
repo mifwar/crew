@@ -14,7 +14,7 @@ flowchart TD
   - [state-files.md](architecture/state-files.md) — exact formats of `~/.crew/<name>/*`
 - cli/
   - [summary.md](cli/summary.md) — command table, env knobs, pane labels/border, model detection
-  - [lifecycle.md](cli/lifecycle.md) — `up` / `adopt` / `rebind` / `down`, `--self` / `--here`, pane ids, readiness
+  - [lifecycle.md](cli/lifecycle.md) — `up` / `adopt` / `rebind` / `override` / `down`, `--self` / `--here`, pane ids, readiness
   - [messaging.md](cli/messaging.md) — `send`/`say`/`note`, doorbell, `owns_pane`, sender identity, `log`
   - [tasks.md](cli/tasks.md) — board, `task add --out` / `set --evidence`, locking, result-file contract
 - agents/
