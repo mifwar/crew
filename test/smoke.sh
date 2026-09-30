@@ -51,6 +51,10 @@ for i in 1 2 3 4 5; do as impl send lead "burst-$i" >/dev/null & done; wait; sle
 check "parallel rings all arrive"       test "$(tmux capture-pane -p -J -t "$lead" | grep -c '^\[crew\] impl → lead: burst-[1-5]$')" -ge 5
 check "parallel rings don't interleave" bash -c "! tmux capture-pane -p -J -t $lead | grep -q 'burst-.*burst-'"
 check "no stale ring lock"              bash -c "! ls -d '$D'/.ring*.lock 2>/dev/null"
+as lead send impl,rev "pair-msg" >/dev/null; sleep 0.5
+check "send to a list rings each"       bash -c "tmux capture-pane -p -J -t $impl | grep -qF '[crew] lead → impl: pair-msg' && grep -q pair-msg '$D/inbox/rev.md'"
+check "  and logs one dm each"          test "$(awk -F'\t' '$2=="dm" && $5=="pair-msg"' "$D/channel.log" | wc -l | tr -d ' ')" = 2
+check "a list with a bad name sends nothing" bash -c "! CREW_SESSION=t CREW_AGENT=lead '$CREW' send impl,nobody lost-msg 2>/dev/null && ! grep -q lost-msg '$D/inbox/impl.md'"
 check "worker cannot broadcast"         bash -c "! CREW_SESSION=t CREW_AGENT=rev '$CREW' send @all hi"
 check "you (terminal) can broadcast"    human "$CREW" -s t send @all "pause"
 check "broadcast rung as you (terminal)" screen_has "$impl" "[crew] you (terminal) → @all: pause"
@@ -119,13 +123,21 @@ fi
 check "subcommand --help exits 0"       "$CREW" send --help
 check "unknown command exits 1"         bash -c "! '$CREW' bogus"
 
-# Simulate pane-id reuse: rev's pane loses its crew labels (as a fresh pane would).
+# A pane showing an approval prompt gets no doorbell (a digit would pick an option).
 rev=$(awk -F'\t' '$1=="rev"{print $2}' "$D/panes")
+tmux send-keys -t "$rev" "Do you want to proceed?" Enter; sleep 0.3
+as lead send rev "held-msg" >/dev/null 2>&1; sleep 0.3
+check "no ring into an approval prompt" bash -c "! tmux capture-pane -p -J -t $rev | grep -q held-msg"
+check "  but it's in the inbox"         grep -q held-msg "$D/inbox/rev.md"
+check "  and the log says so"           grep -q 'rev not rung: pane .* approval prompt' "$D/channel.log"
+
+# Simulate pane-id reuse: rev's pane loses its crew labels (as a fresh pane would).
 tmux set-option -p -u -t "$rev" @crew_role; tmux set-option -p -u -t "$rev" @crew_session
 tmux send-keys -t "$rev" C-c; sleep 0.3; tmux send-keys -t "$rev" "clear" Enter; sleep 0.3
 as lead send rev "should not ring" >/dev/null 2>&1
 check "no ring into a reused pane"      bash -c "! tmux capture-pane -p -t $rev | grep -q 'should not ring'"
 check "message still saved to inbox"    grep -q 'should not ring' "$D/inbox/rev.md"
+check "  and the log says so"           grep -q 'rev not rung: pane .* gone or now belongs' "$D/channel.log"
 check "peek refuses a reused pane"     bash -c "! '$CREW' -s t peek rev"
 check "status marks reused pane STALE"  bash -c "'$CREW' -s t status | grep -q 'STALE'"
 

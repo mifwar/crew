@@ -32,7 +32,7 @@ flowchart LR
 - **Startup dialogs** (folder trust, codex update): `intro()` detects them and
   holds the intro until the human answers
   ([../cli/lifecycle.md](../cli/lifecycle.md#readiness-heuristic)). A new CLI's
-  dialog footer may need adding to `DIALOG_RE`.
+  dialog footer or approval-prompt text may need adding to `DIALOG_RE`.
 
 ## Adding a new CLI
 
