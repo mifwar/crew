@@ -35,8 +35,8 @@ crew — coding agents working together in tmux
       --in <session>   tmux session for the new window (default: the caller's)
   crew adopt <name> role=<pane> ...                   use panes you already have (%7, .2, 6.1)
   crew rebind <role> [pane]                           point a role at another pane (default: this one)
-  crew send <role|@all|you> <message>                 message an agent (@all: lead/you only)
-  crew say <role|@all> <message>                      same, but only for the human at a terminal
+  crew send <role[,role…]|@all|you> <message>         message agents (@all: lead/you only)
+  crew say <role[,role…]|@all> <message>              same, but only for the human at a terminal
   crew note <text>                                    add a note to the timeline
   crew task add --to <role> [--dep T1] [--out out/x.md] [--msg ..] <title>
   crew task set <id> <queued|working|done|blocked|needs-input> [--out <file>] [--evidence <file>]
@@ -217,11 +217,14 @@ set_pane_status() { # role text
   [ -n "$p" ] && owns_pane "$p" "$1" && tmux set-option -p -t "$p" @crew_status "$2" 2>/dev/null || true
 }
 
-# Startup dialogs take Enter as their highlighted choice: claude's trust
-# dialog "No, exit", codex's update "Update now" and trust "Trust and
-# continue". The intro must never land in one, and crew must not answer it.
-# Footers seen: claude "Enter to confirm · Esc to cancel", codex "enter continue · esc skip".
-DIALOG_RE='enter (to )?(confirm|continue)|trust this folder'
+# Dialogs answer keystrokes: Enter takes the highlighted choice (claude's
+# trust dialog "No, exit", codex's update "Update now" and trust "Trust and
+# continue") and a digit picks an option in an approval prompt ("T1 done"
+# types a 1). Nothing crew types may land in one, and crew never answers one.
+# Seen: startup footers claude "Enter to confirm · Esc to cancel", codex
+# "enter continue · esc skip"; approvals claude "Do you want to proceed?",
+# codex "Would you like to run the following command?", both "…don't ask again…".
+DIALOG_RE='enter (to )?(confirm|continue)|trust this folder|do you want to proceed|would you like to (run|make|grant|send)|don.t ask again'
 in_dialog() { # pane
   tmux capture-pane -p -t "$1" 2>/dev/null | sed '/^[[:space:]]*$/d' | tail -n 15 | grep -qiE "$DIALOG_RE"
 }
@@ -406,26 +409,38 @@ cmd_adopt() {
 
 # ---------- messaging ----------
 
+# The message always lands in the inbox; the ring is best-effort. A ring
+# that isn't made is logged, so the timeline shows who never got a doorbell.
 deliver() { # role text label
-  local pane line
+  local pane line why
   pane=$(pane_of "$1")
   printf '\n## %s  %s → %s\n\n%s\n' "$(now)" "$(sender_label)" "$3" "$2" >> "$D/inbox/$1.md"
-  if ! owns_pane "$pane" "$1"; then
-    echo "crew: not ringing $1: pane $pane is gone or now belongs to something else (saved to inbox/$1.md)" >&2
-    return 0
+  if ! owns_pane "$pane" "$1"; then why="pane $pane is gone or now belongs to something else"
+  elif in_dialog "$pane"; then why="pane $pane is showing a dialog or approval prompt"
+  else
+    refresh_model "$pane"
+    line=$(oneline "$2")
+    [ ${#line} -le "$RING_MAX" ] || line="long message; read the latest entry in $D/inbox/$1.md"
+    ring "$pane" "[crew] $(sender_label) → $3: $line" 2>/dev/null && return 0
+    why="could not reach pane $pane"
   fi
-  refresh_model "$pane"
-  line=$(oneline "$2")
-  [ ${#line} -le "$RING_MAX" ] || line="long message; read the latest entry in $D/inbox/$1.md"
-  ring "$pane" "[crew] $(sender_label) → $3: $line" 2>/dev/null || echo "crew: could not reach $1 ($pane)" >&2
+  echo "crew: not ringing $1: $why (saved to inbox/$1.md)" >&2
+  log_line sys "$ME" "$1" "$1 not rung: $why; message is in inbox/$1.md"
 }
 
 cmd_send() {
   resolve_session; resolve_me
-  [ $# -ge 2 ] || die 'usage: crew send <role|@all|you> <message>'
-  local to="$1" r; shift
+  [ $# -ge 2 ] || die 'usage: crew send <role[,role…]|@all|you> <message>'
+  local to="$1" r list; shift
   local text="$*"
   case "$to" in
+    *,*)  # several recipients: check them all, then one plain send each
+      IFS=, read -r -a list <<< "$to"
+      for r in "${list[@]}"; do
+        [ "$r" = you ] || [ -n "$(pane_of "$r")" ] || die "no agent '$r' in crew $S (have: $(roles | tr '\n' ' ')you)"
+        [ "$r" != "$ME" ] || die "can't send to yourself"
+      done
+      for r in "${list[@]}"; do cmd_send "$r" "$text"; done ;;
     @all)
       [ "$ME" = lead ] || [ "$ME" = you ] || die "only lead or you can broadcast"
       log_line all "$ME" all "$text"

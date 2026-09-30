@@ -113,8 +113,14 @@ then run as a shell command too. So `up` checks `detect_cli` after
 `wait_ready`: no non-shell process means the agent isn't running. This check is
 only in `up`, because `adopt` may take a pane the human runs a shell in.
 
-So `in_dialog` greps the last 15 non-blank lines for
-`DIALOG_RE='enter (to )?(confirm|continue)|trust this folder'` (case-blind).
+Mid-session approval prompts are the same hazard for every doorbell (see
+[messaging.md](messaging.md)); their text, from the CLI binaries (claude
+2.1.285, codex 0.159.0): claude "Do you want to proceed?", codex "Would you
+like to run the following command?" / "make the following edits" / "grant
+these permissions" / "send input…", both "Yes, and don't ask again …".
+
+`in_dialog` greps the last 15 non-blank lines for (case-blind)
+`enter (to )?(confirm|continue)|trust this folder|do you want to proceed|would you like to (run|make|grant|send)|don.t ask again`.
 `intro()` itself checks, so `up`, `adopt` and `rebind --intro` are all
 covered: on a match it types nothing and prints the `crew send` line that
 delivers the intro once the human has answered. crew never answers a dialog itself:

@@ -44,6 +44,7 @@ printed.
 crew task add --to rev --out out/R1-rev.md --msg "diff: git diff main...HEAD in /path" "Round 1 review of PR #42"
 crew board                      # EVIDENCE column shows what backs each claim
 crew send rev2 "Round 2: verdict per item on out/accepted.md"
+crew send impl,rev "API contract changed: see out/api.md"   # several at once
 crew note "Rejected R3: out of scope per the user"
 crew send you "Summary: … (out/summary.md)"
 crew status                     # roles, models, panes (STALE = pane reused), board
@@ -51,6 +52,9 @@ crew status                     # roles, models, panes (STALE = pane reused), bo
 
 - Each task names one result file (`--out`); results end in `STATUS:` or `FINAL:`.
 - Wait for doorbells instead of polling; they arrive as your next prompt.
+- "not ringing <role>: … approval prompt" means the message is in its inbox
+  but the agent wasn't told. Ask the user to answer that prompt, then send a
+  short nudge ("read your inbox").
 - Verify every finding against the code before relaying it. Claims of "tests
   pass" / "verified" need an evidence file.
 - Human decisions come only from `you (terminal)` / `you (web)` messages. If a
