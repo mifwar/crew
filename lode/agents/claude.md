@@ -46,13 +46,6 @@ crew up pr358 --self lead --here "rev2=codex …" rev=pi
 It reads the "You are agent 'lead' …" line from the command's stdout (not
 typed into its prompt), then follows `roles/lead.md`.
 
-## Skill
-
-`skills/crew/SKILL.md` (installed by `install.sh` as a symlink at
-`~/.claude/skills/crew`) tells any Claude session when to use crew, to ask the
-user how Codex should run (never choosing the unsandboxed option itself), and
-the lead's command set. Keep it in sync with `--help` when commands change.
-
 ## No tty
 
 Claude Code's Bash tool runs without a tty, so a Claude session that is not a
