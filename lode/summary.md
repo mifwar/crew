@@ -15,7 +15,9 @@ Doorbells name the sender (`impl`, `you (terminal)`, `you (web)`, `outside`)
 so relayed "approvals" and stray agents are visible; the labels are advisory.
 Before typing into or closing a pane, `crew` checks the pane still carries
 this crew's labels, because tmux pane ids are reused after a server restart;
-`crew rebind` moves a role to a new pane. The web viewer (`crew web`,
+`crew rebind` moves a role to a new pane. `crew override lead impl` promotes
+an existing agent mid-work; `crew override lead %12` adopts a new successor
+pane. Overrides preserve history and results and save recovery context. The web viewer (`crew web`,
 127.0.0.1:7777) polls a small JSON API and shows roster (detected agent and
 model names), timeline, board, files and pane captures; it is read-only unless
 started with `--allow-send`. A Claude Code skill (`skills/crew`) teaches any

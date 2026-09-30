@@ -72,4 +72,7 @@ short cli, `(gone)`, or `STALE (pane reused)`), then the board.
   tasks that lack it. Found in use: a brief said "verified E2E, 150 tests"
   while the PR said "not checked in a browser, 147".
 
+`task set` resolves caller identity again after taking `.board.lock`, so a
+role override while it waits cannot retain the previous lead privilege.
+
 Related: [messaging.md](messaging.md), [../architecture/state-files.md](../architecture/state-files.md).

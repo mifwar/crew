@@ -4,6 +4,8 @@
 #   test/smoke.sh          run it
 #   KEEP=1 test/smoke.sh   leave the tmux session and files for inspection
 set -uo pipefail
+# Test identities must not inherit the agent pane running this suite.
+unset TMUX_PANE CREW_AGENT CREW_SESSION
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 CREW="$ROOT/bin/crew"
@@ -94,6 +96,45 @@ check "rebind refuses a crew member's pane" bash -c "! CREW_SESSION=t CREW_AGENT
 check "restyle runs"                    "$CREW" -s t restyle
 impl=$newp
 
+# Mid-work handover preserves the board/history and changes actual identity,
+# even though spawned agent processes still have their original CREW_AGENT.
+active=$(as lead task add --to impl "unfinished implementation")
+as impl task set "$active" working >/dev/null
+cp "$D/inbox/lead.md" "$CREW_HOME/lead-history"
+check "worker cannot override roles" bash -c "! CREW_SESSION=t CREW_AGENT=rev '$CREW' override lead impl"
+check "override rejects identical roles" bash -c "! CREW_SESSION=t CREW_AGENT=lead '$CREW' override lead lead"
+# A failed second lock must release only the lock this command acquired.
+cp "$D/panes" "$CREW_HOME/panes-before-lock-failure"
+mkdir "$D/.board.lock"
+check "override fails when board is locked" bash -c "! CREW_SESSION=t CREW_AGENT=lead '$CREW' override lead impl"
+check "failed override preserves bindings" cmp "$D/panes" "$CREW_HOME/panes-before-lock-failure"
+check "failed override releases panes lock" test ! -e "$D/.panes.lock"
+check "failed override leaves another caller's lock" test -d "$D/.board.lock"
+rmdir "$D/.board.lock"
+check "human can override lead" human "$CREW" -s t override lead impl
+check "override swaps the lead pane" test "$(awk -F'\t' '$1=="lead"{print $2}' "$D/panes")" = "$impl"
+check "override preserves the pane origin" awk -F'\t' -v p="$lead" '$1=="impl" && $2==p && $4=="spawned"{f=1} END{exit !f}' "$D/panes"
+check "override transfers unfinished replacement tasks" awk -F'\t' -v id="$active" '$1==id && $2=="lead" && $3=="working"{f=1} END{exit !f}' "$D/board.tsv"
+check "override keeps completed task owners" awk -F'\t' -v id="$id" '$1==id && $2=="impl" && $3=="done" && $7=="out/R1-tests.log"{f=1} END{exit !f}' "$D/board.tsv"
+check "new lead identity ignores stale env" bash -c "CREW_SESSION=t CREW_AGENT=impl TMUX_PANE=$impl '$CREW' whoami | grep -q '^lead '"
+check "old lead loses broadcast privilege" bash -c "! CREW_SESSION=t CREW_AGENT=lead TMUX_PANE=$lead '$CREW' send @all nope"
+check "new lead can broadcast" env CREW_SESSION=t CREW_AGENT=impl TMUX_PANE="$impl" "$CREW" send @all "takeover confirmed"
+check "override preserves existing inbox history" bash -c "head -c $(wc -c < "$CREW_HOME/lead-history" | tr -d ' ') '$D/inbox/lead.md' | cmp - '$CREW_HOME/lead-history'"
+check "new lead gets recovery instructions" grep -q 'recover the ongoing work' "$D/inbox/lead.md"
+check "handover includes old pane context" bash -c "cat '$D'/out/override-lead-*.md | grep -q 'Previous lead pane'"
+check "override releases both locks" test ! -e "$D/.panes.lock"
+check "override releases board lock" test ! -e "$D/.board.lock"
+# Restore the original occupants for the existing lifecycle assertions.
+human "$CREW" -s t override lead impl
+
+# An unlabelled new pane can take over too; it remains adopted on down.
+fresh=$(tmux split-window -d -P -F '#{pane_id}' -t "$impl" cat)
+check "human can adopt a successor" human "$CREW" -s t override lead "$fresh"
+check "new pane takes over as adopted lead" awk -F'\t' -v p="$fresh" '$1=="lead" && $2==p && $4=="adopted"{f=1} END{exit !f}' "$D/panes"
+check "replaced lead is unlabelled and kept open" test -z "$(tmux display -p -t "$lead" '#{@crew_role}')"
+check "detached lead cannot use stale env identity" bash -c "CREW_SESSION=t CREW_AGENT=lead TMUX_PANE=$lead '$CREW' whoami | grep -q '^outside '"
+human "$CREW" -s t override lead "$lead"
+tmux kill-pane -t "$fresh"
 if command -v bun >/dev/null; then
   port=$((20000 + $$ % 20000))
   CREW_WEB_PORT=$port bun "$ROOT/share/crew/web.ts" >/dev/null 2>&1 & web=$!
@@ -123,6 +164,8 @@ check "unknown command exits 1"         bash -c "! '$CREW' bogus"
 rev=$(awk -F'\t' '$1=="rev"{print $2}' "$D/panes")
 tmux set-option -p -u -t "$rev" @crew_role; tmux set-option -p -u -t "$rev" @crew_session
 tmux send-keys -t "$rev" C-c; sleep 0.3; tmux send-keys -t "$rev" "clear" Enter; sleep 0.3
+check "override refuses a reused pane" bash -c "! CREW_SESSION=t CREW_AGENT=lead '$CREW' override lead rev"
+check "override refuses a stale pane reference" bash -c "! CREW_SESSION=t CREW_AGENT=lead '$CREW' override lead $rev"
 as lead send rev "should not ring" >/dev/null 2>&1
 check "no ring into a reused pane"      bash -c "! tmux capture-pane -p -t $rev | grep -q 'should not ring'"
 check "message still saved to inbox"    grep -q 'should not ring' "$D/inbox/rev.md"
@@ -131,7 +174,7 @@ check "status marks reused pane STALE"  bash -c "'$CREW' -s t status | grep -q '
 
 "$CREW" -s t down >/dev/null 2>&1
 check "down leaves the reused pane open" tmux display -p -t "$rev" '#{pane_id}'
-check "down closes spawned panes"       bash -c "! tmux display -p -t $lead '#{pane_id}' 2>/dev/null | grep -q ."
+check "down keeps the adopted successor lead" tmux display -p -t "$lead" '#{pane_id}'
 check "down leaves rebound pane open"   tmux display -p -t "$impl" '#{pane_id}'
 check "down marks crew ended"           test -f "$D/ended"
 
@@ -140,7 +183,9 @@ self=$(tmux new-window -d -P -F '#{pane_id}' -t "$TS:")
 TMUX_PANE=$self "$CREW" up s --self lead --here impl=cat >/dev/null 2>&1
 check "--self registers caller as adopted" awk -F'\t' -v p="$self" '$1=="lead" && $2==p && $4=="adopted"{f=1} END{exit !f}' "$CREW_HOME/s/panes"
 check "--here splits caller's window"   test "$(tmux display -p -t "$self" '#{window_panes}')" = 2
+self_worker=$(awk -F'\t' '$1=="impl"{print $2}' "$CREW_HOME/s/panes")
 TMUX_PANE=$self "$CREW" down >/dev/null
+check "down closes a spawned worker" bash -c "! tmux display -p -t $self_worker '#{pane_id}' 2>/dev/null | grep -q ."
 check "down keeps the adopted pane"     tmux display -p -t "$self" '#{pane_id}'
 check "down unlabels the adopted pane"  test -z "$(tmux display -p -t "$self" '#{@crew_role}')"
 
@@ -159,6 +204,14 @@ err=$("$CREW" up dlg --in "$TS" "d=printf 'Trust this folder?\\nEnter to confirm
 dlg=$(awk -F'\t' '$1=="d"{print $2}' "$CREW_HOME/dlg/panes")
 check "no intro typed into a dialog"    bash -c "! tmux capture-pane -p -J -t $dlg | grep -q \"You are agent 'd'\""
 check "  and crew says how to send it"  bash -c "printf '%s' \"\$1\" | grep -q 'startup dialog'" _ "$err"
+replacement_dialog=$(tmux split-window -d -P -F '#{pane_id}' -t "$dlg" "printf 'Trust this folder?\nEnter to confirm\n'; cat")
+sleep 0.3
+check "human can override into a dialog pane" human "$CREW" -s dlg override d "$replacement_dialog"
+check "override does not type into a dialog" bash -c "! tmux capture-pane -p -J -t $replacement_dialog | grep -q 'You are now'"
+check "ordinary messages also leave dialogs alone" human "$CREW" -s dlg send d "dialog message must stay in inbox"
+check "ordinary dialog message stays in inbox" grep -q 'dialog message must stay in inbox' "$CREW_HOME/dlg/inbox/d.md"
+check "ordinary message does not answer dialog" bash -c "! tmux capture-pane -p -J -t $replacement_dialog | grep -q 'dialog message must stay in inbox'"
+check "override saves dialog handover to inbox" grep -q 'recover the ongoing work' "$CREW_HOME/dlg/inbox/d.md"
 "$CREW" -s dlg down >/dev/null 2>&1
 
 # A spec whose command exits leaves a bare shell: warn, send no intro.

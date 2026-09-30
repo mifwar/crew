@@ -16,6 +16,8 @@ flowchart TD
   own -- yes --> model[refresh_model] --> ring["ring '[crew] from → to: text'"]
 ```
 
+- Delivery to the calling pane prints the notice on stdout. A startup dialog
+  receives no typed input; the message stays in its inbox with a warning.
 - The body goes to `inbox/<role>.md` in full (markdown heading per message).
 - The doorbell is the message flattened to one line. Over `RING_MAX` (500)
   chars it becomes `long message; read the latest entry in …/inbox/<role>.md`.
@@ -54,12 +56,21 @@ The web viewer applies the same rule and shows the role as `stale`.
 
 ```mermaid
 flowchart TD
-  a{CREW_AGENT + matching CREW_SESSION?} -- yes --> role[that role]
-  a -- no --> b{TMUX_PANE in panes?} -- yes --> role
-  b -- no --> c{"stdin is a tty?"} -- yes --> term["you (terminal)"]
-  c -- no --> d{CREW_VIA=web?} -- yes --> web["you (web)"]
+  a{TMUX_PANE present?} -- yes --> lookup{pane bound in this crew?}
+  lookup -- yes --> role[current role]
+  lookup -- no --> c{"stdin is a tty?"}
+  a -- no --> b{CREW_AGENT + matching CREW_SESSION?}
+  b -- yes --> role
+  b -- no --> c
+  c -- yes --> term["you (terminal)"]
+  c -- no --> d{CREW_VIA=web?}
+  d -- yes --> web["you (web)"]
   d -- no --> out[outside]
 ```
+
+Pane bindings take precedence over `CREW_AGENT` after overrides. A pane that
+has been detached cannot claim its previous identity via stale environment
+variables. Pane-less callers can still use the matching crew environment.
 
 Agents' shell tools run without a tty (checked for Claude Code), so an agent
 that isn't a crew member shows up as `outside`, not as the human. `outside`
