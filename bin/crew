@@ -62,7 +62,8 @@ crew — coding agents working together in tmux
             pass flags in the role spec, e.g. keep the sandbox but let it
             reach tmux and write ~/.crew:
               "impl=codex -c sandbox_workspace_write.network_access=true
-                 -c sandbox_workspace_write.writable_roots=[\"$HOME/.crew\"]"
+                 -c 'sandbox_workspace_write.writable_roots=[\"$HOME/.crew\"]'"
+            (keep the single quotes: zsh globs a bare [...] and the command fails)
             or run it fully unsandboxed (no approvals either):
               "impl=codex --dangerously-bypass-approvals-and-sandbox"
     pi      has no permission prompts
@@ -352,8 +353,12 @@ cmd_up() {
   echo "crew '$S': started ${#specs[@]} agents in $target:$win; waiting for them to settle..."
   while IFS="$(printf '\t')" read -r role pane cli origin; do
     [ "$origin" = spawned ] || continue
+    # The spec is typed into the user's shell, so a shell error (e.g. zsh's
+    # "no matches found" for an unquoted `[...]`) leaves only the shell running.
     ( wait_ready "$pane" || echo "crew: $role did not settle in ${BOOT_WAIT}s, sending intro anyway" >&2
-      intro "$role" "$pane"; refresh_model "$pane" ) &
+      if [ -z "$(detect_cli "$pane")" ]; then
+        echo "crew: $role ($pane) is back at a shell prompt, so its command failed; no intro sent. Last line: $(tmux capture-pane -p -t "$pane" | sed '/^[[:space:]]*$/d' | tail -n 1). Quote any [...] or * in the role spec, then crew down and up again." >&2
+      else intro "$role" "$pane"; refresh_model "$pane"; fi ) &
   done < "$D/panes"
   wait
   if [ -z "$self" ] && [ "$here" = 0 ] && [ -z "${CREW_NO_SWITCH:-}" ] && [ -n "${TMUX:-}" ]; then

@@ -21,7 +21,7 @@ succeed, which hid this when tests used a `/tmp` `CREW_HOME`.
 
 ```sh
 # keep the sandbox, allow network (unlocks the tmux socket) + write ~/.crew
-"impl=codex -c sandbox_workspace_write.network_access=true -c sandbox_workspace_write.writable_roots=[\"$HOME/.crew\"]"
+"impl=codex -c sandbox_workspace_write.network_access=true -c 'sandbox_workspace_write.writable_roots=[\"$HOME/.crew\"]'"
 
 # or fully unsandboxed, no approvals
 "impl=codex --dangerously-bypass-approvals-and-sandbox"
@@ -30,6 +30,13 @@ succeed, which hid this when tests used a `/tmp` `CREW_HOME`.
 Both verified: under the first, a sandboxed command could `touch ~/.crew/…`
 and run `tmux list-sessions`. Network access also lets sandboxed commands
 reach the internet — say so when recommending it.
+
+The single quotes around `writable_roots=[…]` are required. `crew up` types
+the spec into the pane's shell, and zsh (`nomatch`) treats a bare `[...]` as a
+failed glob: `zsh: no matches found: sandbox_workspace_write.writable_roots=[…]`.
+Codex never starts, and the pane is left at a prompt. `crew up` detects this (the
+pane runs only a shell once it settles), warns with the pane's last line, and
+skips the intro, which would otherwise be typed into zsh as a command too.
 
 Codex has no `--yolo` alias; `codex sandbox` takes `-c` overrides and a
 command (`codex sandbox -c … -- <cmd>` is the quickest way to test a config).
