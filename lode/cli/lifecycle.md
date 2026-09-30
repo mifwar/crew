@@ -14,7 +14,10 @@ stateDiagram-v2
    starting with `-` is an error; `x=y` args are role specs.
 2. Target session: `--in`, else the caller's (`display -p -t "$TMUX_PANE" '#S'`).
    `--self`/`--here` require `$TMUX_PANE`.
-3. `init_dir`: refuse if the crew is up; move an ended one aside; create dirs.
+3. `check_roles` on every spec (and `--self`): valid name, non-empty value,
+   no duplicates. It runs before anything exists, so a bad spec can't leave
+   orphan panes or a crew dir that blocks the name.
+   Then `init_dir`: refuse if the crew is up; move an ended one aside; create dirs.
 4. `--self R`: label the caller's pane as `R`, record it as `adopted`.
 5. For each spec: first pane via `new-window -d -n <name>` (or, with `--here`,
    `split-window` into the caller's window), the rest via `split-window` +
@@ -24,7 +27,8 @@ stateDiagram-v2
 7. Type each spec into its pane (the CLI starts), warn if a codex spec is
    sandboxed without network access ([../agents/codex.md](../agents/codex.md)).
 8. In parallel per pane: `wait_ready` (screen `cksum` unchanged twice, ≥3 s,
-   max `CREW_BOOT_WAIT`), then `intro`, then `refresh_model`.
+   max `CREW_BOOT_WAIT`), then `intro` (which refuses dialogs, see Readiness),
+   then `refresh_model`.
 9. `select-window` to the new window unless `--self`, `--here` or `CREW_NO_SWITCH`.
 10. With `--self`, print the intro line on stdout: the calling agent reads it
     from its own command output instead of having it typed into its prompt.
@@ -38,7 +42,11 @@ crew up pr358 --self lead --here "rev2=codex -c …" rev=pi   # agent starts its
 
 ## `crew adopt <name> role=<pane> …`
 
-Pane refs are anything tmux resolves: `%7`, `.2`, `6.1`. Labels each pane,
+Pane refs are anything tmux resolves: `%7`, `.2`, `6.1`. `check_roles` and
+resolving every ref (`pane_id`; the same pane twice is refused) happen before
+`init_dir`, so a bad ref labels nothing. `pane_id` treats empty output as
+not found: tmux 3.5 `display-message -p -t %999999` prints nothing and exits 0.
+Then it labels each pane,
 styles its window, records it as `adopted` with the detected program as cli
 (`detect_cli`, [summary.md](summary.md)),
 renders role files, rings the intro into every pane. Nothing is started or
@@ -85,9 +93,25 @@ crew rebind rev %201        # from anywhere
 ## Readiness heuristic
 
 `wait_ready` is a guess: spinners or clocks in a TUI can keep the screen
-changing until the timeout, and a CLI showing a trust dialog "settles" on the
-dialog and gets the intro typed into it. Start agents in directories they
-already trust. Claude and Codex queue input typed during a turn; pi was not
-checked.
+changing until the timeout. Claude and Codex queue input typed during a turn;
+pi was not checked.
+
+A startup dialog also "settles", and Enter picks its highlighted choice
+(seen 2026-09-30, tmux 3.5a):
+
+| CLI | dialog | highlighted choice |
+|-----|--------|--------------------|
+| claude | folder trust, footer `Enter to confirm · Esc to cancel` | `❯ No, exit` |
+| codex | update, footer `enter continue · esc skip` | `› 1. Update now` (`brew upgrade`) |
+| codex | folder trust, `Trust this folder?`, `enter continue · esc back` | `› 1. Trust and continue` |
+
+So `in_dialog` greps the last 15 non-blank lines for
+`DIALOG_RE='enter (to )?(confirm|continue)|trust this folder'` (case-blind).
+`intro()` itself checks, so `up`, `adopt` and `rebind --intro` are all
+covered: on a match it types nothing and prints the `crew send` line that
+delivers the intro once the human has answered. crew never answers a dialog itself:
+that would be trusting a folder or updating on the user's behalf. A per-CLI
+"ready prompt" regex was rejected: claude's dialog uses the same `❯` as its
+prompt. `--self` never types an intro (it prints one on stdout).
 
 Related: [summary.md](summary.md), [../architecture/state-files.md](../architecture/state-files.md).

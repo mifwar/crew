@@ -47,6 +47,10 @@ as impl send lead "T1 done" >/dev/null; sleep 0.5
 check "dm rings recipient pane"         screen_has "$lead" "[crew] impl → lead: T1 done"
 check "dm logged"                       awk -F'\t' '$2=="dm" && $3=="impl" && $4=="lead" && $5=="T1 done"{f=1} END{exit !f}' "$D/channel.log"
 check "dm saved to inbox"               grep -q 'T1 done' "$D/inbox/lead.md"
+for i in 1 2 3 4 5; do as impl send lead "burst-$i" >/dev/null & done; wait; sleep 0.5
+check "parallel rings all arrive"       test "$(tmux capture-pane -p -J -t "$lead" | grep -c '^\[crew\] impl → lead: burst-[1-5]$')" -ge 5
+check "parallel rings don't interleave" bash -c "! tmux capture-pane -p -J -t $lead | grep -q 'burst-.*burst-'"
+check "no stale ring lock"              bash -c "! ls -d '$D'/.ring*.lock 2>/dev/null"
 check "worker cannot broadcast"         bash -c "! CREW_SESSION=t CREW_AGENT=rev '$CREW' send @all hi"
 check "you (terminal) can broadcast"    human "$CREW" -s t send @all "pause"
 check "broadcast rung as you (terminal)" screen_has "$impl" "[crew] you (terminal) → @all: pause"
@@ -67,6 +71,7 @@ for i in $(seq 1 15); do as lead task add --to rev "task $i" >/dev/null 2>&1 & d
 check "15 parallel adds → 15 unique ids" test "$(cut -f1 "$D/board.tsv" | sort -u | wc -l | tr -d ' ')" = 15
 for i in $(seq 1 15); do as rev task set "T$i" done >/dev/null 2>&1 & done; wait
 check "15 parallel sets all applied"    test "$(awk -F'\t' '$3=="done"' "$D/board.tsv" | wc -l | tr -d ' ')" = 15
+check "worker can't set another's task" bash -c "! CREW_SESSION=t CREW_AGENT=impl '$CREW' task set T1 working"
 check "no stale board lock"             test ! -e "$D/.board.lock"
 check "task message has absolute path"  grep -qF "Write $D/out/T1-rev.md" "$D/inbox/rev.md"
 id=$(as lead task add --to impl --out R1-impl.md "review round 1")
@@ -121,6 +126,7 @@ tmux send-keys -t "$rev" C-c; sleep 0.3; tmux send-keys -t "$rev" "clear" Enter;
 as lead send rev "should not ring" >/dev/null 2>&1
 check "no ring into a reused pane"      bash -c "! tmux capture-pane -p -t $rev | grep -q 'should not ring'"
 check "message still saved to inbox"    grep -q 'should not ring' "$D/inbox/rev.md"
+check "peek refuses a reused pane"     bash -c "! '$CREW' -s t peek rev"
 check "status marks reused pane STALE"  bash -c "'$CREW' -s t status | grep -q 'STALE'"
 
 "$CREW" -s t down >/dev/null 2>&1
@@ -137,5 +143,22 @@ check "--here splits caller's window"   test "$(tmux display -p -t "$self" '#{wi
 TMUX_PANE=$self "$CREW" down >/dev/null
 check "down keeps the adopted pane"     tmux display -p -t "$self" '#{pane_id}'
 check "down unlabels the adopted pane"  test -z "$(tmux display -p -t "$self" '#{@crew_role}')"
+
+# Bad specs fail before anything is created.
+wins=$(tmux list-windows -t "$TS" | wc -l)
+check "up refuses a duplicate role"     bash -c "! '$CREW' up q --in $TS a=cat a=cat"
+check "  and opens no window"           test "$(tmux list-windows -t "$TS" | wc -l)" = "$wins"
+check "  and leaves no crew dir"        test ! -e "$CREW_HOME/q"
+check "adopt refuses a missing pane"    bash -c "! '$CREW' adopt r x=$self y=%999999"
+check "  and labels nothing"            test -z "$(tmux display -p -t "$self" '#{@crew_role}')"
+check "  and leaves no crew dir"        test ! -e "$CREW_HOME/r"
+check "adopt refuses one pane twice"    bash -c "! '$CREW' adopt r x=$self y=$self"
+
+# A pane showing a startup dialog gets no intro (Enter would answer the dialog).
+err=$("$CREW" up dlg --in "$TS" "d=printf 'Trust this folder?\\nEnter to confirm\\n'; cat" 2>&1 >/dev/null)
+dlg=$(awk -F'\t' '$1=="d"{print $2}' "$CREW_HOME/dlg/panes")
+check "no intro typed into a dialog"    bash -c "! tmux capture-pane -p -J -t $dlg | grep -q \"You are agent 'd'\""
+check "  and crew says how to send it"  bash -c "printf '%s' \"\$1\" | grep -q 'startup dialog'" _ "$err"
+"$CREW" -s dlg down >/dev/null 2>&1
 
 [ "$fail" = 0 ] && echo "all passed" || { echo "some checks failed"; exit 1; }

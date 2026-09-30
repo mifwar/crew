@@ -24,7 +24,7 @@ flowchart LR
 | `/api/state?s=` | `{name, dir, ended, panes[], board[], log[], files[]}`; each pane has `role, pane, cli, origin, alive, stale, cmd, status, where, model`; board rows have `evidence` |
 | `/api/file?s=&p=` | `{path, text}` for `out\|inbox\|roles/*.md` or `out/*.log\|txt` |
 | `POST /api/send?s=` | `{to, text}` → spawns `crew -s s send to text` with `CREW_VIA=web`; `{ok, error?, warning?}` |
-| `/api/peek?s=&role=` | last 80 lines of the pane (`capture-pane -J`), `text: null` if gone |
+| `/api/peek?s=&role=` | last 80 lines of the pane (`capture-pane -J`), `text: null` if gone or no longer carrying this crew's labels (reused id) |
 
 `stale` uses the same ownership rule as `owns_pane`
 ([../cli/messaging.md](../cli/messaging.md)); stale panes get no model scrape.
