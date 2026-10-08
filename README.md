@@ -4,6 +4,12 @@ Run Claude Code, Codex, pi (or any CLI agent) as a team in tmux panes: one
 lead assigns tasks, workers report back, you can message anyone, and a local
 web page shows it all.
 
+![A crew in one tmux window: Claude Code leads, Codex implements, pi reviews, with the channel timeline in the fourth pane](docs/demo-tmux.png)
+
+The same crew in `crew web`: roster, channel timeline and task board.
+
+![crew web showing the roster, the timeline of messages between lead, impl and rev, and the board with two finished tasks](docs/demo-web.png)
+
 ```sh
 ./install.sh                                   # puts crew on PATH (~/.local/bin)
 crew up voucher "lead=claude --allowedTools 'Bash(crew:*)'" impl=codex rev=pi
