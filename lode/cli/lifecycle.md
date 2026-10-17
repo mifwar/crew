@@ -1,9 +1,9 @@
-# Crew lifecycle: up, adopt, down
+# Crew lifecycle: up, add, adopt, down
 
 ```mermaid
 stateDiagram-v2
   [*] --> Up: crew up / crew adopt
-  Up --> Up: send / task / status / web
+  Up --> Up: add / send / task / status / web
   Up --> Ended: crew down (writes ended)
   Ended --> Up: crew up same name (old dir moved to name.TIMESTAMP)
 ```
@@ -44,7 +44,7 @@ crew up pr358 --self lead --here "rev2=codex -c …" rev=pi   # agent starts its
 ## `crew adopt <name> role=<pane> …`
 
 Pane refs are anything tmux resolves: `%7`, `.2`, `6.1`. `check_roles` and
-resolving every ref (`pane_id`; the same pane twice is refused) happen before
+resolving every ref (`resolve_pane_specs`; the same pane twice is refused) happen before
 `init_dir`, so a bad ref labels nothing. `pane_id` treats empty output as
 not found: tmux 3.5 `display-message -p -t %999999` prints nothing and exits 0.
 Then it labels each pane,
@@ -53,6 +53,43 @@ styles its window, records it as `adopted` with the detected program as cli
 renders role files, rings the intro into every pane. Nothing is started or
 moved. Adopted agents can't get `CREW_*` env vars, so identity comes from the
 pane-id lookup.
+
+## `crew add role=<cli spec|%pane> …`
+
+```sh
+crew -s voucher add "rev2=pi" impl2=%12
+```
+
+- Requires a running crew; holds `.panes.lock` through validation, pane
+  creation, labels, role-file updates and command launch. Validate all roles
+  and adopted panes before changing anything: no duplicates, missing panes,
+  panes already bound here, or panes labelled by another crew.
+- CLI specs split the recorded `meta window` (including `--here`). The window
+  must contain an owned crew pane; if agents moved, use the first owned pane's
+  window instead. With no owned pane, rebind or adopt a pane before spawning.
+  Use `meta cwd` and propagate `CREW_HOME`, `CREW_SESSION`, `CREW_AGENT`.
+- Type each CLI spec verbatim after `owns_pane`; never add flags. Record it
+  as `spawned`. `%pane` adopts an unlabelled existing pane, keeps its window,
+  detects its CLI, and records it as `adopted`.
+- `resolve_pane_specs` is shared with `adopt`: resolve pane refs, refuse the
+  same pane twice, and normalize each spec into `role|pane|origin|cli`.
+  Spawning specs start with an empty pane; creation fills it. CLI is last,
+  so literal pipes in the user command survive `read`. These records are
+  transient; persisted `panes` rows keep their existing TSV format. `add`
+  alone rejects already-bound/labelled adopted panes; `adopt` keeps its
+  existing validation rules.
+- `crew_window` selects the stored window when it contains an owned pane,
+  otherwise the first owned pane's window; it fails when none is owned.
+- Render only new role files with `write_role_file`. Existing files stay
+  untouched. All role files point to the live `panes` file and `crew status`
+  rather than embedding a roster snapshot.
+- Log a `sys` line, release the lock, then wait for spawned agents in parallel
+  and send intros using the same readiness/dialog checks as `up`. Adoption
+  sends an intro without waiting. An intro to the caller prints on stdout.
+- `owns_pane` is checked again before intros. Failed commands get no intro;
+  startup dialogs get no input and print a manual follow-up command.
+  Existing agents are not restarted or rung. `down` follows each addition's
+  spawned/adopted origin.
 
 ## `crew down`
 
@@ -125,7 +162,9 @@ are prepared before publishing; updates are not crash-atomic across files.
 - The old agent must stop its previous work and wait for a new assignment.
   Crew changes routing and instructions; it does not interrupt an active turn.
 - `resolve_me` uses current pane bindings before `CREW_AGENT`, since running
-  processes retain the role environment from startup.
+  processes retain the role environment from startup. An owned env-role hint
+  is accepted only without a calling pane or with a gone/foreign-crew pane;
+  deliberately detached unlabelled panes stay outside (see [messaging.md](messaging.md)).
 
 ```mermaid
 flowchart TD
@@ -158,15 +197,19 @@ so a shell error such as zsh's `no matches found` for an unquoted `[...]` in a
 codex `-c` value (seen 2026-09-30) leaves the pane at a prompt. The intro would
 then run as a shell command too. So `up` checks `detect_cli` after
 `wait_ready`: no non-shell process means the agent isn't running. This check is
-only in `up`, because `adopt` may take a pane the human runs a shell in.
+used for spawned agents in `up` and `add`; adoption may take a pane the human
+runs a shell in.
 
 So `in_dialog` greps the last 15 non-blank lines for
 `DIALOG_RE='enter (to )?(confirm|continue)|trust this folder'` (case-blind).
-`intro()` itself checks, so `up`, `adopt` and `rebind --intro` are all
+`intro()` itself checks, so `up`, `add`, `adopt` and `rebind --intro` are all
 covered: on a match it types nothing and prints the `crew send` line that
 delivers the intro once the human has answered. crew never answers a dialog itself:
 that would be trusting a folder or updating on the user's behalf. A per-CLI
 "ready prompt" regex was rejected: claude's dialog uses the same `❯` as its
 prompt. `--self` never types an intro (it prints one on stdout).
+
+`crew sweep --apply` ends only crews with zero owned panes, without touching
+any pane; default sweep is a dry run. See [listing.md](listing.md).
 
 Related: [summary.md](summary.md), [../architecture/state-files.md](../architecture/state-files.md).

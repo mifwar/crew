@@ -1,6 +1,8 @@
 # CLI (`bin/crew`)
 
-Single bash script, one `cmd_*` function per command, dispatched at the bottom.
+One Bash entrypoint, one `cmd_*` function per command, dispatched at the bottom.
+`ls`/`sweep` and their two helpers are sourced from `share/crew/listing.sh`
+via `CREW_SHARE`; see [listing.md](listing.md).
 `-s <name>` before the command selects a crew; `-h`/`--help` anywhere right
 after a command prints the full usage (exit 0); unknown commands exit 1.
 
@@ -8,6 +10,7 @@ after a command prints the full usage (exit 0); unknown commands exit 1.
 |---|---|---|
 | `up <name> [--self R] [--here] [--in S] role=cli …` | create panes, start CLIs, send intros | [lifecycle.md](lifecycle.md) |
 | `adopt <name> role=<pane> …` | label existing panes, send intros | [lifecycle.md](lifecycle.md) |
+| `add role=<cli spec\|%pane> …` | spawn or adopt new roles in a running crew | [lifecycle.md](lifecycle.md) |
 | `override <role> <replacement-role\|pane>` | hand ongoing work to another agent | [lifecycle.md](lifecycle.md) |
 | `rebind <role> [pane] [--intro]` | move a role to another pane (default: caller's) | [lifecycle.md](lifecycle.md) |
 | `send <role\|@all\|you> <msg>` | log + inbox + doorbell | [messaging.md](messaging.md) |
@@ -21,7 +24,9 @@ after a command prints the full usage (exit 0); unknown commands exit 1.
 | `web [--port N] [--open] [--allow-send]` | exec the Bun viewer | [../web/summary.md](../web/summary.md) |
 | `restyle` | re-apply the border format to the crew's windows | below |
 | `down` | close spawned panes, unlabel adopted ones, mark ended | [lifecycle.md](lifecycle.md) |
-| `ls`, `whoami`, `path` | list crews, caller identity, crew dir | — |
+| `ls [--live]` | projects, actual pane liveness, task counts and last activity | [listing.md](listing.md) |
+| `sweep [--apply]` | dry-run stale cleanup, or mark stale crews ended without touching panes | [listing.md](listing.md) |
+| `whoami`, `path` | caller identity, crew dir | — |
 
 ```mermaid
 flowchart TD
@@ -36,7 +41,7 @@ flowchart TD
 | Variable | Default | Use |
 |---|---|---|
 | `CREW_HOME` | `~/.crew` | crew state root (tests point it at a temp dir) |
-| `CREW_SHARE` | `<script dir>/../share/crew` | templates + web files |
+| `CREW_SHARE` | `<script dir>/../share/crew` | listing module + templates + web files |
 | `CREW_BOOT_WAIT` | `30` | max seconds to wait for a new CLI to settle |
 | `CREW_NO_SWITCH` | unset | don't `select-window` after `up` (tests) |
 | `CREW_WEB_PORT` | `7777` | viewer port |

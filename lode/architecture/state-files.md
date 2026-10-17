@@ -30,7 +30,7 @@ rev2	%133	codex -c sandbox_workspace_write.network_access=true …	spawned
 - `cli` is the role spec as typed (spawned) or the detected program (adopted,
   `--self`, rebound: `claude`, `pi`, `codex`). Crews created before detection
   existed may hold `2.1.284` (Claude) or `node` (pi).
-- Rewritten by `crew rebind` or `crew override`, under `.panes.lock`.
+- Added to by `crew add`, rewritten by `crew rebind` or `crew override`, under `.panes.lock`.
   Overrides also hold `.board.lock` while transferring unfinished replacement
   tasks; completed task owners and output paths stay unchanged.
 - `origin` is `spawned` or `adopted`. Files written before this column existed
@@ -79,6 +79,10 @@ web); the doorbell and inbox heading do.
   dir is moved aside to `<name>.<timestamp>` and a fresh one created.
 - `crew down` writes `ended`, clears `.current` if it pointed here, and keeps
   every file for later reading (`crew -s name log`, the web viewer).
+- `crew sweep --apply` does the same bookkeeping only when no recorded pane
+  passes `owns_pane`, under `.panes.lock`; it never changes pane labels or
+  closes panes. Default `crew sweep` is read-only. [Listing](../cli/listing.md)
+  computes real liveness rather than trusting the absence of `ended`.
 - `pane_session` (lookup by pane id) skips ended crews.
 
 Related: [summary.md](summary.md), [../cli/tasks.md](../cli/tasks.md).

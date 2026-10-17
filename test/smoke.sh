@@ -32,6 +32,7 @@ cleanup() {
 trap cleanup EXIT
 
 bash -n "$CREW" || { echo "FAIL  bash -n"; exit 1; }
+bash -n "$ROOT/share/crew/listing.sh" || { echo "FAIL  bash -n listing.sh"; exit 1; }
 tmux new-session -d -s "$TS" -x 200 -y 50
 
 "$CREW" up t --in "$TS" lead=cat "impl=cat && true" rev=cat >/dev/null 2>&1
@@ -42,8 +43,17 @@ impl=$(awk -F'\t' '$1=="impl"{print $2}' "$D/panes")
 check "up creates 3 spawned panes"      test "$(awk -F'\t' '$4=="spawned"' "$D/panes" | wc -l | tr -d ' ')" = 3
 check "intro typed into lead"           screen_has "$lead" "You are agent 'lead'"
 check "roles/rev.md from rev template"  grep -q 'You review' "$D/roles/rev.md"
-check "roster shows short program names" grep -qF 'lead=cat, impl=cat, rev=cat' "$D/roles/lead.md"
+check "role file points to the live roster" grep -qF "For the current roster, read \`$D/panes\`" "$D/roles/lead.md"
 check "pane labelled with role"         test "$(tmux display -p -t "$impl" '#{@crew_role}')" = impl
+
+# 16 prefix bytes + 52 ASCII bytes put byte 70 inside the final arrow.
+utf8_message="$(printf '%052d' 0)→ café 😀 tail"
+as impl send lead "$utf8_message" >/dev/null
+status_file="$CREW_HOME/status-utf8"
+check "status survives a mid-UTF-8 byte boundary" bash -c '"$1" -s t status > "$2"' _ "$CREW" "$status_file"
+check "status retains every agent row" test "$(awk '$1=="lead" || $1=="impl" || $1=="rev"{n++} END{print n}' "$status_file")" = 3
+check "status output is valid UTF-8" iconv -f UTF-8 -t UTF-8 "$status_file"
+check "status truncates by characters" grep -qF "${utf8_message:0:55}" "$status_file"
 
 as impl send lead "T1 done" >/dev/null; sleep 0.5
 check "dm rings recipient pane"         screen_has "$lead" "[crew] impl → lead: T1 done"
@@ -68,6 +78,19 @@ check "note lands in the log"           grep -qF 'note (lead): rejected R3' "$D/
 check "whoami hints in a foreign pane"  bash -c "TMUX_PANE=%999999 '$CREW' -s t whoami 2>&1 | grep -q \"isn't in crew t\""
 check "identity from env"               bash -c "CREW_SESSION=t CREW_AGENT=rev '$CREW' whoami | grep -q '^rev '"
 check "identity from pane id"           bash -c "TMUX_PANE=$impl '$CREW' whoami | grep -q '^impl '"
+check "identity falls back from a missing tool-shell pane" bash -c 'CREW_SESSION=t CREW_AGENT=impl TMUX_PANE=%999999 "$1" whoami | grep -q "^impl "' _ "$CREW"
+foreign_pane=$(tmux new-window -d -P -F '#{pane_id}' -t "$TS:" cat)
+tmux set-option -p -t "$foreign_pane" @crew_session unrelated
+tmux set-option -p -t "$foreign_pane" @crew_role other
+check "identity falls back from another crew's pane" bash -c 'CREW_SESSION=t CREW_AGENT=impl TMUX_PANE="$2" "$1" whoami | grep -q "^impl "' _ "$CREW" "$foreign_pane"
+tmux set-option -p -t "$foreign_pane" @crew_session t
+check "identity rejects an unbound pane labelled to this crew" bash -c 'CREW_SESSION=t CREW_AGENT=impl TMUX_PANE="$2" "$1" whoami | grep -q "^outside "' _ "$CREW" "$foreign_pane"
+check "fallback identity can update its own task" bash -c 'CREW_SESSION=t CREW_AGENT=lead TMUX_PANE=%999999 "$1" task add --to impl identity-check > "$2" && CREW_SESSION=t CREW_AGENT=impl TMUX_PANE=%999999 "$1" task set "$(cat "$2")" done' _ "$CREW" "$CREW_HOME/identity-task"
+# Existing board count assertions expect the first task to be T1 below.
+: > "$D/board.tsv"
+check "identity fallback refuses an unknown env role" bash -c 'CREW_SESSION=t CREW_AGENT=absent TMUX_PANE=%999999 "$1" whoami | grep -q "^outside "' _ "$CREW"
+check "identity fallback refuses a different crew env" bash -c 'CREW_SESSION=other CREW_AGENT=impl TMUX_PANE=%999999 "$1" -s t whoami | grep -q "^outside "' _ "$CREW"
+tmux kill-pane -t "$foreign_pane"
 
 for i in $(seq 1 15); do as lead task add --to rev "task $i" >/dev/null 2>&1 & done; wait
 check "15 parallel adds → 15 unique ids" test "$(cut -f1 "$D/board.tsv" | sort -u | wc -l | tr -d ' ')" = 15
@@ -170,6 +193,7 @@ as lead send rev "should not ring" >/dev/null 2>&1
 check "no ring into a reused pane"      bash -c "! tmux capture-pane -p -t $rev | grep -q 'should not ring'"
 check "message still saved to inbox"    grep -q 'should not ring' "$D/inbox/rev.md"
 check "peek refuses a reused pane"     bash -c "! '$CREW' -s t peek rev"
+check "identity fallback refuses a reused role pane" bash -c 'CREW_SESSION=t CREW_AGENT=rev TMUX_PANE=%999999 "$1" whoami | grep -q "^outside "' _ "$CREW"
 check "status marks reused pane STALE"  bash -c "'$CREW' -s t status | grep -q 'STALE'"
 
 "$CREW" -s t down >/dev/null 2>&1
@@ -184,6 +208,9 @@ TMUX_PANE=$self "$CREW" up s --self lead --here impl=cat >/dev/null 2>&1
 check "--self registers caller as adopted" awk -F'\t' -v p="$self" '$1=="lead" && $2==p && $4=="adopted"{f=1} END{exit !f}' "$CREW_HOME/s/panes"
 check "--here splits caller's window"   test "$(tmux display -p -t "$self" '#{window_panes}')" = 2
 self_worker=$(awk -F'\t' '$1=="impl"{print $2}' "$CREW_HOME/s/panes")
+check "add uses the original --here window" env TMUX_PANE="$self" "$CREW" add rev=cat
+self_added=$(awk -F'\t' '$1=="rev"{print $2}' "$CREW_HOME/s/panes")
+check "added pane shares caller's window" test "$(tmux display -p -t "$self_added" '#{window_id}')" = "$(tmux display -p -t "$self" '#{window_id}')"
 TMUX_PANE=$self "$CREW" down >/dev/null
 check "down closes a spawned worker" bash -c "! tmux display -p -t $self_worker '#{pane_id}' 2>/dev/null | grep -q ."
 check "down keeps the adopted pane"     tmux display -p -t "$self" '#{pane_id}'
@@ -198,6 +225,13 @@ check "adopt refuses a missing pane"    bash -c "! '$CREW' adopt r x=$self y=%99
 check "  and labels nothing"            test -z "$(tmux display -p -t "$self" '#{@crew_role}')"
 check "  and leaves no crew dir"        test ! -e "$CREW_HOME/r"
 check "adopt refuses one pane twice"    bash -c "! '$CREW' adopt r x=$self y=$self"
+adopt_lead=$(tmux new-window -d -P -F '#{pane_id}' -t "$TS:" cat)
+adopt_rev=$(tmux split-window -d -P -F '#{pane_id}' -t "$adopt_lead" cat)
+adopt_ref=$(tmux display -p -t "$adopt_rev" '#{session_name}:#{window_index}.#{pane_index}')
+check "adopt resolves id and session/window/index refs" "$CREW" adopt existing lead="$adopt_lead" rev="$adopt_ref"
+check "adopt records resolved ids and detected CLI" awk -F'\t' -v p="$adopt_rev" '$1=="rev" && $2==p && $3=="cat" && $4=="adopted"{f=1} END{exit !f}' "$CREW_HOME/existing/panes"
+check "adopt renders a live roster pointer" grep -qF "$CREW_HOME/existing/panes" "$CREW_HOME/existing/roles/lead.md"
+"$CREW" -s existing down >/dev/null 2>&1
 
 # A pane showing a startup dialog gets no intro (Enter would answer the dialog).
 err=$("$CREW" up dlg --in "$TS" "d=printf 'Trust this folder?\\nEnter to confirm\\n'; cat" 2>&1 >/dev/null)
@@ -220,5 +254,174 @@ gone=$(awk -F'\t' '$1=="g"{print $2}' "$CREW_HOME/gone/panes")
 check "failed command gets no intro"    bash -c "! tmux capture-pane -p -J -t $gone | grep -q \"You are agent 'g'\""
 check "  and crew says it failed"       bash -c "printf '%s' \"\$1\" | grep -q 'back at a shell prompt'" _ "$err"
 "$CREW" -s gone down >/dev/null 2>&1
+
+# Grow a running crew, preserving custom instructions and adopting safely.
+"$CREW" up expand --in "$TS" lead=cat rev=cat >/dev/null 2>&1
+E="$CREW_HOME/expand"
+expand_win=$(awk -F'=' '$1=="window"{print $2}' "$E/meta")
+sed 's/\. The human is/. Keep this custom instruction. The human is/' "$E/roles/lead.md" > "$E/roles/lead.md.tmp"
+mv "$E/roles/lead.md.tmp" "$E/roles/lead.md"
+printf '\nExtra custom instructions.\n' >> "$E/roles/lead.md"
+cp "$E/roles/lead.md" "$CREW_HOME/expand-lead-before-add"
+adopted=$(tmux new-window -d -P -F '#{pane_id}' -t "$TS:" cat)
+spec="printf 'verbatim → spec\\n' | cat; cat"
+check "add spawns and adopts in one batch" "$CREW" -s expand add "rev2=$spec" "test=$adopted"
+spawned=$(awk -F'\t' '$1=="rev2"{print $2}' "$E/panes")
+check "add records the verbatim CLI" test "$(awk -F'\t' '$1=="rev2"{print $3}' "$E/panes")" = "$spec"
+check "add records spawned origin" awk -F'\t' '$1=="rev2" && $4=="spawned"{f=1} END{exit !f}' "$E/panes"
+check "add starts the exact command" screen_has "$spawned" 'verbatim → spec'
+check "add uses the crew's recorded window" test "$(tmux display -p -t "$spawned" '#{window_id}')" = "$expand_win"
+check "add labels the adopted pane" test "$(tmux display -p -t "$adopted" '#{@crew_session}/#{@crew_role}')" = expand/test
+check "add records adopted origin" awk -F'\t' '$1=="test" && $4=="adopted"{f=1} END{exit !f}' "$E/panes"
+check "add rings the spawned agent's intro" screen_has "$spawned" "You are agent 'rev2'"
+check "add rings the adopted agent's intro" screen_has "$adopted" "You are agent 'test'"
+check "add uses the base role template" grep -q 'You review' "$E/roles/rev2.md"
+check "add renders a live roster pointer in new role files" grep -qF "For the current roster, read \`$E/panes\`" "$E/roles/rev2.md"
+check "add leaves existing role files unchanged" cmp "$E/roles/lead.md" "$CREW_HOME/expand-lead-before-add"
+check "add preserves other custom instructions" grep -qF 'Extra custom instructions.' "$E/roles/lead.md"
+check "add logs a sys event" awk -F'\t' '$2=="sys" && $5~/added agents to expand: rev2 test/{f=1} END{exit !f}' "$E/channel.log"
+cp "$E/panes" "$CREW_HOME/expand-before-invalid"
+pane_count=$(tmux list-panes -s -t "$TS" | wc -l)
+check "add refuses existing roles before spawning" bash -c '! "$1" -s expand add fresh=cat rev=cat' _ "$CREW"
+check "add refuses duplicate new roles" bash -c '! "$1" -s expand add fresh=cat fresh=cat' _ "$CREW"
+check "add rejects a missing pane before spawning" bash -c '! "$1" -s expand add fresh=cat test2=%999999' _ "$CREW"
+check "add rejects a pane already in this crew" bash -c '! "$1" -s expand add test2="$2"' _ "$CREW" "$adopted"
+check "invalid add preserves bindings" cmp "$E/panes" "$CREW_HOME/expand-before-invalid"
+check "invalid add creates no panes" test "$(tmux list-panes -s -t "$TS" | wc -l)" = "$pane_count"
+unlabelled=$(tmux new-window -d -P -F '#{pane_id}' -t "$TS:" cat)
+check "add rejects the same pane twice" bash -c '! "$1" -s expand add a="$2" b="$2"' _ "$CREW" "$unlabelled"
+check "invalid batch leaves adopted target unlabelled" test -z "$(tmux display -p -t "$unlabelled" '#{@crew_role}')"
+cp "$E/meta" "$CREW_HOME/expand-original-meta"
+unowned_win=$(tmux display -p -t "$unlabelled" '#{window_id}')
+sed "s/^window=.*/window=$unowned_win/" "$E/meta" > "$E/meta.tmp"
+mv "$E/meta.tmp" "$E/meta"
+check "add falls back from an unowned stored window" "$CREW" -s expand add fallback=cat
+fallback_pane=$(awk -F'\t' '$1=="fallback"{print $2}' "$E/panes")
+check "fallback uses the first owned pane's window" test "$(tmux display -p -t "$fallback_pane" '#{window_id}')" = "$expand_win"
+mv "$CREW_HOME/expand-original-meta" "$E/meta"
+tmux set-option -p -t "$unlabelled" @crew_session other
+tmux set-option -p -t "$unlabelled" @crew_role worker
+check "add rejects another crew's pane" bash -c '! "$1" -s expand add a="$2"' _ "$CREW" "$unlabelled"
+tmux kill-pane -t "$unlabelled"
+check "failed validation releases panes lock" test ! -e "$E/.panes.lock"
+mkdir "$E/.panes.lock"
+check "add respects the panes lock" bash -c '! "$1" -s expand add locked=cat' _ "$CREW"
+check "add leaves another caller's lock alone" test -d "$E/.panes.lock"
+rmdir "$E/.panes.lock"
+"$CREW" -s expand add parallel1=cat >/dev/null 2>&1 & add1=$!
+"$CREW" -s expand add parallel2=cat >/dev/null 2>&1 & add2=$!
+check "first concurrent add succeeds" wait "$add1"
+check "second concurrent add succeeds" wait "$add2"
+check "concurrent adds preserve both roles" test "$(awk -F'\t' '$1~/^parallel[12]$/{n++} END{print n}' "$E/panes")" = 2
+roster_path=$(sed -n 's/^For the current roster, read `\([^`]*\)`.*$/\1/p' "$E/roles/lead.md")
+check "existing roster pointer sees concurrent additions" test "$(awk -F'\t' '$1~/^parallel[12]$/{n++} END{print n}' "$roster_path")" = 2
+check "concurrent adds leave custom role files untouched" cmp "$E/roles/lead.md" "$CREW_HOME/expand-lead-before-add"
+err=$("$CREW" -s expand add "dialog=printf 'Trust this folder?\\nEnter to confirm\\n'; cat" "failed=true" 2>&1 >/dev/null)
+added_dialog=$(awk -F'\t' '$1=="dialog"{print $2}' "$E/panes")
+added_failed=$(awk -F'\t' '$1=="failed"{print $2}' "$E/panes")
+check "add does not type an intro into startup dialogs" bash -c '! tmux capture-pane -p -J -t "$1" | grep -q "You are agent"' _ "$added_dialog"
+check "add explains startup dialogs and failed commands" bash -c 'printf "%s" "$1" | grep -q "startup dialog" && printf "%s" "$1" | grep -q "back at a shell prompt"' _ "$err"
+check "add sends no intro after a failed command" bash -c '! tmux capture-pane -p -J -t "$1" | grep -q "You are agent"' _ "$added_failed"
+"$CREW" -s expand down >/dev/null 2>&1
+check "down closes a pane created by add" bash -c '! tmux display -p -t "$1" "#{pane_id}" | grep -q .' _ "$spawned"
+check "down keeps a pane adopted by add" test "$(tmux display -p -t "$adopted" '#{pane_id}')" = "$adopted"
+check "down unlabels a pane adopted by add" test -z "$(tmux display -p -t "$adopted" '#{@crew_role}')"
+check "add refuses ended crews" bash -c '! "$1" -s expand add later=cat' _ "$CREW"
+
+# Listing and sweeping only inspect pane identity, including reused ids.
+fixture() {
+  local name="$1" dir="$CREW_HOME/$1"
+  mkdir -p "$dir/out"
+  printf 'mode=adopt\ncwd=%s/projects/crew\n' "$HOME" > "$dir/meta"
+  : > "$dir/panes"; : > "$dir/board.tsv"; : > "$dir/channel.log"
+}
+fixture_label() {
+  tmux set-option -p -t "$2" @crew_session "$1"
+  tmux set-option -p -t "$2" @crew_role lead
+  printf 'lead\t%s\tcat\tadopted\n' "$2" >> "$CREW_HOME/$1/panes"
+}
+fixture_snapshot() {
+  local name file
+  for name in a-ended ls-up ls-partial ls-stale ls-empty; do
+    for file in "$CREW_HOME/$name"/*; do
+      [ ! -f "$file" ] || cksum "$file"
+    done
+  done
+  cksum "$CREW_HOME/.current"
+  tmux list-panes -s -t "$TS" -F '#{pane_id} #{@crew_session}/#{@crew_role}'
+  for pane in "$ls_up" "$ls_partial" "$ls_reused"; do tmux capture-pane -p -t "$pane" | cksum; done
+}
+for name in a-ended ls-up ls-partial ls-stale ls-empty; do fixture "$name"; done
+touch "$CREW_HOME/a-ended/ended"
+ls_up=$(tmux new-window -d -P -F '#{pane_id}' -t "$TS:" cat)
+ls_partial=$(tmux new-window -d -P -F '#{pane_id}' -t "$TS:" cat)
+ls_reused=$(tmux new-window -d -P -F '#{pane_id}' -t "$TS:" cat)
+fixture_label ls-up "$ls_up"
+fixture_label ls-partial "$ls_partial"
+tmux set-option -p -t "$ls_reused" @crew_session unrelated
+tmux set-option -p -t "$ls_reused" @crew_role other
+printf 'gone\t%%999999\tcat\tspawned\nreused\t%s\tcat\tspawned\n' "$ls_reused" >> "$CREW_HOME/ls-partial/panes"
+printf 'gone\t%%999999\tcat\tspawned\nreused\t%s\tcat\tspawned\n' "$ls_reused" >> "$CREW_HOME/ls-stale/panes"
+printf 'T1\tlead\tdone\t-\tout/T1.md\tdone task\t-\nT2\tlead\tqueued\t-\tout/T2.md\topen task\t-\nT3\tlead\tworking\t-\tout/T3.md\tworking task\t-\n' > "$CREW_HOME/ls-up/board.tsv"
+fixture_epoch=$(date '+%s')
+for entry in ls-up:300 ls-partial:7200 ls-stale:172800; do
+  name="${entry%:*}"; age="${entry#*:}"
+  printf '%s\tsys\t-\t-\tfixture\n' "$(date -r "$((fixture_epoch - age))" '+%Y-%m-%dT%H:%M:%S')" > "$CREW_HOME/$name/channel.log"
+done
+printf 'cwd=%s/%s→long-project\n' "$HOME" "$(printf '%044d' 0)" > "$CREW_HOME/ls-stale/meta"
+printf 'ls-stale\n' > "$CREW_HOME/.current"
+before_listing=$(fixture_snapshot)
+listing="$CREW_HOME/listing"
+check "ls succeeds" bash -c '"$1" ls > "$2"' _ "$CREW" "$listing"
+check "ls is read-only for state files and pane labels" test "$(fixture_snapshot)" = "$before_listing"
+check "ls shows up when every pane is owned" awk '$1=="ls-up" && $3=="up"{f=1} END{exit !f}' "$listing"
+check "ls shows partial when only some panes are owned" awk '$1=="ls-partial" && $3=="partial"{f=1} END{exit !f}' "$listing"
+check "ls shows stale when no pane is owned" awk '$1=="ls-stale" && $3=="stale"{f=1} END{exit !f}' "$listing"
+check "ls shows an empty roster as stale" awk '$1=="ls-empty" && $3=="stale"{f=1} END{exit !f}' "$listing"
+check "ls shows ended state" awk '$1=="a-ended" && $3=="ended"{f=1} END{exit !f}' "$listing"
+check "ls keeps ended crews after active crews" awk '$3=="ended"{ended=1} $3~/^(up|partial|stale)$/{if(ended) exit 1}' "$listing"
+check "ls marks each agent alive, gone or reused" awk '$1=="ls-partial" && /lead=cat\(alive\)/ && /gone=cat\(gone\)/ && /reused=cat\(reused\)/{f=1} END{exit !f}' "$listing"
+check "ls shortens HOME in project paths" grep -qF '~/projects/crew' "$listing"
+check "ls project truncation remains valid UTF-8" iconv -f UTF-8 -t UTF-8 "$listing"
+check "ls project truncation retains the full arrow" grep -qF '→l…' "$listing"
+check "ls shows done, total and open task counts" awk '$1=="ls-up" && /1\/3 \(2 open\)/{f=1} END{exit !f}' "$listing"
+check "ls shows relative minute activity" awk '$1=="ls-up" && $NF=="5m"{f=1} END{exit !f}' "$listing"
+check "ls shows relative hour activity" awk '$1=="ls-partial" && $NF=="2h"{f=1} END{exit !f}' "$listing"
+check "ls shows relative day activity" awk '$1=="ls-stale" && $NF=="2d"{f=1} END{exit !f}' "$listing"
+check "ls tolerates an empty activity log" awk '$1=="ls-empty" && $NF=="-"{f=1} END{exit !f}' "$listing"
+check "ls hints at explicit stale crew cleanup" grep -qF '2 stale crews: crew sweep --apply' "$listing"
+check "ls --live succeeds" bash -c '"$1" ls --live > "$2"' _ "$CREW" "$CREW_HOME/listing-live"
+check "ls --live lists only up and partial rows" awk '$1=="ls-up"{up=1} $1=="ls-partial"{partial=1} $3~/^(ended|stale)$/{bad=1} END{exit !(up && partial && !bad)}' "$CREW_HOME/listing-live"
+check "ls rejects unknown flags" bash -c '! "$1" ls --bogus' _ "$CREW"
+check "sweep dry run succeeds" bash -c '"$1" sweep > "$2"' _ "$CREW" "$CREW_HOME/sweep-dry"
+check "sweep dry run changes no files or pane labels" test "$(fixture_snapshot)" = "$before_listing"
+check "sweep dry run names stale crews" grep -qF 'ls-stale: stale; would mark ended (dry run)' "$CREW_HOME/sweep-dry"
+check "sweep reports partial crews without sweeping" grep -qF 'ls-partial: partial; kept' "$CREW_HOME/sweep-dry"
+before_panes=$(tmux list-panes -s -t "$TS" -F '#{pane_id} #{@crew_session}/#{@crew_role}')
+before_screens=$(for pane in "$ls_up" "$ls_partial" "$ls_reused"; do tmux capture-pane -p -t "$pane" | cksum; done)
+mkdir "$CREW_HOME/ls-empty/.panes.lock"
+check "sweep --apply respects the panes lock" bash -c '! "$1" sweep --apply' _ "$CREW"
+check "sweep leaves another caller's lock alone" test -d "$CREW_HOME/ls-empty/.panes.lock"
+check "blocked sweep preserves stale crew state" test ! -e "$CREW_HOME/ls-empty/ended"
+rmdir "$CREW_HOME/ls-empty/.panes.lock"
+check "sweep --apply succeeds" "$CREW" sweep --apply
+check "sweep --apply ends a stale crew" test -f "$CREW_HOME/ls-stale/ended"
+check "sweep --apply ends an empty stale crew" test -f "$CREW_HOME/ls-empty/ended"
+check "sweep keeps partial crews running" test ! -e "$CREW_HOME/ls-partial/ended"
+check "sweep keeps healthy crews running" test ! -e "$CREW_HOME/ls-up/ended"
+check "sweep clears a swept current crew" test ! -e "$CREW_HOME/.current"
+check "sweep logs an explicit system event" awk -F'\t' '$2=="sys" && $5~/crew sweep: marked ended/{f=1} END{exit !f}' "$CREW_HOME/ls-stale/channel.log"
+check "sweep preserves crew results and files" test -f "$CREW_HOME/ls-stale/panes"
+check "sweep never types into, unlabels or kills panes" test "$(tmux list-panes -s -t "$TS" -F '#{pane_id} #{@crew_session}/#{@crew_role}')" = "$before_panes"
+check "sweep leaves pane screens unchanged" test "$(for pane in "$ls_up" "$ls_partial" "$ls_reused"; do tmux capture-pane -p -t "$pane" | cksum; done)" = "$before_screens"
+check "sweep releases its panes lock" test ! -e "$CREW_HOME/ls-stale/.panes.lock"
+printf 'ls-up\n' > "$CREW_HOME/.current"
+check "repeated sweep succeeds" "$CREW" sweep --apply
+check "sweep preserves an unrelated current crew" test "$(cat "$CREW_HOME/.current")" = ls-up
+check "sweep rejects unknown flags" bash -c '! "$1" sweep --bogus' _ "$CREW"
+mkdir "$CREW_HOME/empty-root"
+check "ls handles empty active and ended row arrays" env CREW_HOME="$CREW_HOME/empty-root" "$CREW" ls
+check "install works with scratch bin and skill destinations" env CREW_BIN_DIR="$CREW_HOME/install-bin" CLAUDE_SKILLS_DIR="$CREW_HOME/install-skills" "$ROOT/install.sh"
+check "installed symlink finds the sourced listing module" env CREW_HOME="$CREW_HOME/empty-root" "$CREW_HOME/install-bin/crew" ls
 
 [ "$fail" = 0 ] && echo "all passed" || { echo "some checks failed"; exit 1; }

@@ -10,7 +10,9 @@ flowchart LR
   cat --> sed["sed: {{ROLE}} {{SESSION}} {{DIR}} {{ROSTER}} (values sed_esc'd)"] --> out["~/.crew/name/roles/ROLE.md"]
 ```
 
-`{{ROSTER}}` is `lead=claude, rev=pi, rev2=codex` (short cli names).
+`{{ROSTER}}` is the absolute path to the crew's `panes` file. The protocol
+also names `crew -s <name> status` for a readable roster with current liveness.
+It is a live pointer, not a snapshot to update when agents join or move.
 `sed_esc` escapes `& | \` so values can't corrupt the substitution.
 
 ## protocol.md (all roles)
@@ -49,8 +51,12 @@ independent first opinion, verifying every claim, and explicit final lines.
 
 Rendered role files are snapshots taken at `crew up`/`adopt`; edits to
 templates affect **new** crews and crews refreshed by `override`.
-An override regenerates role files with the current roster; inbox history is
-kept under its original role names. Keep templates short: agents read them
+`write_role_file <role>` always renders one file from templates;
+`write_role_files` renders every current role for `up`, `adopt` and `override`.
+An override preserves inbox history under its original role names.
+`crew add` renders only new role files and leaves existing files untouched,
+including custom instructions. Roster pointers remain current without edits.
+Keep templates short: agents read them
 once, at the intro. Add a role by dropping `roles/<name>.md` in; trailing
 digits fall back to the base (`test2` → `test.md`).
 

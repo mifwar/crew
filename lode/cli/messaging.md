@@ -44,8 +44,10 @@ owns_pane() { # pane role
 }
 ```
 
-Used by `deliver`, `set_pane_status`, `status` (shows `STALE (pane reused)`),
-and `down` (skips the pane). Found in real use: after a tmux server restart an
+Used before command launches and intros, for env identity fallback, by
+`deliver`, `set_pane_status`, `status` (shows `STALE (pane reused)`), `down`
+(skips the pane), and `ls`/`sweep` (classify liveness without touching panes).
+Found in real use: after a tmux server restart an
 old crew's lead id `%144` belonged to an unrelated Claude session, and
 `status` looked healthy because both processes were named `2.1.284`.
 Rings typed there would have become prompts in the wrong session.
@@ -58,8 +60,10 @@ The web viewer applies the same rule and shows the role as `stale`.
 flowchart TD
   a{TMUX_PANE present?} -- yes --> lookup{pane bound in this crew?}
   lookup -- yes --> role[current role]
-  lookup -- no --> c{"stdin is a tty?"}
-  a -- no --> b{CREW_AGENT + matching CREW_SESSION?}
+  lookup -- no --> missing{pane gone or labelled to another crew?}
+  missing -- yes --> b{CREW_AGENT + matching CREW_SESSION + owned role pane?}
+  missing -- no --> c{"stdin is a tty?"}
+  a -- no --> b
   b -- yes --> role
   b -- no --> c
   c -- yes --> term["you (terminal)"]
@@ -69,8 +73,19 @@ flowchart TD
 ```
 
 Pane bindings take precedence over `CREW_AGENT` after overrides. A pane that
-has been detached cannot claim its previous identity via stale environment
-variables. Pane-less callers can still use the matching crew environment.
+has been detached and left unlabelled cannot claim its previous identity via
+stale environment variables. A matching `CREW_SESSION` / `CREW_AGENT` hint
+is accepted only if that role's recorded pane passes `owns_pane`, and the
+caller has no `TMUX_PANE`, its id is gone, or its pane is labelled to another
+crew. This handles Codex tool shells inheriting a missing/foreign id from a
+shared background process. Existing unlabelled or unbound same-crew panes
+stay outside. Unknown roles, stale role panes and mismatched session hints
+never get fallback identity. These remain advisory labels, not authentication.
+`env_identity_ok` owns these early-return checks; `resolve_me` selects the
+pane binding, then eligible env identity, then human/outside provenance.
+
+`up` and spawning `add` both pass `CREW_SESSION` / `CREW_AGENT` to their new
+panes. Adoption cannot modify an already-running agent's environment.
 
 Agents' shell tools run without a tty (checked for Claude Code), so an agent
 that isn't a crew member shows up as `outside`, not as the human. `outside`

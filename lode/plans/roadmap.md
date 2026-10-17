@@ -3,7 +3,11 @@
 Nothing from the first field report (pr357 lead) or the design discussion is
 pending: rebind, whoami hint, `crew say` + sender labels, `task add --out`,
 `--evidence`, `note`, `restyle`, agent-name detection, the Claude skill and
-opt-in web sending and manual mid-work role overrides are all in place (see [../lode-map.md](../lode-map.md)).
+opt-in web sending, manual mid-work role overrides, adding agents to a running
+crew, UTF-8-safe status truncation, liveness/project listing and opt-in stale
+cleanup and guarded identity fallback for missing/foreign tool-shell panes
+are all in place. Roles link to the live roster; pane-spec resolution is
+shared, and listing/cleanup lives in a sourced module (see [../lode-map.md](../lode-map.md)).
 What remains are open questions and candidate improvements. When one ships,
 describe it in the matching lode file and delete it here.
 

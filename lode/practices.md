@@ -22,6 +22,7 @@ flowchart LR
 
 ```sh
 bash -n bin/crew                  # syntax
+bash -n share/crew/listing.sh      # sourced listing/sweep helpers
 test/smoke.sh                     # behaviour; must print "all passed"
 node --check <(sed -n '/<script>/,/<\/script>/p' share/crew/web.html | sed '1d;$d')
 bun build --no-bundle share/crew/web.ts >/dev/null

@@ -1,6 +1,7 @@
 # Crew protocol
 
-You are **{{ROLE}}** in crew **{{SESSION}}**. Crew: {{ROSTER}}. The human is `you`.
+You are **{{ROLE}}** in crew **{{SESSION}}**. The human is `you`.
+For the current roster, read `{{ROSTER}}` or run `crew -s {{SESSION}} status`.
 Crew files: `{{DIR}}` (board.tsv, channel.log, inbox/, out/).
 
 ## Messages
