@@ -67,6 +67,12 @@ crew send you "Summary: … (out/summary.md)"
 crew status                     # roles, models, panes (STALE = pane reused), board
 ```
 
+- Task ids (`T1`, `T2`, …) follow the order of `add` calls, and each owner is
+  told its id at once. Number the tasks before adding and add them in that
+  order. If the order slipped, rewrite `~/.crew/<name>/board.tsv` under
+  `.board.lock` while the rows are still `queued`, then send each owner one
+  final id line — don't stack "correction" messages (see the repo's
+  `lode/cli/tasks.md`).
 - Each task names one result file (`--out`); results end in `STATUS:` or `FINAL:`.
 - Wait for doorbells instead of polling; they arrive as your next prompt.
 - "not ringing <role>: … approval prompt" means the message is in its inbox
