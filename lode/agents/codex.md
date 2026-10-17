@@ -56,6 +56,15 @@ flowchart TD
 
 Status bar `GPT-6-Sol medium · Context 96% left · …` → `GPT-[A-Za-z0-9.-]+`.
 
+## Skill
+
+Codex reads skills from `$CODEX_HOME/skills` **and** the shared Agent Skills
+dir `~/.agents/skills`. `install.sh` links `skills/crew` into the shared dir,
+so a Codex lead sees the crew skill without touching `~/.codex/skills`
+(system/installed skills live there). `codex debug prompt-input` renders the
+skill roots (`r0` = `~/.agents/skills`) and the available `crew` skill as JSON
+without calling a model — used to verify the install.
+
 ## Observed
 
 - Reads its role file and then may sit in "Working" for a while before idling.

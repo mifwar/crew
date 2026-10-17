@@ -20,6 +20,13 @@ flowchart LR
   footer["(commandcode) deepseek/deepseek-v4.1-flash • max"] --> re["name • effort"] --> m[deepseek-v4.1-flash]
 ```
 
+## Skill
+
+pi reads `~/.pi/agent/skills` and the shared `~/.agents/skills`;
+`install.sh` links `skills/crew` into both. `loadSkills` in `dist/core/skills.js`
+resolves symlinks and skips a second copy of the same real file, so the two
+links load the skill once, with no collision warning.
+
 ## Observed
 
 - After the intro it deliberated about "do not reply" and then printed a

@@ -2,7 +2,7 @@
 
 Nothing from the first field report (pr357 lead) or the design discussion is
 pending: rebind, whoami hint, `crew say` + sender labels, `task add --out`,
-`--evidence`, `note`, `restyle`, agent-name detection, the Claude skill and
+`--evidence`, `note`, `restyle`, agent-name detection, the shared crew skill,
 opt-in web sending, manual mid-work role overrides, adding agents to a running
 crew, UTF-8-safe status truncation, liveness/project listing and opt-in stale
 cleanup and guarded identity fallback for missing/foreign tool-shell panes

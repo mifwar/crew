@@ -27,8 +27,10 @@ an existing agent mid-work; `crew override lead %12` adopts a new successor
 pane. Overrides preserve history and results and save recovery context. The web viewer (`crew web`,
 127.0.0.1:7777) polls a small JSON API and shows roster (detected agent and
 model names), timeline, board, files and pane captures; it is read-only unless
-started with `--allow-send`. A Claude Code skill (`skills/crew`) teaches any
-Claude session to lead a crew. Verification is `test/smoke.sh`, which runs a
+started with `--allow-send`. A shared skill (`skills/crew`, linked by
+`install.sh` into `~/.claude/skills`, `~/.agents/skills` and
+`~/.pi/agent/skills`) teaches Claude Code, Codex and pi sessions to lead a
+crew. Verification is `test/smoke.sh`, which runs a
 throwaway crew of `cat` agents in a detached tmux session.
 
 ```mermaid
