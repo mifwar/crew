@@ -1,7 +1,8 @@
 # crew — Living Snapshot
 
 `crew` runs several coding-agent CLIs (Claude Code, Codex, pi) as a team inside
-tmux. It is one bash script (`bin/crew`, macOS bash 3.2 compatible) plus
+tmux. It is a Bash entrypoint (`bin/crew`, macOS bash 3.2 compatible) with
+a sourced listing/sweep module (`share/crew/listing.sh`), plus
 markdown role templates (`share/crew/`) and a Bun web viewer (read-only by default)
 (`share/crew/web.ts` + `web.html`). Messages are plain files under
 `~/.crew/<name>/`; tmux `send-keys` is only the "doorbell" that types a
@@ -15,7 +16,13 @@ Doorbells name the sender (`impl`, `you (terminal)`, `you (web)`, `outside`)
 so relayed "approvals" and stray agents are visible; the labels are advisory.
 Before typing into or closing a pane, `crew` checks the pane still carries
 this crew's labels, because tmux pane ids are reused after a server restart;
-`crew rebind` moves a role to a new pane. `crew override lead impl` promotes
+`crew rebind` moves a role to a new pane. `crew add rev2=pi impl2=%12` grows
+a running crew by spawning or adopting agents. New role files point to the
+live roster; existing role files stay untouched.
+`crew ls` shows projects, actual pane ownership, tasks and activity;
+`crew sweep` previews stale-crew cleanup and `--apply` marks stale crews ended
+without touching panes.
+`crew override lead impl` promotes
 an existing agent mid-work; `crew override lead %12` adopts a new successor
 pane. Overrides preserve history and results and save recovery context. The web viewer (`crew web`,
 127.0.0.1:7777) polls a small JSON API and shows roster (detected agent and

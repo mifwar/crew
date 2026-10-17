@@ -76,8 +76,34 @@ includes the previous role's pane output, not its private conversation.
 Run `crew whoami` after a takeover; pane bindings override stale `CREW_AGENT`.
 The previous agent must stop its old work and wait for a new assignment.
 
+## Add agents mid-work
+
+```sh
+crew -s <name> add "rev2=pi" impl2=%12
+```
+
+`role=<cli spec>` splits the crew's window and types the user's command
+verbatim; never add permission or sandbox flags yourself. `role=%pane`
+adopts an existing unlabelled pane without moving or starting it. Roles
+must be new. Added agents get an intro and a role file pointing to the live
+roster (`panes` or `crew status`); existing role files stay untouched.
+Startup dialogs receive no input: answer them yourself, then use the printed
+`crew send` command. `down` closes spawned additions and keeps adopted ones.
+
 ## Repair
 
+- `crew ls` shows project, state, per-agent pane liveness, task counts and last
+  activity. `crew ls --live` keeps up/partial crews. `alive` means the pane
+  exists and still carries the crew's labels; it does not prove the agent is
+  responding.
+- `crew sweep` reports stale crews (zero owned panes) without changing anything.
+  `crew sweep --apply` marks only those crews ended, logs it and clears their
+  current-crew pointer. It never types into, unlabels or closes panes; files
+  stay. Partial crews are reported and kept. Other commands never auto-sweep.
 - An agent moved to another pane: `crew rebind <role> <pane>` (or run it inside the new pane).
+- If a tool shell inherits a missing/foreign `TMUX_PANE`, matching
+  `CREW_SESSION` / `CREW_AGENT` hints identify its role only while that role's
+  recorded pane still belongs to the crew. Actual crew-pane bindings take
+  priority; a detached unlabelled pane stays outside. These are advisory labels.
 - Borders look wrong: `crew restyle`.
 - Done: `crew down` (closes panes crew started; keeps yours; files stay).

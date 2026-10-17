@@ -4,12 +4,12 @@ Three parts, no long-running core:
 
 | Part | File | Runs when |
 |---|---|---|
-| CLI | `bin/crew` (bash) | each call, by the human or by an agent's shell tool |
-| Templates | `share/crew/protocol.md`, `share/crew/roles/*.md` | rendered once per role at `crew up` / `crew adopt` |
+| CLI | `bin/crew` + sourced `share/crew/listing.sh` (bash) | each call, by the human or by an agent's shell tool |
+| Templates | `share/crew/protocol.md`, `share/crew/roles/*.md` | rendered per role at `up` / `adopt` / `add` / `override`; roster is a live pointer |
 | Web viewer | `share/crew/web.ts` + `web.html` (Bun) | only while `crew web` runs |
 
 `bin/crew` finds `share/crew` next to its **real** path (`readlink -f "$0"`),
-so a symlink on PATH still reads templates from the repo checkout.
+so a symlink on PATH still reads the listing module and templates from the repo checkout.
 `CREW_SHARE` overrides it; `CREW_HOME` (default `~/.crew`) holds crew state.
 
 ## Why files + tmux (and not IPC or MCP)
