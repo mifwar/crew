@@ -13,8 +13,8 @@ after a command prints the full usage (exit 0); unknown commands exit 1.
 | `add role=<cli spec\|%pane> …` | spawn or adopt new roles in a running crew | [lifecycle.md](lifecycle.md) |
 | `override <role> <replacement-role\|pane>` | hand ongoing work to another agent | [lifecycle.md](lifecycle.md) |
 | `rebind <role> [pane] [--intro]` | move a role to another pane (default: caller's) | [lifecycle.md](lifecycle.md) |
-| `send <role\|@all\|you> <msg>` | log + inbox + doorbell | [messaging.md](messaging.md) |
-| `say <role\|@all> <msg>` | `send`, but refuses unless the caller is the human | [messaging.md](messaging.md) |
+| `send <role[,role…]\|@all\|you> <msg>` | log + inbox + doorbell (unrung doorbells are logged) | [messaging.md](messaging.md) |
+| `say <role[,role…]\|@all> <msg>` | `send`, but refuses unless the caller is the human | [messaging.md](messaging.md) |
 | `note <text>` | `sys` line in the timeline | [messaging.md](messaging.md) |
 | `task add --to R [--dep T] [--out out/x.md] [--msg M] <title>` | new board row + notify owner | [tasks.md](tasks.md) |
 | `task set <id> <status> [--out F] [--evidence F]` | update row, pane label, log | [tasks.md](tasks.md) |
