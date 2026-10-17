@@ -208,6 +208,80 @@ check "install keeps a dangling symlink" test "$(readlink "$inst/.pi/agent/skill
 check "  and says so"                   bash -c "printf '%s' \"\$1\" | grep -q 'left it alone'" _ "$out"
 rm -rf "$inst"
 
+# A doorbell must never be typed into an editor holding an unsubmitted draft:
+# ring()'s send-keys would append it to the draft and submit both. The
+# fixtures are symlinks to /bin/sh and /bin/cat with the process names the
+# detector looks for (a copy of an Apple binary is killed by macOS).
+mkdir -p "$CREW_HOME/bin"
+ln -s /bin/sh "$CREW_HOME/bin/claude"
+printf '%s\n' 'while :; do printf "❯ "; read -r line; done' > "$CREW_HOME/bin/editor.sh"
+ln -s /bin/cat "$CREW_HOME/bin/codex"
+ln -s /bin/cat "$CREW_HOME/bin/pi"
+"$CREW" -s t add "cl=$CREW_HOME/bin/claude $CREW_HOME/bin/editor.sh" \
+  "cx=$CREW_HOME/bin/codex" "piu=$CREW_HOME/bin/pi >/dev/null" \
+  "pidraft=$CREW_HOME/bin/pi >/dev/null" "flat=cat >/dev/null" >/dev/null 2>&1
+cl=$(awk -F'\t' '$1=="cl"{print $2}' "$D/panes")
+cx=$(awk -F'\t' '$1=="cx"{print $2}' "$D/panes")
+piu=$(awk -F'\t' '$1=="piu"{print $2}' "$D/panes")
+pidraft=$(awk -F'\t' '$1=="pidraft"{print $2}' "$D/panes")
+flat=$(awk -F'\t' '$1=="flat"{print $2}' "$D/panes")
+dashes() { awk -v n="$(( $(tmux display -p -t "$1" '#{pane_width}') - 2 ))" 'BEGIN { for (i = 0; i < n; i++) printf "─" }'; }
+type_row() { tmux send-keys -t "$1" -l "$2"; tmux send-keys -t "$1" Enter; sleep 0.2; }
+box() { # pane [content] — a pi editor box, cursor left below it
+  type_row "$1" "$(dashes "$1")"
+  [ -z "${2:-}" ] || type_row "$1" "$2"
+  type_row "$1" "$(dashes "$1")"
+}
+
+box "$piu"
+as lead send piu "pi-idle" >/dev/null 2>&1
+check "an idle pi editor box gets its doorbell" screen_has "$piu" "[crew] lead → piu: pi-idle"
+box "$flat" 'text between dashed rules'    # a cat pane: the pi detector must not run on it
+as lead send flat "flat-idle" >/dev/null 2>&1
+check "a non-pi pane with dashed rows is not held" screen_has "$flat" "[crew] lead → flat: flat-idle"
+
+# codex: its placeholder is idle, real text is a draft. This pane echoes
+# what cat reads, so a doorbell submitted with the draft would show a second
+# copy of the draft row (the >/dev/null fixtures cannot catch that).
+tmux send-keys -t "$cx" -l '› Ask Codex to do anything'; sleep 0.3
+as lead send cx "codex-idle" >/dev/null 2>&1
+check "codex's placeholder is not a draft"         screen_has "$cx" "codex-idle"
+tmux send-keys -t "$cx" Enter; sleep 0.2
+tmux send-keys -t "$cx" -l '› buy milk'; sleep 0.3
+check "codex draft: exits 0 and types nothing" bash -c "CREW_SESSION=t CREW_AGENT=lead CREW_RING_WAIT=1 '$CREW' send cx held-cx && ! tmux capture-pane -p -J -t $cx | grep -qF 'held-cx'"
+check "  the draft is still exactly one copy"      bash -c "test \$(tmux capture-pane -p -J -t $cx | grep -oF '› buy milk' | wc -l) -eq 1"
+check "  the message is in the inbox"              grep -q held-cx "$D/inbox/cx.md"
+check "  and the log names the draft"               grep -q 'cx not rung: .*unsubmitted draft' "$D/channel.log"
+
+# claude: an empty editor is idle, a draft holds the doorbell, the human's
+# own Enter clears it during the hold, copy mode waits
+as lead send cl "claude-idle" >/dev/null 2>&1
+check "an empty claude editor gets its doorbell" screen_has "$cl" "[crew] lead → cl: claude-idle"
+tmux send-keys -t "$cl" -l 'my unsubmitted draft'; sleep 0.3
+check "claude draft: exits 0 and types nothing" bash -c "CREW_SESSION=t CREW_AGENT=lead CREW_RING_WAIT=1 '$CREW' send cl held-cl && ! tmux capture-pane -p -J -t $cl | grep -qF 'held-cl'"
+check "  the draft is still exactly one copy"    bash -c "test \$(tmux capture-pane -p -J -t $cl | grep -oF 'my unsubmitted draft' | wc -l) -eq 1"
+check "  its row carries no [crew] doorbell"     bash -c "! tmux capture-pane -p -J -t $cl | grep -F 'my unsubmitted draft' | grep -qF '[crew]'"
+check "  the message is in the inbox"           grep -q held-cl "$D/inbox/cl.md"
+check "  and the log names the draft"            grep -q 'cl not rung: .*unsubmitted draft' "$D/channel.log"
+check "a draft that clears during the hold rings once" bash -c "CREW_SESSION=t CREW_AGENT=lead CREW_RING_WAIT=5 '$CREW' send cl clear-cl >/dev/null 2>&1 & sleep 0.4; tmux send-keys -t $cl Enter; wait; sleep 0.5; test \$(tmux capture-pane -p -J -t $cl | grep -cF '[crew] lead → cl: clear-cl') = 1"
+tmux copy-mode -t "$cl"; sleep 0.3
+check "copy mode: exits 0 and types nothing" bash -c "CREW_SESSION=t CREW_AGENT=lead CREW_RING_WAIT=1 '$CREW' send cl copy-cl && ! tmux capture-pane -p -J -t $cl | grep -qF 'copy-cl'"
+check "  the mode is still on"                   bash -c "test \"\$(tmux display -p -t $cl '#{pane_in_mode}')\" != 0"
+check "  and the log names copy mode"            grep -q 'cl not rung: .*copy/choose mode' "$D/channel.log"
+tmux copy-mode -q -t "$cl"
+
+# pi's draft is only a draft between the box's two borders
+box "$pidraft" 'draft inside the box'
+check "pi draft between the borders holds" bash -c "CREW_SESSION=t CREW_AGENT=lead CREW_RING_WAIT=1 '$CREW' send pidraft held-pi && ! tmux capture-pane -p -J -t $pidraft | grep -qF 'held-pi'"
+check "  and the log names the draft"       grep -q 'pidraft not rung: .*unsubmitted draft' "$D/channel.log"
+
+# CREW_RING_WAIT=0 is the escape hatch: today's behaviour, ring at once
+box "$pidraft" 'draft for the escape hatch'
+check "CREW_RING_WAIT=0 skips the hold" bash -c "CREW_SESSION=t CREW_AGENT=lead CREW_RING_WAIT=0 '$CREW' send pidraft zero-wait >/dev/null 2>&1; sleep 0.4; tmux capture-pane -p -J -t $pidraft | grep -qF 'zero-wait'"
+# the web viewer's send must not block on the hold either
+box "$pidraft" 'draft for the web path'
+check "the web path never waits on a hold" bash -c "start=\$SECONDS; CREW_VIA=web CREW_RING_WAIT=30 CREW_SESSION=t CREW_AGENT=lead '$CREW' send pidraft web-wait >/dev/null 2>&1; sleep 0.4; test \$((SECONDS - start)) -lt 5 && tmux capture-pane -p -J -t $pidraft | grep -qF 'web-wait'"
+
 # A pane showing an approval prompt gets no doorbell (a digit would pick an option).
 rev=$(awk -F'\t' '$1=="rev"{print $2}' "$D/panes")
 tmux send-keys -t "$rev" "Do you want to proceed?" Enter; sleep 0.3
