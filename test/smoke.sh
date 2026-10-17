@@ -187,6 +187,27 @@ fi
 check "subcommand --help exits 0"       "$CREW" send --help
 check "unknown command exits 1"         bash -c "! '$CREW' bogus"
 
+# install.sh: crew on PATH plus the shared skill into each agent's skills dir.
+inst=$(mktemp -d "${TMPDIR:-/tmp}/crew-install.XXXXXX")
+mkdir -p "$inst/.claude" "$inst/.codex" "$inst/.pi"
+HOME="$inst" "$ROOT/install.sh" >/dev/null 2>&1
+check "install links crew onto PATH"    test "$(readlink "$inst/.local/bin/crew")" = "$ROOT/bin/crew"
+check "install links Claude skill"      test "$(readlink "$inst/.claude/skills/crew")" = "$ROOT/skills/crew"
+check "install links shared skill"      test "$(readlink "$inst/.agents/skills/crew")" = "$ROOT/skills/crew"
+check "install links pi skill"          test "$(readlink "$inst/.pi/agent/skills/crew")" = "$ROOT/skills/crew"
+rm "$inst/.agents/skills/crew"; mkdir "$inst/.agents/skills/crew"; touch "$inst/.agents/skills/crew/keep"
+HOME="$inst" "$ROOT/install.sh" >/dev/null 2>&1
+check "install keeps a real skill dir"  test -f "$inst/.agents/skills/crew/keep"
+mkdir "$inst/other"; rm "$inst/.pi/agent/skills/crew"; ln -s "$inst/other" "$inst/.pi/agent/skills/crew"
+out=$(HOME="$inst" "$ROOT/install.sh" 2>&1)
+check "install keeps a foreign symlink" test "$(readlink "$inst/.pi/agent/skills/crew")" = "$inst/other"
+check "  and says so"                   bash -c "printf '%s' \"\$1\" | grep -q 'left it alone'" _ "$out"
+rm "$inst/.pi/agent/skills/crew"; ln -s "$inst/gone" "$inst/.pi/agent/skills/crew"
+out=$(HOME="$inst" "$ROOT/install.sh" 2>&1)
+check "install keeps a dangling symlink" test "$(readlink "$inst/.pi/agent/skills/crew")" = "$inst/gone"
+check "  and says so"                   bash -c "printf '%s' \"\$1\" | grep -q 'left it alone'" _ "$out"
+rm -rf "$inst"
+
 # A pane showing an approval prompt gets no doorbell (a digit would pick an option).
 rev=$(awk -F'\t' '$1=="rev"{print $2}' "$D/panes")
 tmux send-keys -t "$rev" "Do you want to proceed?" Enter; sleep 0.3

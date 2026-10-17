@@ -34,6 +34,26 @@ flowchart LR
   ([../cli/lifecycle.md](../cli/lifecycle.md#readiness-heuristic)). A new CLI's
   dialog footer or approval-prompt text may need adding to `DIALOG_RE`.
 
+## One shared skill
+
+`skills/crew/SKILL.md` is one skill for all three CLIs: tmux requirement,
+per-CLI permissions, the never-add-flags rule, advisory sender labels, lead
+commands. `install.sh` symlinks it to:
+
+| CLI | Location |
+|---|---|
+| Claude Code | `~/.claude/skills/crew` |
+| Codex | `~/.agents/skills/crew` (the shared Agent Skills dir) |
+| pi | `~/.pi/agent/skills/crew` (pi also reads the shared dir) |
+
+pi resolves symlinks and skips a second copy of the same real file, so the two
+pi links load once. Anything already at a target is left alone — a real
+directory, a symlink to something else, a dangling symlink (`install.sh`
+prints a note for each) — and only a target that already points at this
+checkout's skill is treated as installed. Verify discovery: `codex debug
+prompt-input` lists skill roots and skills without a model call; [codex.md](codex.md)
+and [pi.md](pi.md) have their checks.
+
 ## Adding a new CLI
 
 1. Confirm its shell tool can run `crew` and reach `$TMUX` (try `crew whoami`

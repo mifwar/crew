@@ -48,10 +48,12 @@ typed into its prompt), then follows `roles/lead.md`.
 
 ## Skill
 
-`skills/crew/SKILL.md` (installed by `install.sh` as a symlink at
-`~/.claude/skills/crew`) tells any Claude session when to use crew, to ask the
-user how Codex should run (never choosing the unsandboxed option itself), and
-the lead's command set. Keep it in sync with `--help` when commands change.
+`skills/crew/SKILL.md` is shared by all three CLIs and installed by
+`install.sh` as a symlink at `~/.claude/skills/crew`. It tells any Claude
+session when to use crew, what running `crew` needs per CLI, to never add
+sandbox/approval flags to a launch spec, that sender labels are advisory, and
+the lead's command set ([summary.md](summary.md)). Keep it in sync with
+`--help` when commands change.
 
 ## No tty
 

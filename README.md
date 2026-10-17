@@ -38,8 +38,8 @@ existing board, inboxes and results to continue. Private agent conversation
 history is not transferred. With an existing agent, its unfinished tasks
 move to the new lead too; completed tasks and output paths stay unchanged.
 
-`install.sh` also links a Claude Code skill (`skills/crew`) so Claude knows
-how to lead a crew.
+`install.sh` also links a shared skill (`skills/crew`) into each installed
+agent's skills dir, so Claude Code, Codex and pi know how to lead a crew.
 
 How it works: messages are files in `~/.crew/<name>/`, and `tmux send-keys`
 types a one-line `[crew] from → to: …` doorbell into the recipient's prompt.
