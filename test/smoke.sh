@@ -228,7 +228,11 @@ pidraft=$(awk -F'\t' '$1=="pidraft"{print $2}' "$D/panes")
 flat=$(awk -F'\t' '$1=="flat"{print $2}' "$D/panes")
 dashes() { awk -v n="$(( $(tmux display -p -t "$1" '#{pane_width}') - 2 ))" 'BEGIN { for (i = 0; i < n; i++) printf "─" }'; }
 ndashes() { awk -v n="$1" 'BEGIN { for (i = 0; i < n; i++) printf "─" }'; }
-type_row() { tmux send-keys -t "$1" -l "$2"; tmux send-keys -t "$1" Enter; sleep 0.2; }
+type_row() { # never type without an explicit pane: an empty target is the caller's pane
+  [ -n "$1" ] || { echo "FAIL  type_row called without a pane (fixture add failed?)"; exit 1; }
+  tmux send-keys -t "$1" -l "$2"; tmux send-keys -t "$1" Enter; sleep 0.2; }
+[ -n "$cl" ] && [ -n "$cx" ] && [ -n "$piu" ] && [ -n "$pidraft" ] && [ -n "$flat" ] || {
+  echo "FAIL  fixture panes missing ($cl/$cx/$piu/$pidraft/$flat): not typing anywhere"; exit 1; }
 box() { # pane [content] — a pi editor box, cursor left below it
   type_row "$1" "$(dashes "$1")"
   [ -z "${2:-}" ] || type_row "$1" "$2"
@@ -248,6 +252,68 @@ check "pi parser: 100-of-120 dashes row is content, not a border" pi_box w "120 
 check "pi parser: a labelled top border still counts" pi_box w "148 5 4" "$(printf '%s  Working  %s' "$(ndashes 62)" "$(ndashes 66)")" "draft" "$(ndashes 146)" "" ""
 check "pi parser: the cursor row is never a border" pi_box w "20 3 1" "$(ndashes 18)" "$(ndashes 20)" "$(ndashes 18)"
 check "pi parser: an idle box is idle" pi_box idle "120 5 4" "$(ndashes 118)" "" "$(ndashes 118)" "" ""
+
+# G2: pi's braille Working spinner in the top border used to kill the parser
+# ("awk: towc: multibyte conversion failure", empty output read as free) and a
+# crash now holds instead. The glyph is U+283C, built from its UTF-8 bytes.
+braille=$(awk 'BEGIN { printf "%c%c%c", 226, 160, 188 }')
+braille_top() { # width — a pi-shaped top border carrying the braille Working label
+  local w="$1" label=" $braille Working " n left right
+  n=$(( w - 2 - ${#label} ))
+  [ $(( n * 100 )) -ge $(( w * 55 )) ] || { label=" $braille "; n=$(( w - 2 - ${#label} )); }
+  left=$(( n * 55 / 100 )); right=$(( n - left ))
+  printf '%s%s%s' "$(ndashes "$left")" "$label" "$(ndashes "$right")"
+}
+check "pi parser: a braille-labelled border still parses" pi_box w "120 5 4" "$(braille_top 120)" "draft text" "$(ndashes 118)" "" ""
+check "pi parser: a braille-labelled idle box is idle" pi_box idle "120 5 4" "$(braille_top 120)" "" "$(ndashes 118)" "" ""
+# G3 residual limit, documented in lode/cli/messaging.md: a full-width dashes
+# draft row is only seen while the cursor is on it; with the cursor below the
+# box reads idle. Pinned so a future fix has to change this case.
+check "pi parser limit: full-width dashes draft, cursor below reads idle" pi_box idle "120 5 4" \
+  "$(ndashes 118)" "$(ndashes 118)" "$(ndashes 118)" "" ""
+# G2/T12: a crashed recogniser is a hold, not a free editor
+check "pane_hold: a parser crash holds as unreadable" bash -c '
+  tmux() { case "$1" in capture-pane) printf "frame\n" ;; *) printf "0\n" ;; esac }
+  short_cli() { printf "pi"; }
+  pane_cli() { printf "pi"; }
+  . "$1/share/crew/pane.sh"
+  pi_box_draft() { printf "simulated parser error\n" >&2; return 2; }
+  case "$(pane_hold %1)" in unreadable*) exit 0 ;; *) exit 1 ;; esac' _ "$ROOT"
+
+# G1/T12: dialog UI rows, not phrases quoted in an agent's transcript
+dialog_says() { # want(yes|no) row...
+  local want="$1" got=no; shift
+  printf '%s\n' "$@" | dialog_capture && got=yes
+  [ "$got" = "$want" ]
+}
+check "dialogs: a codex picker footer on the last row holds" dialog_says yes \
+  "  1. Switch to gpt-6-luna" "› 2. Keep current model" "  3. Never show again" "  enter select · esc back"
+check "dialogs: a claude card question above a tall option list holds" dialog_says yes \
+  "Do you want to proceed?" "❯ 1. Yes" "2. Always allow" "3. No" "   Esc to cancel"
+check "dialogs: the claude trust wording holds" dialog_says yes \
+  "│ Do you trust the files in this folder?" "│ ❯ 1. Yes, I trust this folder" "│   2. No, exit"
+check "dialogs: a startup footer on the last row holds" dialog_says yes "Trust this folder?" "Enter to confirm · Esc to cancel"
+check "dialogs: a don't-ask-again option row holds" dialog_says yes \
+  "❯ 2. Yes, and don't ask again for this project"
+check "dialogs: prose quoting enter select is not a dialog" dialog_says no \
+  " narrow the dialog region (the enter select regression from earlier),"
+check "dialogs: prose quoting enter confirm mid-sentence is not one" dialog_says no \
+  " - The nt helper renders enter confirm · Esc cancel but is used by oth"
+check "dialogs: a question quoted mid-sentence is not one" dialog_says no \
+  "the report says: Do you want to proceed? is what Claude shows"
+check "dialogs: a stale footer four rows up is not one" dialog_says no \
+  "  enter select · esc back" "one" "two" "three"
+
+# G4: zero-padded waits keep their value; 0 stays the zero wait
+ring_secs_is() { # want value
+  local got; got=$(CREW_RING_WAIT="$2" ring_secs)
+  [ "$got" = "$1" ]
+}
+check "ring_secs: 00000 is the zero wait"    ring_secs_is 0 00000
+check "ring_secs: 000030 is 30"              ring_secs_is 30 000030
+check "ring_secs: 0008 is 8"                 ring_secs_is 8 0008
+check "ring_secs: 3601 caps at 3600"         ring_secs_is 3600 3601
+check "ring_secs: non-digits fall back to 30" ring_secs_is 30 abc
 
 box "$piu"
 as lead send piu "pi-idle" >/dev/null 2>&1
@@ -284,6 +350,7 @@ tmux copy-mode -t "$cl"; sleep 0.3
 check "copy mode: exits 0 and types nothing" bash -c "CREW_SESSION=t CREW_AGENT=lead CREW_RING_WAIT=1 '$CREW' send cl copy-cl && ! tmux capture-pane -p -J -t $cl | grep -qF 'copy-cl'"
 check "  the mode is still on"                   bash -c "test \"\$(tmux display -p -t $cl '#{pane_in_mode}')\" != 0"
 check "  and the log names copy mode"            grep -q 'cl not rung: .*copy/choose mode' "$D/channel.log"
+check "zero wait still refuses copy mode"       bash -c "start=\$SECONDS; CREW_SESSION=t CREW_AGENT=lead CREW_RING_WAIT=0 '$CREW' send cl zero-copy >/dev/null 2>&1; sleep 0.3; test \$((SECONDS - start)) -lt 5 && ! tmux capture-pane -p -J -t $cl | grep -qF 'zero-copy'"
 tmux copy-mode -q -t "$cl"
 
 # pi's draft is only a draft between the box's two borders
@@ -298,13 +365,25 @@ box "$pidraft" "$(ndashes $((pw * 7 / 10)))"
 check "a dashes-only pi draft row holds" bash -c "CREW_SESSION=t CREW_AGENT=lead CREW_RING_WAIT=1 '$CREW' send pidraft held-dash && ! tmux capture-pane -p -J -t $pidraft | grep -qF 'held-dash'"
 check "  and the log names the draft"     grep -q 'pidraft not rung: .*unsubmitted draft' "$D/channel.log"
 
-# CREW_RING_WAIT=0 is the escape hatch: today's behaviour, ring at once
-box "$pidraft" 'draft for the escape hatch'
-check "CREW_RING_WAIT=0 skips the hold" bash -c "CREW_SESSION=t CREW_AGENT=lead CREW_RING_WAIT=0 '$CREW' send pidraft zero-wait >/dev/null 2>&1; sleep 0.4; tmux capture-pane -p -J -t $pidraft | grep -qF 'zero-wait'"
-# web.ts sets CREW_RING_WAIT=0 for its child, so an HTTP request never blocks
+# G2 end to end: a real-shaped braille Working border, a draft between the
+# borders. The reason must be the draft, not an unreadable editor.
+type_row "$pidraft" "$(braille_top "$pw")"
+type_row "$pidraft" 'draft under a braille border'
+type_row "$pidraft" "$(dashes "$pidraft")"
+check "a braille-bordered pi draft holds" bash -c "CREW_SESSION=t CREW_AGENT=lead CREW_RING_WAIT=1 '$CREW' send pidraft held-braille && ! tmux capture-pane -p -J -t $pidraft | grep -qF 'held-braille' && ! grep -q 'pidraft not rung: .*could not read' '$D/channel.log'"
+
+# CREW_RING_WAIT=0 means no waiting, not no protection: one check, and a pane
+# that is not free (a draft included) is refused at once.
+box "$pidraft" 'draft for the zero wait'
+check "CREW_RING_WAIT=0 refuses a draft at once" bash -c "start=\$SECONDS; CREW_SESSION=t CREW_AGENT=lead CREW_RING_WAIT=0 '$CREW' send pidraft zero-wait >/dev/null 2>&1; sleep 0.4; test \$((SECONDS - start)) -lt 5 && ! tmux capture-pane -p -J -t $pidraft | grep -qF 'zero-wait'"
+check "  the message is in the inbox"    grep -q zero-wait "$D/inbox/pidraft.md"
+check "  and the log names the draft"    grep -q 'pidraft not rung: .*unsubmitted draft' "$D/channel.log"
+# web.ts sets CREW_RING_WAIT=0 for its child, so an HTTP request never blocks;
+# with no waiting its draft is refused instead of typed into
 box "$pidraft" 'draft for the web path'
-check "the web spawn's env skips the hold" bash -c "start=\$SECONDS; CREW_VIA=web CREW_RING_WAIT=0 CREW_SESSION=t CREW_AGENT=lead '$CREW' send pidraft web-wait >/dev/null 2>&1; sleep 0.4; test \$((SECONDS - start)) -lt 5 && tmux capture-pane -p -J -t $pidraft | grep -qF 'web-wait'"
-check "CREW_VIA=web alone no longer skips the hold" bash -c "CREW_VIA=web CREW_RING_WAIT=1 CREW_SESSION=t CREW_AGENT=lead '$CREW' send pidraft web-hold >/dev/null 2>&1 && ! tmux capture-pane -p -J -t $pidraft | grep -qF 'web-hold'"
+check "the web spawn's env refuses a draft, promptly" bash -c "start=\$SECONDS; CREW_VIA=web CREW_RING_WAIT=0 CREW_SESSION=t CREW_AGENT=lead '$CREW' send pidraft web-wait >/dev/null 2>&1; sleep 0.4; test \$((SECONDS - start)) -lt 5 && ! tmux capture-pane -p -J -t $pidraft | grep -qF 'web-wait'"
+check "  and its message is in the inbox" grep -q web-wait "$D/inbox/pidraft.md"
+check "CREW_VIA=web alone is not a transport exemption" bash -c "CREW_VIA=web CREW_RING_WAIT=1 CREW_SESSION=t CREW_AGENT=lead '$CREW' send pidraft web-hold >/dev/null 2>&1 && ! tmux capture-pane -p -J -t $pidraft | grep -qF 'web-hold'"
 check "web.ts sets CREW_RING_WAIT=0 for its child" grep -q 'CREW_RING_WAIT: "0"' "$ROOT/share/crew/web.ts"
 
 # F2: CREW_RING_WAIT must not reach bash arithmetic as octal, and a huge
@@ -357,6 +436,8 @@ as lead send rev "held-msg" >/dev/null 2>&1; sleep 0.3
 check "no ring into an approval prompt" bash -c "! tmux capture-pane -p -J -t $rev | grep -q held-msg"
 check "  but it's in the inbox"         grep -q held-msg "$D/inbox/rev.md"
 check "  and the log says so"           grep -q 'rev not rung: pane .* approval prompt' "$D/channel.log"
+check "zero wait still refuses an approval" bash -c "start=\$SECONDS; CREW_SESSION=t CREW_AGENT=lead CREW_RING_WAIT=0 '$CREW' send rev zero-approval >/dev/null 2>&1; sleep 0.3; test \$((SECONDS - start)) -lt 5 && ! tmux capture-pane -p -J -t $rev | grep -qF 'zero-approval'"
+check "  and its message stays in the inbox" grep -q zero-approval "$D/inbox/rev.md"
 
 # Simulate pane-id reuse: rev's pane loses its crew labels (as a fresh pane would).
 tmux set-option -p -u -t "$rev" @crew_role; tmux set-option -p -u -t "$rev" @crew_session
@@ -367,6 +448,7 @@ as lead send rev "should not ring" >/dev/null 2>&1
 check "no ring into a reused pane"      bash -c "! tmux capture-pane -p -t $rev | grep -q 'should not ring'"
 check "message still saved to inbox"    grep -q 'should not ring' "$D/inbox/rev.md"
 check "  and the log says so"           grep -q 'rev not rung: pane .* gone or now belongs' "$D/channel.log"
+check "zero wait still refuses a reused pane" bash -c "CREW_SESSION=t CREW_AGENT=lead CREW_RING_WAIT=0 '$CREW' send rev zero-reuse >/dev/null 2>&1; ! tmux capture-pane -p -t $rev | grep -q 'zero-reuse'"
 check "peek refuses a reused pane"     bash -c "! '$CREW' -s t peek rev"
 check "identity fallback refuses a reused role pane" bash -c 'CREW_SESSION=t CREW_AGENT=rev TMUX_PANE=%999999 "$1" whoami | grep -q "^outside "' _ "$CREW"
 check "status marks reused pane STALE"  bash -c "'$CREW' -s t status | grep -q 'STALE'"

@@ -7,7 +7,9 @@ a sourced listing/sweep module and a sourced pane module (`share/crew/listing.sh
 markdown role templates (`share/crew/`) and a Bun web viewer (read-only by default)
 (`share/crew/web.ts` + `web.html`). Messages are plain files under
 `~/.crew/<name>/`; tmux `send-keys` is only the "doorbell" that types a
-one-line `[crew] from → to: …` notice into the recipient's prompt. There is no
+one-line `[crew] from → to: …` notice into the recipient's prompt. Rings wait
+for recognised drafts to clear, or report a skipped doorbell while keeping the
+inbox message; zero wait checks once without disabling protection. There is no
 daemon and no IPC: each `crew` call does its work and exits, and agents call it
 from their own shell tool. A crew has one **lead** that assigns tasks on a
 board (`board.tsv`), workers that write results to `out/` ending in an exact

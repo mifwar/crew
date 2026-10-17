@@ -206,12 +206,16 @@ Mid-session approval prompts are the same hazard for every doorbell (see
 like to run the following command?" / "make the following edits" / "grant
 these permissions" / "send input…", both "Yes, and don't ask again …".
 
-`in_dialog` greps the last 15 non-blank lines for (case-blind)
-`enter (to )?(confirm|continue|select)|trust this folder|do you want to proceed|would you like to (run|make|grant|send)|don.t ask again`.
-`select` catches codex's pickers (`enter select · esc back`, e.g. the rate-limit
-model menu): a bare Enter there would keep the highlighted model. Before this
-the picker was reported as an unsubmitted draft — held either way, but named
-wrong.
+`in_dialog` feeds the capture to `dialog_capture` in `share/crew/pane.sh`.
+It trims leading whitespace and UI gutters (`│`, `›`, `❯`), then matches a UI
+row from its start, case-insensitively. Footer hints (`enter [to]
+confirm|continue|select … esc [to] back|cancel|skip`) must end at the end of the
+row and occur in the last **3 nonblank rows**. Approval/trust questions and
+“don't ask again” option rows use the last **15 nonblank rows**: a claude
+question can sit above a variable-height option list without an enter footer.
+Codex's model picker (`enter select · esc back`) is classified as a dialog.
+Anchoring avoids mid-sentence transcript quotations; a transcript quoting an
+exact standalone UI row can still cause a conservative false hold.
 `intro()` itself checks, so `up`, `add`, `adopt` and `rebind --intro` are all
 covered: on a match it types nothing and prints the `crew send` line that
 delivers the intro once the human has answered. crew never answers a dialog itself:
@@ -219,12 +223,12 @@ that would be trusting a folder or updating on the user's behalf. A per-CLI
 "ready prompt" regex was rejected: claude's dialog uses the same `❯` as its
 prompt. `--self` never types an intro (it prints one on stdout).
 
-`intro` also goes through the ring hold, so an intro cannot be appended to a
-draft the human left in a pane it was moved to: it waits for the editor to
-clear (bounded by `CREW_RING_WAIT`), then prints the same `crew send` line if it
-never did ([messaging.md](messaging.md#ring-hold-never-type-into-a-draft)).
+`intro` also goes through the ring hold to avoid appending to a recognised
+draft in an adopted or rebound pane: it waits for the editor to clear
+(bounded by `CREW_RING_WAIT`), then prints the same `crew send` line if it
+remains held ([messaging.md](messaging.md#ring-hold-never-type-into-a-draft)).
 `start_agent` uses `ring --now`: it types into a pane crew just created. With
-`CREW_RING_WAIT=0` intros ring exactly as before.
+`CREW_RING_WAIT=0` intros inspect once and refuse a busy pane immediately.
 
 `crew sweep --apply` ends only crews with zero owned panes, without touching
 any pane; default sweep is a dry run. See [listing.md](listing.md).

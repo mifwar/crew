@@ -81,6 +81,11 @@ crew — coding agents working together in tmux
   anything else (e.g. an agent that isn't in the crew) is "outside". This is a
   label to stop accidental relays, not a security boundary.
 
+  Doorbells wait up to CREW_RING_WAIT seconds for a recognised draft to clear
+  (default 30, capped at 3600); skipped rings warn and leave the message in the
+  inbox. CREW_RING_WAIT=0 checks once and refuses a busy editor immediately;
+  web sends use it to avoid waiting. Dialog and tmux mode checks stay active.
+
   Files: ~/.crew/<name>/ (panes, board.tsv, channel.log, inbox/, out/, roles/)
   Role templates: share/crew/ next to this script (protocol.md, roles/<role>.md)
 EOF

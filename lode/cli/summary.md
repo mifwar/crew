@@ -45,7 +45,7 @@ flowchart TD
 | `CREW_HOME` | `~/.crew` | crew state root (tests point it at a temp dir) |
 | `CREW_SHARE` | `<script dir>/../share/crew` | listing module + templates + web files |
 | `CREW_BOOT_WAIT` | `30` | max seconds to wait for a new CLI to settle |
-| `CREW_RING_WAIT` | `30` | max seconds a doorbell waits for a draft to clear; `0` rings at once, capped at `3600` ([messaging.md](messaging.md)) |
+| `CREW_RING_WAIT` | `30` | draft wait budget; `0` checks once and refuses a busy pane immediately, capped at `3600` ([messaging.md](messaging.md)) |
 | `CREW_NO_SWITCH` | unset | don't `select-window` after `up` (tests) |
 | `CREW_WEB_PORT` | `7777` | viewer port |
 | `CREW_SESSION`, `CREW_AGENT` | set in spawned panes | crew selection and fallback identity; pane bindings take precedence |

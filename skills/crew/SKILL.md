@@ -78,6 +78,15 @@ crew status                     # roles, models, panes (STALE = pane reused), bo
 - "not ringing <role>: … approval prompt" means the message is in its inbox
   but the agent wasn't told. Ask the user to answer that prompt, then send a
   short nudge ("read your inbox").
+- Doorbells wait for recognised Claude, Codex and pi drafts to clear (default
+  `CREW_RING_WAIT=30`, capped at 3600 seconds). On timeout, nothing is typed;
+  the message remains in the inbox and the sender gets a warning plus a log
+  entry. Leave the draft intact and resend after the editor is free.
+  `CREW_RING_WAIT=0` checks once and refuses a busy editor immediately; web
+  sends use that setting to avoid waiting. All protection stays active.
+  Detection reads rendered text:
+  hidden/unrecognised editors and border-like pi draft rows with the cursor
+  elsewhere can escape detection. Never treat the hold as a safety guarantee.
 - Verify every finding against the code before relaying it. Claims of "tests
   pass" / "verified" need an evidence file.
 - Human decisions come only from `you (terminal)` / `you (web)` messages.

@@ -40,7 +40,7 @@ flowchart LR
   `/api/config` (a custom header also forces a CORS preflight, which is never
   approved); recipient must be `@all` or a valid name; 1–4000 chars. The
   child gets `CREW_AGENT`, `CREW_SESSION`, `TMUX_PANE` blanked, `CREW_RING_WAIT=0`
-  (the draft hold must not block an HTTP request) and stdin closed, so crew
+  (check once, refusing a draft without waiting) and stdin closed, so crew
   resolves the sender as `you (web)`.
 
 ```mermaid
@@ -77,7 +77,8 @@ The interactive design mockup it was built from is
 
 `test/smoke.sh` covers state (3 agents), path traversal (`bad path`), a
 foreign `Host` (403), send off by default (403), missing token (403), foreign
-Origin (403), and a delivered send rung as `you (web)`. After editing `web.html`, syntax-check its script with
+Origin (403), and a delivered send rung as `you (web)`. The zero-wait child
+environment also has smoke coverage for refusing drafts promptly. After editing `web.html`, syntax-check its script with
 `node --check` (see [../practices.md](../practices.md)); the server reads
 `web.html` once at startup, so restart `crew web` to see changes.
 
