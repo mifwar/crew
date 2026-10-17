@@ -16,11 +16,9 @@ flowchart TD
   check -- yes --> logdm[log kind=dm] --> dl[deliver]
   dl --> inbox[append inbox/role.md] --> own{owns_pane?}
   own -- no --> notrung["warn + log sys 'role not rung: why'"]
-  own -- yes --> dlg{in_dialog?}
-  dlg -- yes --> notrung
-  dlg -- no --> model[refresh_model] --> busy["ring_when_clear: pane_busy, wait"]
-  busy -- "busy at the deadline" --> notrung
-  busy -- clear --> ring["ring '[crew] from → to: text'"]
+  own -- yes --> model[refresh_model] --> busy["ring: pane_hold, wait out a draft"]
+  busy -- "draft at the deadline, dialog/mode at once" --> notrung
+  busy -- free --> ring["send-keys '[crew] from → to: text' + Enter"]
   ring -- fails --> notrung
 ```
 
@@ -33,24 +31,25 @@ flowchart TD
   `sys <sender> <role> "<role> not rung: <why>; message is in inbox/<role>.md"`.
   So the timeline (`crew log`, web) answers "did impl ever get this?". crew
   does not retry: the sender (usually the lead) resends once the pane is free.
-- Approval prompts are why `deliver` checks `in_dialog`: a doorbell such as
-  `T1 done` types a `1`, which picks option 1 ("Yes") in claude's and codex's
-  approval selectors, before any Enter. Patterns and their sources:
-  [lifecycle.md](lifecycle.md#readiness-heuristic). An agent that itself
-  writes "Do you want to proceed?" near its prompt also holds doorbells; that
-  errs on the safe side.
+- Approval prompts are why `pane_hold` checks dialogs before anything else: a
+  doorbell such as `T1 done` types a `1`, which picks option 1 ("Yes") in
+  claude's and codex's approval selectors, before any Enter. Patterns and their
+  sources: [lifecycle.md](lifecycle.md#readiness-heuristic). One home: `ring`
+  returns the reason and `deliver` reports it. An agent that itself writes "Do
+  you want to proceed?" near its prompt also holds doorbells; that errs on the
+  safe side.
 - `send a,b msg` checks every name first (nothing is sent if one is bad), then
   does one plain `send` per name: separate log lines, doorbells and inbox
   entries. `@all` can't be in a list.
 - The doorbell is the message flattened to one line. Over `RING_MAX` (500)
   chars it becomes `long message; read the latest entry in …/inbox/<role>.md`.
-- `ring` = `send-keys -l -- "$text"`, sleep 0.3, `send-keys Enter`, holding
-  `$D/.ring<pane>.lock` (mkdir) throughout. Without it, parallel sends to one
-  pane typed all texts into one prompt line and then N Enters (seen with 5
-  parallel `crew send`s). After 10 s of waiting the lock counts as left by
-  a killed call and the ring goes ahead; the ring removes it either way.
-  `ring` is only reached through `ring_when_clear` (below), except for
-  `start_agent`, which types into a pane it just created.
+- `ring` = hold (below), then `send-keys -l -- "$text"`, sleep 0.3, `send-keys
+  Enter`, holding `$D/.ring<pane>.lock` (mkdir) throughout. Without the lock,
+  parallel sends to one pane typed all texts into one prompt line and then N
+  Enters (seen with 5 parallel `crew send`s). After 10 s of waiting the lock
+  counts as left by a killed call and the ring goes ahead; the ring removes it
+  either way. `ring --now` skips the hold and is used only by `start_agent`
+  (a pane crew just created) and by `CREW_RING_WAIT=0`.
 - `crew send you` has no pane: log + `inbox/you.md` + an 8-second tmux status
   message. Easy to miss; keep `crew log -f` or `crew web` open.
 - The doorbell and inbox heading show `sender_label`: the role, `you (terminal)`,
@@ -63,48 +62,65 @@ flowchart TD
 
 `send-keys` types wherever the pane's cursor is. If the human left an
 unsubmitted draft in the agent's editor, the doorbell is appended to it and
-`ring`'s `Enter` submits the merge as one turn, so the draft is gone. `deliver`
-and `intro` therefore call `ring_when_clear` instead of `ring`:
+`ring`'s `Enter` submits the merge as one turn, so the draft is gone. `ring` is
+safe by default: it holds first, and `ring --now` is the explicit exception
+(`start_agent`, `CREW_RING_WAIT=0`). `share/crew/pane.sh` holds the readers,
+`pane_hold`, `ring_hold` and `ring` (sourced like the listing module).
 
 ```mermaid
 flowchart LR
-  rw[ring_when_clear] --> own{owns_pane?}
+  ring[ring pane text] --> own{owns_pane?}
   own -- no --> gone["pane gone or reused"]
-  own -- yes --> pb{pane_busy} -- free --> ring[ring]
-  pb -- busy --> wait["sleep 0.5, retry until CREW_RING_WAIT"] -- "still busy" --> why["draft / dialog / mode"]
+  own -- yes --> ph{pane_hold} -- free --> type["send-keys text + Enter"]
+  ph -- draft --> wait["sleep 0.5, retry until CREW_RING_WAIT"] -- "still a draft" --> why["unsubmitted draft in the editor"]
+  ph -- "dialog / mode" --> why2["reported at once, no wait"]
+  now["ring --now"] --> type
 ```
 
-- `pane_busy <pane>` prints why the pane must not be typed into, nothing when
-  it is safe. Order: `in_dialog` → `#{pane_in_mode}` (non-empty and not `0`) →
-  the editor table. The first two swallow keys before the editor sees them, and
-  a claude dialog reuses `❯` (e.g. `❯ 1. Yes`), so they must come first.
-- The table is gated on `pane_cli` → `short_cli`: only claude, codex and pi are
-  read. **Any other pane is never held** — a false hold makes an agent
-  unringable, which is worse than the status quo; that same erring direction
-  applies when the editor cannot be recognised at all.
+- `pane_hold <pane>` prints a `class<TAB>reason` record when the pane must not
+  be typed into, nothing when it is safe. Order: the dialog grep →
+  `#{pane_in_mode}` (non-empty and not `0`) → the editor table. The first two
+  swallow keys before the editor sees them, and a claude dialog reuses `❯`
+  (e.g. `❯ 1. Yes`), so they must come first: **dialogs and modes are checked
+  for every pane**.
+- The editor table is gated on `pane_cli` → `short_cli`: only claude, codex and
+  pi are read, and an unknown pane is never held *for a draft* — a false hold
+  makes an agent unringable, which is worse than the status quo; that same
+  erring direction applies when the editor cannot be recognised at all.
+- `ring` loops only while the class is `draft`; a dialog or mode returns at
+  once, with its reason. `ring` prints the reason for `deliver`/`intro`, and one
+  capture per poll serves both the dialog grep and the editor parser.
 
 | CLI | editor is | idle | draft |
 |---|---|---|---|
 | claude | the bottom-most `❯` row | nothing after `❯` | any other text |
 | codex | the bottom-most `›` row | nothing, or `Ask Codex to do anything…` (prefix match) | any other text |
-| pi | a box drawn with `─` | the last two rows with ≥ 60 % of `#{pane_width}` dashes are its borders and the rows between them are empty | any non-empty row between them |
+| pi | a box drawn with `─` | its two border rows are found and the rows between them are empty | any non-empty row between them |
 
-pi is read bottom-up, so transcript rows and queued `Steering:` lines above the
-box cannot be mistaken for a draft, and the width-relative threshold survives a
-labelled top border (`── ⠧ Working ──`) and narrow panes. A renamed codex
-placeholder becomes a loud hold (warning + `sys` line), not a silent merge.
+A pi border is either a dashes-only row of `#{pane_width} - 3` dashes or more,
+or a row that is at least ~55 % dashes and carries a label
+(`── ⠧ Working ──`); a mostly-dashes *draft* row (100 of 120 columns) is
+neither, and the row holding the cursor can never be a border. pi is read
+bottom-up, so transcript rows and queued `Steering:` lines above the box cannot
+be mistaken for a draft. A renamed codex placeholder becomes a loud hold
+(warning + `sys` line), not a silent merge.
 
-- The wait is bounded by `CREW_RING_WAIT` (seconds, default `30`, polled twice a
-  second). `0` turns the hold off (exactly the old behaviour); a value that is
-  not digits (`0.5`, `-1`, `abc`, empty) falls back to `30`. It reports `pane %N
-  is gone or now belongs to something else`, `dialog or approval prompt`,
-  `in copy/choose mode` or `unsubmitted draft in the editor`.
+- The wait is bounded by `CREW_RING_WAIT` (seconds, default `30`, capped at
+  `3600`, polled twice a second). `0` turns the hold off (exactly the old
+  behaviour); a value that is not digits (`0.5`, `-1`, `abc`, empty) falls back
+  to `30`, and a leading zero is read as decimal (`08` = 8 s), never as bash
+  octal — `$((08 * 2))` under `set -e` used to abort `crew send` after the
+  inbox write, with no warning and no `sys … not rung` line. It reports `pane
+  %N is gone or now belongs to something else`, `pane %N is showing a dialog or
+  approval prompt`, `pane %N is in copy/choose mode` or `unsubmitted draft in
+  the editor`.
 - The waiting happens **before** `ring()` takes its mkdir lock, so a hold
   blocks neither another ring nor the 10 s stale-lock rule. The inbox write
   still comes first and `crew send` still exits 0, so a hold costs the
   doorbell, never the message, and the `sys … not rung: <why>` line names why.
-- `crew web`'s send carries `CREW_VIA=web` and skips the hold, so the viewer's
-  HTTP request cannot block for 30 s.
+- `crew web`'s child env carries `CREW_RING_WAIT=0`, so the viewer's HTTP
+  request cannot block for 30 s. The transport is not consulted: `CREW_VIA=web`
+  alone does not skip the hold.
 - `intro` shares the hold (see [lifecycle.md](lifecycle.md)); with
   `CREW_RING_WAIT=0` every path behaves as before the hold existed.
 

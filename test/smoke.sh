@@ -33,6 +33,7 @@ trap cleanup EXIT
 
 bash -n "$CREW" || { echo "FAIL  bash -n"; exit 1; }
 bash -n "$ROOT/share/crew/listing.sh" || { echo "FAIL  bash -n listing.sh"; exit 1; }
+bash -n "$ROOT/share/crew/pane.sh" || { echo "FAIL  bash -n pane.sh"; exit 1; }
 tmux new-session -d -s "$TS" -x 200 -y 50
 
 "$CREW" up t --in "$TS" lead=cat "impl=cat && true" rev=cat >/dev/null 2>&1
@@ -226,12 +227,27 @@ piu=$(awk -F'\t' '$1=="piu"{print $2}' "$D/panes")
 pidraft=$(awk -F'\t' '$1=="pidraft"{print $2}' "$D/panes")
 flat=$(awk -F'\t' '$1=="flat"{print $2}' "$D/panes")
 dashes() { awk -v n="$(( $(tmux display -p -t "$1" '#{pane_width}') - 2 ))" 'BEGIN { for (i = 0; i < n; i++) printf "─" }'; }
+ndashes() { awk -v n="$1" 'BEGIN { for (i = 0; i < n; i++) printf "─" }'; }
 type_row() { tmux send-keys -t "$1" -l "$2"; tmux send-keys -t "$1" Enter; sleep 0.2; }
 box() { # pane [content] — a pi editor box, cursor left below it
   type_row "$1" "$(dashes "$1")"
   [ -z "${2:-}" ] || type_row "$1" "$2"
   type_row "$1" "$(dashes "$1")"
 }
+
+# pi's box parser on synthetic frames (one argument per pane row; the dims
+# argument is "pane_width pane_height cursor_y"). A missed border here is a
+# doorbell typed into a draft.
+. "$ROOT/share/crew/pane.sh"
+pi_box() { # want(w|idle) dims row...
+  local want="$1" dims="$2" got; shift 2
+  got=$(printf '%s\n' "$@" | pi_box_draft "$dims")
+  case "$want" in idle) [ -z "$got" ] ;; *) [ -n "$got" ] ;; esac
+}
+check "pi parser: 100-of-120 dashes row is content, not a border" pi_box w "120 5 4" "$(ndashes 118)" "$(ndashes 100)" "$(ndashes 118)" "" ""
+check "pi parser: a labelled top border still counts" pi_box w "148 5 4" "$(printf '%s  Working  %s' "$(ndashes 62)" "$(ndashes 66)")" "draft" "$(ndashes 146)" "" ""
+check "pi parser: the cursor row is never a border" pi_box w "20 3 1" "$(ndashes 18)" "$(ndashes 20)" "$(ndashes 18)"
+check "pi parser: an idle box is idle" pi_box idle "120 5 4" "$(ndashes 118)" "" "$(ndashes 118)" "" ""
 
 box "$piu"
 as lead send piu "pi-idle" >/dev/null 2>&1
@@ -275,12 +291,64 @@ box "$pidraft" 'draft inside the box'
 check "pi draft between the borders holds" bash -c "CREW_SESSION=t CREW_AGENT=lead CREW_RING_WAIT=1 '$CREW' send pidraft held-pi && ! tmux capture-pane -p -J -t $pidraft | grep -qF 'held-pi'"
 check "  and the log names the draft"       grep -q 'pidraft not rung: .*unsubmitted draft' "$D/channel.log"
 
+# F1: a draft row that is mostly dashes (100 of 120 cols) is content, not the
+# box's top border. 70 % is > the old 60 % threshold and < width - 3.
+pw=$(tmux display -p -t "$pidraft" '#{pane_width}')
+box "$pidraft" "$(ndashes $((pw * 7 / 10)))"
+check "a dashes-only pi draft row holds" bash -c "CREW_SESSION=t CREW_AGENT=lead CREW_RING_WAIT=1 '$CREW' send pidraft held-dash && ! tmux capture-pane -p -J -t $pidraft | grep -qF 'held-dash'"
+check "  and the log names the draft"     grep -q 'pidraft not rung: .*unsubmitted draft' "$D/channel.log"
+
 # CREW_RING_WAIT=0 is the escape hatch: today's behaviour, ring at once
 box "$pidraft" 'draft for the escape hatch'
 check "CREW_RING_WAIT=0 skips the hold" bash -c "CREW_SESSION=t CREW_AGENT=lead CREW_RING_WAIT=0 '$CREW' send pidraft zero-wait >/dev/null 2>&1; sleep 0.4; tmux capture-pane -p -J -t $pidraft | grep -qF 'zero-wait'"
-# the web viewer's send must not block on the hold either
+# web.ts sets CREW_RING_WAIT=0 for its child, so an HTTP request never blocks
 box "$pidraft" 'draft for the web path'
-check "the web path never waits on a hold" bash -c "start=\$SECONDS; CREW_VIA=web CREW_RING_WAIT=30 CREW_SESSION=t CREW_AGENT=lead '$CREW' send pidraft web-wait >/dev/null 2>&1; sleep 0.4; test \$((SECONDS - start)) -lt 5 && tmux capture-pane -p -J -t $pidraft | grep -qF 'web-wait'"
+check "the web spawn's env skips the hold" bash -c "start=\$SECONDS; CREW_VIA=web CREW_RING_WAIT=0 CREW_SESSION=t CREW_AGENT=lead '$CREW' send pidraft web-wait >/dev/null 2>&1; sleep 0.4; test \$((SECONDS - start)) -lt 5 && tmux capture-pane -p -J -t $pidraft | grep -qF 'web-wait'"
+check "CREW_VIA=web alone no longer skips the hold" bash -c "CREW_VIA=web CREW_RING_WAIT=1 CREW_SESSION=t CREW_AGENT=lead '$CREW' send pidraft web-hold >/dev/null 2>&1 && ! tmux capture-pane -p -J -t $pidraft | grep -qF 'web-hold'"
+check "web.ts sets CREW_RING_WAIT=0 for its child" grep -q 'CREW_RING_WAIT: "0"' "$ROOT/share/crew/web.ts"
+
+# F2: CREW_RING_WAIT must not reach bash arithmetic as octal, and a huge
+# value must not overflow into a negative slot count.
+tmux copy-mode -t "$cl"
+err=$(CREW_SESSION=t CREW_AGENT=lead CREW_RING_WAIT=08 "$CREW" send cl octal-cl 2>&1 >/dev/null); rc=$?
+check "CREW_RING_WAIT=08 exits 0 (no octal abort)" test "$rc" = 0
+check "  it warns and logs like any blocked send" bash -c "printf '%s' \"\$1\" | grep -q 'not ringing cl' && grep -q 'cl not rung: .*copy/choose mode' '$D/channel.log'" _ "$err"
+check "  and the message is in the inbox"        grep -q octal-cl "$D/inbox/cl.md"
+err=$(CREW_SESSION=t CREW_AGENT=lead CREW_RING_WAIT=99999999999999999999 "$CREW" send cl huge-cl 2>&1 >/dev/null); rc=$?
+check "a huge CREW_RING_WAIT exits 0 and warns" test "$rc" = 0
+check "  and its message is in the inbox"       grep -q huge-cl "$D/inbox/cl.md"
+tmux copy-mode -q -t "$cl"
+tmux send-keys -t "$cl" -l 'draft for the huge wait'; sleep 0.3
+check "a huge CREW_RING_WAIT holds, then rings when the draft clears" bash -c '
+  CREW_SESSION=t CREW_AGENT=lead CREW_RING_WAIT=99999999999999999999 "$1" send cl huge-wait >/dev/null 2>&1 &
+  pid=$!; sleep 1; ok=1
+  tmux capture-pane -p -J -t "$2" | grep -qF huge-wait && ok=0
+  tmux send-keys -t "$2" Enter
+  wait $pid || ok=0
+  sleep 0.6
+  tmux capture-pane -p -J -t "$2" | grep -qF "[crew] lead → cl: huge-wait" || ok=0
+  [ $ok = 1 ]' _ "$CREW" "$cl"
+
+# T6 6b: a non-numeric CREW_RING_WAIT falls back to 30 and still holds
+tmux send-keys -t "$cl" -l 'draft for abc'; sleep 0.3
+check "non-numeric CREW_RING_WAIT still holds" bash -c '
+  CREW_SESSION=t CREW_AGENT=lead CREW_RING_WAIT=abc "$1" send cl abc-cl >/dev/null 2>&1 &
+  sleep 1; ok=1
+  tmux capture-pane -p -J -t "$2" | grep -qF abc-cl && ok=0
+  tmux send-keys -t "$2" Enter
+  wait; sleep 0.6
+  tmux capture-pane -p -J -t "$2" | grep -qF "[crew] lead → cl: abc-cl" || ok=0
+  [ $ok = 1 ]' _ "$CREW" "$cl"
+
+# T6 6a: an intro goes through the same hold
+draftrev=$(tmux split-window -d -P -F '#{pane_id}' -t "$cl" "$CREW_HOME/bin/claude $CREW_HOME/bin/editor.sh")
+sleep 0.5
+tmux send-keys -t "$draftrev" -l 'draft left in a fresh pane'; sleep 0.3
+err=$(CREW_SESSION=t CREW_AGENT=lead CREW_RING_WAIT=1 "$CREW" -s t add "draftrev=$draftrev" 2>&1 >/dev/null)
+check "a held intro is not typed into the draft" bash -c "! tmux capture-pane -p -J -t $draftrev | grep -q \"You are agent 'draftrev'\""
+check "  the intro is not appended to the draft"  bash -c "! tmux capture-pane -p -J -t $draftrev | grep -qF '[crew]'"
+check "  the draft is still exactly one copy"     bash -c "test \$(tmux capture-pane -p -J -t $draftrev | grep -oF 'draft left in a fresh pane' | wc -l) -eq 1"
+check "  and crew says the intro was not typed"  bash -c "printf '%s' \"\$1\" | grep -q 'nothing typed into draftrev'" _ "$err"
 
 # A pane showing an approval prompt gets no doorbell (a digit would pick an option).
 rev=$(awk -F'\t' '$1=="rev"{print $2}' "$D/panes")

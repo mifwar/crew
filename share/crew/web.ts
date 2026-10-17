@@ -83,8 +83,9 @@ async function send(req: Request, s: string) {
   if (!(to === "@all" || NAME_RE.test(to))) return json({ error: "bad recipient" }, 400);
   if (!text || text.length > 4000) return json({ error: "message must be 1–4000 characters" }, 400);
   // crew attributes this to "you (web)"; stdin is not a tty, so CREW_VIA decides.
+  // CREW_RING_WAIT=0: an HTTP request must not block on the draft hold either.
   const r = Bun.spawnSync([CREW_BIN, "-s", s, "send", to, text], {
-    env: { ...process.env, CREW_HOME: HOME, CREW_VIA: "web", CREW_AGENT: "", CREW_SESSION: "", TMUX_PANE: "" },
+    env: { ...process.env, CREW_HOME: HOME, CREW_VIA: "web", CREW_RING_WAIT: "0", CREW_AGENT: "", CREW_SESSION: "", TMUX_PANE: "" },
     stdin: "ignore",
   });
   const err = r.stderr.toString().trim();

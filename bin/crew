@@ -158,16 +158,8 @@ log_line() { # kind from to text
 
 # ---------- tmux helpers ----------
 
-# Two crew calls ringing one pane at once would interleave their keystrokes
-# into one garbled prompt, so a ring holds a per-pane mkdir lock. A ring takes
-# ~0.3 s, so a lock still held after 10 s is left by a killed call: ring anyway.
-ring() { # pane text — type one line into the pane and submit it
-  local l="$D/.ring${1#%}.lock" rc=0
-  take_lock "$l" 100 || true
-  tmux send-keys -t "$1" -l -- "$2" && sleep 0.3 && tmux send-keys -t "$1" Enter || rc=$?
-  rmdir "$l" 2>/dev/null || true
-  return "$rc"
-}
+# Pane readers, the doorbell ring and its draft hold.
+. "$CREW_SHARE/pane.sh"
 
 # Program name for labels: "codex --sandbox …" → codex. Claude's process is
 # named after its version (e.g. 2.1.284), so a bare version means claude.
@@ -240,102 +232,6 @@ set_pane_status() { # role text
   [ -n "$p" ] && owns_pane "$p" "$1" && tmux set-option -p -t "$p" @crew_status "$2" 2>/dev/null || true
 }
 
-# Dialogs answer keystrokes: Enter takes the highlighted choice (claude's
-# trust dialog "No, exit", codex's update "Update now" and trust "Trust and
-# continue") and a digit picks an option in an approval prompt ("T1 done"
-# types a 1). Nothing crew types may land in one, and crew never answers one.
-# Seen: startup footers claude "Enter to confirm · Esc to cancel", codex
-# "enter continue · esc skip"; approvals claude "Do you want to proceed?",
-# codex "Would you like to run the following command?", both "…don't ask again…".
-DIALOG_RE='enter (to )?(confirm|continue)|trust this folder|do you want to proceed|would you like to (run|make|grant|send)|don.t ask again'
-in_dialog() { # pane
-  tmux capture-pane -p -t "$1" 2>/dev/null | sed '/^[[:space:]]*$/d' | tail -n 15 | grep -qiE "$DIALOG_RE"
-}
-
-# Why crew must not type into this pane; nothing when it is safe. A dialog or
-# a mode swallows keys before the editor sees them, so they are checked first
-# (claude reuses its ❯ marker inside dialogs, e.g. "❯ 1. Yes"). Only the CLIs
-# whose editor row we can read are checked: an unknown pane is never held,
-# because a false hold makes an agent unringable.
-pane_busy() { # pane
-  local cli cap
-  if in_dialog "$1"; then printf 'dialog or approval prompt'; return 0; fi
-  case "$(tmux display-message -p -t "$1" '#{pane_in_mode}' 2>/dev/null)" in
-    0|'') ;;
-    *) printf 'in copy/choose mode'; return 0 ;;
-  esac
-  cli=$(short_cli "$(pane_cli "$1")")
-  case "$cli" in claude|codex|pi) ;; *) return 0 ;; esac
-  cap=$(tmux capture-pane -p -t "$1" 2>/dev/null) || return 0
-  case "$cli" in
-    claude) printf '%s\n' "$cap" | prompt_row_draft '❯' '' ;;
-    codex)  printf '%s\n' "$cap" | prompt_row_draft '›' 'Ask Codex to do anything' ;;
-    pi)     printf '%s\n' "$cap" | pi_box_draft "$(tmux display-message -p -t "$1" '#{pane_width}' 2>/dev/null)" ;;
-  esac
-}
-
-# The bottom-most prompt row, minus a known placeholder: blank (or the
-# placeholder) means an idle editor, other text a draft. No marker at all
-# means we cannot read this editor, so the pane is left alone.
-prompt_row_draft() { # marker placeholder — capture rows on stdin
-  local marker="$1" placeholder="$2" row text
-  row=$(grep -F -- "$marker" | tail -n 1) || true
-  [ -n "$row" ] || return 0
-  text=$(printf '%s' "${row#*$marker}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-  [ -n "$text" ] || return 0
-  if [ -n "$placeholder" ]; then
-    case "$text" in "$placeholder"*) return 0 ;; esac   # a renamed placeholder becomes a loud hold
-  fi
-  printf 'unsubmitted draft in the editor'
-}
-
-# pi draws its editor as a box: the last two rows that are mostly dashes are
-# its borders, and any non-empty row between them is a draft. Bottom-up, so
-# transcript rows and queued `Steering:` notes above the box cannot confuse
-# it. The threshold is relative to the pane width (a border spans the pane;
-# a label on the top border still leaves most of the row dashed).
-pi_box_draft() { # pane_width — capture rows on stdin
-  awk -v w="${1:-80}" '
-    function dashes(s, t) { t = s; gsub(/─/, "", t); return (length(s) - length(t)) / 3 }
-    { row[NR] = $0 }
-    END {
-      thr = int(w * 0.6); if (thr < 5) thr = 5
-      bot = 0; top = 0
-      for (i = NR; i >= 1; i--) if (dashes(row[i]) >= thr) { bot = i; break }
-      if (!bot) exit
-      for (j = bot - 1; j >= 1; j--) if (dashes(row[j]) >= thr) { top = j; break }
-      if (!top) exit
-      for (k = top + 1; k < bot; k++) if (row[k] != "") { print "unsubmitted draft in the editor"; exit }
-    }'
-}
-
-# A doorbell must never land in an unsubmitted draft: ring()'s send-keys
-# would append it to the draft and submit both. Wait, bounded, for the editor
-# to clear, then call ring() unchanged. The wait happens before ring() takes
-# its lock, so a hold blocks neither another ring nor the stale-lock rule.
-# Prints why the doorbell was not typed, nothing when it was.
-ring_when_clear() { # pane text
-  local pane="$1" text="$2" secs="${CREW_RING_WAIT:-30}" slots role why
-  case "$secs" in ''|*[!0-9]*) secs=30 ;; esac
-  # 0 turns the hold off; the web viewer's send must not block on it either.
-  if [ "$secs" = 0 ] || [ "${CREW_VIA:-}" = web ]; then
-    ring "$pane" "$text" 2>/dev/null || printf 'could not reach pane %s' "$pane"
-    return 0
-  fi
-  slots=$((secs * 2))          # poll twice a second
-  while :; do
-    role=$(awk -F'\t' -v p="$pane" '$2==p{print $1; exit}' "$D/panes")
-    if [ -z "$role" ] || ! owns_pane "$pane" "$role"; then
-      printf 'pane %s is gone or now belongs to something else' "$pane"; return 0
-    fi
-    why=$(pane_busy "$pane") || why=""
-    if [ -z "$why" ]; then break; fi
-    if [ "$slots" -le 0 ]; then printf '%s' "$why"; return 0; fi
-    slots=$((slots - 1)); sleep 0.5
-  done
-  ring "$pane" "$text" 2>/dev/null || printf 'could not reach pane %s' "$pane"
-}
-
 wait_ready() { # pane — wait until the pane's screen stops changing
   local prev="" cur i=0 stable=0
   while [ "$i" -lt "$BOOT_WAIT" ]; do
@@ -396,7 +292,7 @@ intro() { # role pane — never typed into a startup dialog (see in_dialog)
   elif in_dialog "$2"; then
     echo "crew: $1 ($2) is showing a startup dialog; answer it there yourself, then: crew -s $S send $1 \"$msg\"" >&2
   else
-    why=$(ring_when_clear "$2" "[crew] $msg")
+    why=$(ring "$2" "[crew] $msg") || true
     if [ -n "$why" ]; then
       echo "crew: nothing typed into $1 ($2): $why. Send the intro yourself when the pane is free: crew -s $S send $1 \"$msg\"" >&2
     fi
@@ -405,7 +301,7 @@ intro() { # role pane — never typed into a startup dialog (see in_dialog)
 
 start_agent() { # role pane spec — never amend the user's command
   owns_pane "$2" "$1" || die "$1's pane is gone or reused; no command typed"
-  ring "$2" "$3"
+  ring --now "$2" "$3"
   case "$3" in
     codex|codex\ *) case "$3" in *dangerously*|*network_access*) ;; *)
       echo "crew: $1 (codex) is sandboxed, so its 'crew send' can't reach tmux and its messages won't ring. Start it with flags that allow that." >&2 ;;
@@ -621,12 +517,11 @@ deliver() { # role text label
   printf '\n## %s  %s → %s\n\n%s\n' "$(now)" "$(sender_label)" "$3" "$2" >> "$D/inbox/$1.md"
   if ! owns_pane "$pane" "$1"; then why="pane $pane is gone or now belongs to something else"
   elif [ "$pane" = "${TMUX_PANE:-}" ]; then printf '%s\n' "$2"; return 0
-  elif in_dialog "$pane"; then why="pane $pane is showing a dialog or approval prompt"
   else
     refresh_model "$pane"
     line=$(oneline "$2")
     [ ${#line} -le "$RING_MAX" ] || line="long message; read the latest entry in $D/inbox/$1.md"
-    why=$(ring_when_clear "$pane" "[crew] $(sender_label) → $3: $line")
+    why=$(ring "$pane" "[crew] $(sender_label) → $3: $line") || true
     [ -n "$why" ] || return 0
   fi
   echo "crew: not ringing $1: $why (saved to inbox/$1.md)" >&2

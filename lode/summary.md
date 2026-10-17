@@ -2,7 +2,8 @@
 
 `crew` runs several coding-agent CLIs (Claude Code, Codex, pi) as a team inside
 tmux. It is a Bash entrypoint (`bin/crew`, macOS bash 3.2 compatible) with
-a sourced listing/sweep module (`share/crew/listing.sh`), plus
+a sourced listing/sweep module and a sourced pane module (`share/crew/listing.sh`,
+`share/crew/pane.sh`), plus
 markdown role templates (`share/crew/`) and a Bun web viewer (read-only by default)
 (`share/crew/web.ts` + `web.html`). Messages are plain files under
 `~/.crew/<name>/`; tmux `send-keys` is only the "doorbell" that types a
