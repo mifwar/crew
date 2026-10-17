@@ -18,7 +18,9 @@ flowchart TD
   own -- no --> notrung["warn + log sys 'role not rung: why'"]
   own -- yes --> dlg{in_dialog?}
   dlg -- yes --> notrung
-  dlg -- no --> model[refresh_model] --> ring["ring '[crew] from → to: text'"]
+  dlg -- no --> model[refresh_model] --> busy["ring_when_clear: pane_busy, wait"]
+  busy -- "busy at the deadline" --> notrung
+  busy -- clear --> ring["ring '[crew] from → to: text'"]
   ring -- fails --> notrung
 ```
 
@@ -47,6 +49,8 @@ flowchart TD
   pane typed all texts into one prompt line and then N Enters (seen with 5
   parallel `crew send`s). After 10 s of waiting the lock counts as left by
   a killed call and the ring goes ahead; the ring removes it either way.
+  `ring` is only reached through `ring_when_clear` (below), except for
+  `start_agent`, which types into a pane it just created.
 - `crew send you` has no pane: log + `inbox/you.md` + an 8-second tmux status
   message. Easy to miss; keep `crew log -f` or `crew web` open.
 - The doorbell and inbox heading show `sender_label`: the role, `you (terminal)`,
@@ -54,6 +58,55 @@ flowchart TD
 - `crew say` = `send` that dies unless the caller resolves to `you`. It is the
   documented way for the human to give decisions.
 - `crew note <text>` logs `sys: note (<caller>): text` (manual repairs, decisions).
+
+## Ring hold: never type into a draft
+
+`send-keys` types wherever the pane's cursor is. If the human left an
+unsubmitted draft in the agent's editor, the doorbell is appended to it and
+`ring`'s `Enter` submits the merge as one turn, so the draft is gone. `deliver`
+and `intro` therefore call `ring_when_clear` instead of `ring`:
+
+```mermaid
+flowchart LR
+  rw[ring_when_clear] --> own{owns_pane?}
+  own -- no --> gone["pane gone or reused"]
+  own -- yes --> pb{pane_busy} -- free --> ring[ring]
+  pb -- busy --> wait["sleep 0.5, retry until CREW_RING_WAIT"] -- "still busy" --> why["draft / dialog / mode"]
+```
+
+- `pane_busy <pane>` prints why the pane must not be typed into, nothing when
+  it is safe. Order: `in_dialog` → `#{pane_in_mode}` (non-empty and not `0`) →
+  the editor table. The first two swallow keys before the editor sees them, and
+  a claude dialog reuses `❯` (e.g. `❯ 1. Yes`), so they must come first.
+- The table is gated on `pane_cli` → `short_cli`: only claude, codex and pi are
+  read. **Any other pane is never held** — a false hold makes an agent
+  unringable, which is worse than the status quo; that same erring direction
+  applies when the editor cannot be recognised at all.
+
+| CLI | editor is | idle | draft |
+|---|---|---|---|
+| claude | the bottom-most `❯` row | nothing after `❯` | any other text |
+| codex | the bottom-most `›` row | nothing, or `Ask Codex to do anything…` (prefix match) | any other text |
+| pi | a box drawn with `─` | the last two rows with ≥ 60 % of `#{pane_width}` dashes are its borders and the rows between them are empty | any non-empty row between them |
+
+pi is read bottom-up, so transcript rows and queued `Steering:` lines above the
+box cannot be mistaken for a draft, and the width-relative threshold survives a
+labelled top border (`── ⠧ Working ──`) and narrow panes. A renamed codex
+placeholder becomes a loud hold (warning + `sys` line), not a silent merge.
+
+- The wait is bounded by `CREW_RING_WAIT` (seconds, default `30`, polled twice a
+  second). `0` turns the hold off (exactly the old behaviour); a value that is
+  not digits (`0.5`, `-1`, `abc`, empty) falls back to `30`. It reports `pane %N
+  is gone or now belongs to something else`, `dialog or approval prompt`,
+  `in copy/choose mode` or `unsubmitted draft in the editor`.
+- The waiting happens **before** `ring()` takes its mkdir lock, so a hold
+  blocks neither another ring nor the 10 s stale-lock rule. The inbox write
+  still comes first and `crew send` still exits 0, so a hold costs the
+  doorbell, never the message, and the `sys … not rung: <why>` line names why.
+- `crew web`'s send carries `CREW_VIA=web` and skips the hold, so the viewer's
+  HTTP request cannot block for 30 s.
+- `intro` shares the hold (see [lifecycle.md](lifecycle.md)); with
+  `CREW_RING_WAIT=0` every path behaves as before the hold existed.
 
 ## Ownership guard (`owns_pane`)
 

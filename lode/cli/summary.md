@@ -32,7 +32,7 @@ after a command prints the full usage (exit 0); unknown commands exit 1.
 flowchart TD
   main["main: -s flag, --help check, case $cmd"] --> up[cmd_up] & adopt[cmd_adopt] & send[cmd_send] & task[cmd_task] & view["cmd_status / board / log / peek / ls"] & web[cmd_web] & down[cmd_down]
   send & task --> resolve["resolve_session + resolve_me"]
-  send --> deliver --> owns[owns_pane] --> ring["ring (send-keys -l, 0.3 s, Enter)"]
+  send --> deliver --> owns[owns_pane] --> ringw["ring_when_clear: pane_busy, then ring"]
   up & adopt --> label[label_pane + style_window] --> roles[write_role_files] --> intro
 ```
 
@@ -43,6 +43,7 @@ flowchart TD
 | `CREW_HOME` | `~/.crew` | crew state root (tests point it at a temp dir) |
 | `CREW_SHARE` | `<script dir>/../share/crew` | listing module + templates + web files |
 | `CREW_BOOT_WAIT` | `30` | max seconds to wait for a new CLI to settle |
+| `CREW_RING_WAIT` | `30` | max seconds a doorbell waits for a busy editor to clear; `0` rings at once ([messaging.md](messaging.md)) |
 | `CREW_NO_SWITCH` | unset | don't `select-window` after `up` (tests) |
 | `CREW_WEB_PORT` | `7777` | viewer port |
 | `CREW_SESSION`, `CREW_AGENT` | set in spawned panes | crew selection and fallback identity; pane bindings take precedence |

@@ -215,6 +215,13 @@ that would be trusting a folder or updating on the user's behalf. A per-CLI
 "ready prompt" regex was rejected: claude's dialog uses the same `❯` as its
 prompt. `--self` never types an intro (it prints one on stdout).
 
+`intro` also goes through the ring hold, so an intro cannot be appended to a
+draft the human left in a pane it was moved to: it waits for the editor to
+clear (bounded by `CREW_RING_WAIT`), then prints the same `crew send` line if it
+never did ([messaging.md](messaging.md#ring-hold-never-type-into-a-draft)).
+`start_agent` keeps plain `ring`: it types into a pane crew just created. With
+`CREW_RING_WAIT=0` intros ring exactly as before.
+
 `crew sweep --apply` ends only crews with zero owned panes, without touching
 any pane; default sweep is a dry run. See [listing.md](listing.md).
 
