@@ -67,7 +67,9 @@ crew send rev2 "Round 2: verdict per item on out/accepted.md"
 crew send impl,rev "API contract changed: see out/api.md"   # several at once
 crew note "Rejected R3: out of scope per the user"
 crew send you "Summary: … (out/summary.md)"
-crew status                     # roles, models, panes (STALE = pane reused), board
+crew status                     # roles, models, panes, stuck/error notes, context/quota, board
+crew watch --every 120 --quiet-after 10m   # foreground state-change notices
+crew watch --ring &              # lead background shell: doorbells instead of stdout
 ```
 
 - Task ids (`T1`, `T2`, …) follow the order of `add` calls, and each owner is
@@ -80,6 +82,18 @@ crew status                     # roles, models, panes (STALE = pane reused), bo
   `task set … done` reads that file and refuses unless its last non-empty line
   starts with `STATUS: DONE` or `FINAL:` (`STATUS: BLOCKED`/`PARTIAL` leave the
   task open and say so); `--force` closes it anyway and notes it in the log.
+- `status` flags a rendered input prompt while its role owns queued/working
+  work, and recent errors. Context and 5h quota appear only when printed in
+  the pane. These are text heuristics, not proof that an agent is stuck.
+- `watch` scans every 120 seconds by default. Idle/stuck notices wait for
+  10 minutes of unchanged pane text and task rows; errors with open work
+  and an empty board report at the next scan. Each role/event is announced
+  once until its state changes. Open work includes blocked/needs-input;
+  stuck means an input prompt with queued/working work. Durations accept
+  seconds or `s`/`m`/`h` suffixes; `--quiet-after 0` reports immediately.
+  `--ring` uses the lead inbox and guarded doorbell (skipped rings stay in
+  the inbox); otherwise events print to stdout. It exits when the crew ends
+  or on Ctrl-C. It never answers prompts or resumes workers.
 - Wait for doorbells instead of polling; they arrive as your next prompt.
 - "not ringing <role>: … approval prompt" means the message is in its inbox
   but the agent wasn't told. Ask the user to answer that prompt, then send a

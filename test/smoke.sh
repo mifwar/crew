@@ -718,4 +718,6 @@ check "ls handles empty active and ended row arrays" env CREW_HOME="$CREW_HOME/e
 check "install works with scratch bin and skill destinations" env CREW_BIN_DIR="$CREW_HOME/install-bin" CLAUDE_SKILLS_DIR="$CREW_HOME/install-skills" "$ROOT/install.sh"
 check "installed symlink finds the sourced listing module" env CREW_HOME="$CREW_HOME/empty-root" "$CREW_HOME/install-bin/crew" ls
 
+. "$ROOT/test/watch.sh"
+
 [ "$fail" = 0 ] && echo "all passed" || { echo "some checks failed"; exit 1; }
