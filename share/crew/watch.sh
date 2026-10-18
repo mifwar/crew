@@ -62,6 +62,16 @@ role_tasks() { # role [active]; open includes blocked/needs-input
     END {print n+0}' "$D/board.tsv"
 }
 
+# One observation for `crew status` and `crew watch`: this pane is holding an
+# unsubmitted draft, so every doorbell to it is held. Nothing when the editor
+# is free, unreadable, or a CLI pane_hold cannot read.
+draft_note() { # pane
+  case "$(pane_hold "$1")" in
+    draft"$TAB"*) printf 'draft pending: doorbells are held' ;;
+    *) return 0 ;;
+  esac
+}
+
 watch_duration() { # digits + optional s/m/h; bounded to avoid shell overflow
   local value="$1" factor=1
   case "$value" in *s) value=${value%s} ;; *m) value=${value%m}; factor=60 ;; *h) value=${value%h}; factor=3600 ;; esac
@@ -81,7 +91,7 @@ watch_event() { # ring? text
 }
 
 watch_scan() { # private cache quiet-seconds ring?; one observation per owned pane
-  local cache="$1" quiet="$2" ring_events="$3" role pane cli origin cap observation health resources reason
+  local cache="$1" quiet="$2" ring_events="$3" role pane cli origin cap observation health resources reason draft
   local fingerprint changed sent previous current_time event open active tasks board
   current_time=$(date +%s)
   while IFS="$(printf '\t')" read -r role pane cli origin; do
@@ -93,6 +103,7 @@ watch_scan() { # private cache quiet-seconds ring?; one observation per owned pa
     cap=$(tmux capture-pane -p -J -t "$pane" 2>/dev/null) || continue
     observation=$(printf '%s\n' "$cap" | pane_observation "$(short_cli "$cli")")
     IFS='|' read -r health resources reason <<< "$observation"
+    draft=$(draft_note "$pane")
     tasks=$(awk -F'\t' -v r="$role" '$2==r && $3!="done"' "$D/board.tsv")
     fingerprint=$(printf '%s\n%s\n%s\n' "$pane" "$cap" "$tasks" | cksum)
     previous=""; changed=$current_time; sent=-
@@ -103,10 +114,11 @@ watch_scan() { # private cache quiet-seconds ring?; one observation per owned pa
     open=$(role_tasks "$role"); active=$(role_tasks "$role" active)
     event=""
     if [ "$health" = error ] && [ "$open" -gt 0 ]; then event="errored with an open task: $reason"
+    elif [ -n "$draft" ]; then event="$draft"
     elif [ "$health" = idle ] && [ "$active" -gt 0 ]; then event="stuck: input prompt with queued/working task"
     elif [ "$health" = idle ] && [ "$open" -eq 0 ]; then event="idle with no open task"; fi
     if [ -z "$event" ]; then sent=-
-    elif [ "$event" != "$sent" ] && { [ "$health" = error ] || [ $((current_time-changed)) -ge "$quiet" ]; }; then
+    elif [ "$event" != "$sent" ] && { [ "$health" = error ] || [ -n "$draft" ] || [ $((current_time-changed)) -ge "$quiet" ]; }; then
       watch_event "$ring_events" "$role $event"
       sent=$event
     fi

@@ -325,6 +325,14 @@ check "pi parser: 100-of-120 dashes row is content, not a border" pi_box w "120 
 check "pi parser: a labelled top border still counts" pi_box w "148 5 4" "$(printf '%s  Working  %s' "$(ndashes 62)" "$(ndashes 66)")" "draft" "$(ndashes 146)" "" ""
 check "pi parser: the cursor row is never a border" pi_box w "20 3 1" "$(ndashes 18)" "$(ndashes 20)" "$(ndashes 18)"
 check "pi parser: an idle box is idle" pi_box idle "120 5 4" "$(ndashes 118)" "" "$(ndashes 118)" "" ""
+ptext() { # want dims row...
+  local want="$1" dims="$2" got; shift 2
+  got=$(printf '%s\n' "$@" | pi_box_text "$dims")
+  [ "$got" = "$want" ]
+}
+check "pi text: wrapped draft rows join"  ptext "one two" "120 5 4" "$(ndashes 118)" "one" "two" "$(ndashes 118)" ""
+check "pi text: an idle box is empty"     ptext "" "120 4 2" "$(ndashes 118)" "" "$(ndashes 118)" ""
+check "claude text: after the prompt mark" test "$(printf '❯ write the answer\n' | prompt_row_text '❯' '')" = "write the answer"
 
 # G2: pi's braille Working spinner in the top border used to kill the parser
 # ("awk: towc: multibyte conversion failure", empty output read as free) and a
@@ -501,6 +509,49 @@ check "a held intro is not typed into the draft" bash -c "! tmux capture-pane -p
 check "  the intro is not appended to the draft"  bash -c "! tmux capture-pane -p -J -t $draftrev | grep -qF '[crew]'"
 check "  the draft is still exactly one copy"     bash -c "test \$(tmux capture-pane -p -J -t $draftrev | grep -oF 'draft left in a fresh pane' | wc -l) -eq 1"
 check "  and crew says the intro was not typed"  bash -c "printf '%s' \"\$1\" | grep -q 'nothing typed into draftrev'" _ "$err"
+
+# C6: crew's own startup line can be left as a draft by a CLI that swallowed
+# ring's Enter (seen with pi). The intro retries once, only while the editor
+# still holds exactly crew's line, then warns; status/watch flag the draft.
+swallow="$CREW_HOME/swallow-claude.sh"; swallow_out="$CREW_HOME/swallow-out"
+printf '%s\n' \
+  '#!/bin/sh' \
+  'printf "❯ "' \
+  'read -r line || exit 0' \
+  'printf "\r\033[K❯ %s" "$line"' \
+  'read -r _ || exit 0' \
+  'printf "%s\n" "$line" >> "$1"' \
+  'printf "\r\033[K❯ \n"' \
+  'while :; do sleep 1; done' > "$swallow"
+err=$("$CREW" -s t add "sw=$CREW_HOME/bin/claude $swallow $swallow_out" 2>&1 >/dev/null)
+for i in $(seq 1 25); do [ -s "$swallow_out" ] && break; sleep 0.2; done
+check "a swallowed startup Enter is retried"  bash -c "test \$(wc -l < '$swallow_out' | tr -d ' ') = 1"
+check "  it submitted exactly crew's intro"  bash -c "grep -q \"You are agent 'sw'\" '$swallow_out' && test \$(grep -c 'You are agent' '$swallow_out') = 1"
+check "  and no warning was printed"        bash -c "! printf '%s' \"\$1\" | grep -q 'startup draft'" _ "$err"
+
+never="$CREW_HOME/never-claude.sh"; never_out="$CREW_HOME/never-enters"
+printf '%s\n' \
+  '#!/bin/sh' \
+  'printf "❯ "' \
+  'read -r line || exit 0' \
+  'printf "\r\033[K❯ %s" "$line"' \
+  'while read -r _; do printf "x\n" >> "$1"; done' > "$never"
+err=$("$CREW" -s t add "nev=$CREW_HOME/bin/claude $never $never_out" 2>&1 >/dev/null)
+nev=$(awk -F'\t' '$1=="nev"{print $2}' "$D/panes")
+for i in $(seq 1 25); do [ -s "$never_out" ] && break; sleep 0.2; done
+sleep 0.3   # enough for a looping retry to show up as a second Enter
+check "a startup line that never submits warns" bash -c "printf '%s' \"\$1\" | grep -qF 'tmux send-keys -t $nev Enter'" _ "$err"
+check "  and says the draft blocks doorbells"   bash -c "printf '%s' \"\$1\" | grep -q 'startup draft'" _ "$err"
+check "  and only one extra Enter was sent"    bash -c "test \$(wc -l < '$never_out' | tr -d ' ') = 1"
+check "  and the pane still holds the draft"   bash -c "tmux capture-pane -p -J -t $nev | grep -q \"You are agent 'nev'\""
+"$CREW" -s t status > "$CREW_HOME/c6-status"
+check "status notes a pending draft"        bash -c "awk '\$1==\"nev\"' '$CREW_HOME/c6-status' | grep -q 'draft pending'"
+check "  and says doorbells are held"       bash -c "awk '\$1==\"nev\"' '$CREW_HOME/c6-status' | grep -q 'doorbells are held'"
+check "status has no draft note for sw"     bash -c "! awk '\$1==\"sw\"' '$CREW_HOME/c6-status' | grep -q 'draft pending'"
+"$CREW" -s t watch --every 1 --quiet-after 0 > "$CREW_HOME/c6-watch" 2>&1 & c6_watch=$!
+for i in $(seq 1 40); do grep -q 'nev draft pending' "$CREW_HOME/c6-watch" && break; sleep 0.2; done
+check "watch reports the pending draft"      grep -q 'nev draft pending: doorbells are held' "$CREW_HOME/c6-watch"
+kill "$c6_watch" 2>/dev/null; wait "$c6_watch" 2>/dev/null || true
 
 # A pane showing an approval prompt gets no doorbell (a digit would pick an option).
 rev=$(awk -F'\t' '$1=="rev"{print $2}' "$D/panes")
