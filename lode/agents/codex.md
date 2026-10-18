@@ -52,6 +52,29 @@ flowchart TD
   sb -- bypass --> ok
 ```
 
+## Shared app-server daemon owns the tool-shell environment
+
+Codex executes tool calls through a per-user managed app-server daemon
+(`~/.codex/packages/app-server-daemon/…/codex app-server --listen unix://
+--managed-daemon`, kept alive by `codex app-server daemon pid-update-loop`).
+It is detached and long-lived, so every Codex pane talks to the same process,
+and tool shells inherit the **daemon's** environment, not their pane's. A
+daemon first started from another crew keeps that crew's hints forever:
+
+```sh
+$ ps eww -p <daemon-pid> | tr ' ' '\n' | grep -E 'CREW_|TMUX_PANE'
+CREW_AGENT=codex
+CREW_SESSION=diskclean
+TMUX_PANE=%13
+```
+
+Observed in crewfix: rev's pane was `%338`, but its tool shells reported
+`outside %13` and the `diskclean` session. Crew must not trust such hints
+when `CREW_SESSION` does not match the requested crew, so `crew whoami` and
+the outside `crew send` warning name the failed check
+([../cli/messaging.md](../cli/messaging.md)). Restarting the daemon from a
+pane of the wanted crew fixes it; crew does not restart user daemons.
+
 ## Model
 
 Status bar `GPT-6-Sol medium · Context 96% left · …` → `GPT-[A-Za-z0-9.-]+`.
