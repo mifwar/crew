@@ -90,7 +90,7 @@ tmux set-option -p -t "$foreign_pane" @crew_role other
 check "identity falls back from another crew's pane" bash -c 'CREW_SESSION=t CREW_AGENT=impl TMUX_PANE="$2" "$1" whoami | grep -q "^impl "' _ "$CREW" "$foreign_pane"
 tmux set-option -p -t "$foreign_pane" @crew_session t
 check "identity rejects an unbound pane labelled to this crew" bash -c 'CREW_SESSION=t CREW_AGENT=impl TMUX_PANE="$2" "$1" whoami | grep -q "^outside "' _ "$CREW" "$foreign_pane"
-check "fallback identity can update its own task" bash -c 'CREW_SESSION=t CREW_AGENT=lead TMUX_PANE=%999999 "$1" task add --to impl identity-check > "$2" && CREW_SESSION=t CREW_AGENT=impl TMUX_PANE=%999999 "$1" task set "$(cat "$2")" done' _ "$CREW" "$CREW_HOME/identity-task"
+check "fallback identity can update its own task" bash -c 'CREW_SESSION=t CREW_AGENT=lead TMUX_PANE=%999999 "$1" task add --to impl identity-check > "$2" && CREW_SESSION=t CREW_AGENT=impl TMUX_PANE=%999999 "$1" task set "$(cat "$2")" done --force' _ "$CREW" "$CREW_HOME/identity-task"
 # Existing board count assertions expect the first task to be T1 below.
 : > "$D/board.tsv"
 check "identity fallback refuses an unknown env role" bash -c 'CREW_SESSION=t CREW_AGENT=absent TMUX_PANE=%999999 "$1" whoami | grep -q "^outside "' _ "$CREW"
@@ -99,6 +99,7 @@ tmux kill-pane -t "$foreign_pane"
 
 for i in $(seq 1 15); do as lead task add --to rev "task $i" >/dev/null 2>&1 & done; wait
 check "15 parallel adds → 15 unique ids" test "$(cut -f1 "$D/board.tsv" | sort -u | wc -l | tr -d ' ')" = 15
+for i in $(seq 1 15); do printf 'STATUS: DONE\n' > "$D/out/T$i-rev.md"; done
 for i in $(seq 1 15); do as rev task set "T$i" done >/dev/null 2>&1 & done; wait
 check "15 parallel sets all applied"    test "$(awk -F'\t' '$3=="done"' "$D/board.tsv" | wc -l | tr -d ' ')" = 15
 check "worker can't set another's task" bash -c "! CREW_SESSION=t CREW_AGENT=impl '$CREW' task set T1 working"
@@ -108,9 +109,45 @@ id=$(as lead task add --to impl --out R1-impl.md "review round 1")
 check "task add --out sets the one path" awk -F'\t' -v id="$id" '$1==id && $5=="out/R1-impl.md"{f=1} END{exit !f}' "$D/board.tsv"
 check "task message uses the --out path" grep -qF "Write $D/out/R1-impl.md" "$D/inbox/impl.md"
 check "task add rejects --out outside out/" bash -c "! CREW_SESSION=t CREW_AGENT=lead '$CREW' task add --to impl --out ../x.md oops"
+as impl task set "$id" done --evidence out/R1-tests.log >/dev/null 2>&1 || true
+check "task set done refuses an unwritten result" bash -c "! CREW_SESSION=t CREW_AGENT=impl '$CREW' task set $id done"
+printf 'STATUS: DONE — verified\n' > "$D/out/R1-impl.md"
 as impl task set "$id" done --evidence out/R1-tests.log >/dev/null
 check "task set --evidence is stored"   awk -F'\t' -v id="$id" '$1==id && $7=="out/R1-tests.log"{f=1} END{exit !f}' "$D/board.tsv"
 check "board shows EVIDENCE column"     bash -c "'$CREW' -s t board | head -1 | grep -q EVIDENCE"
+
+# C2: done gate + {id} placeholder + next-id
+gate=$(as lead task add --to impl --out gate.md "gate check")
+check "next-id predicts the next add"  test "$(as lead task next-id)" = "T$(( $(wc -l < "$D/board.tsv") + 1 ))"
+check "task set done refuses a missing result" bash -c "! CREW_SESSION=t CREW_AGENT=impl '$CREW' task set $gate done"
+check "  and leaves the task open"     test "$(awk -F'\t' -v id="$gate" '$1==id{print $3}' "$D/board.tsv")" = queued
+: > "$D/out/gate.md"
+check "empty result gets the documented error" bash -c "CREW_SESSION=t CREW_AGENT=impl '$CREW' task set $gate done 2>&1 | grep -q 'stays open'"
+check "  and the empty result stays open" test "$(awk -F'\t' -v id="$gate" '$1==id{print $3}' "$D/board.tsv")" = queued
+printf '   \n\t\n\n' > "$D/out/gate.md"
+check "whitespace-only result gets the documented error" bash -c "CREW_SESSION=t CREW_AGENT=impl '$CREW' task set $gate done 2>&1 | grep -q 'stays open'"
+check "  and the whitespace result stays open" test "$(awk -F'\t' -v id="$gate" '$1==id{print $3}' "$D/board.tsv")" = queued
+printf 'STATUS: BLOCKED — no time\n' > "$D/out/gate.md"
+check "task set done refuses a BLOCKED result" bash -c "! CREW_SESSION=t CREW_AGENT=impl '$CREW' task set $gate done"
+check "  and the error says it stays open" bash -c "CREW_SESSION=t CREW_AGENT=impl '$CREW' task set $gate done 2>&1 | grep -q 'stays open'"
+printf 'STATUS: DONE — verified\n' > "$D/out/gate.md"
+as impl task set "$gate" done >/dev/null
+check "a STATUS: DONE result passes"  awk -F'\t' -v id="$gate" '$1==id && $3=="done"{f=1} END{exit !f}' "$D/board.tsv"
+crlf=$(as lead task add --to impl --out crlf.md "crlf check")
+printf 'verified\r\nSTATUS: DONE\r\n\r\n' > "$D/out/crlf.md"
+as impl task set "$crlf" done >/dev/null
+check "a CRLF result with a blank CR row passes" awk -F'\t' -v id="$crlf" '$1==id && $3=="done"{f=1} END{exit !f}' "$D/board.tsv"
+fgate=$(as lead task add --to impl --out fgate.md "force check")
+as impl task set "$fgate" done --force >/dev/null
+check "--force closes without a result" awk -F'\t' -v id="$fgate" '$1==id && $3=="done"{f=1} END{exit !f}' "$D/board.tsv"
+check "  and notes the force in the log" bash -c "grep -qF 'set $fgate → done' '$D/channel.log' && grep -qF '[forced]' '$D/channel.log'"
+vgate=$(as lead task add --to rev --out verdict.md "review check")
+printf 'FINAL: AGREE\n' > "$D/out/verdict.md"
+as rev task set "$vgate" done >/dev/null
+check "a FINAL: verdict passes the gate" awk -F'\t' -v id="$vgate" '$1==id && $3=="done"{f=1} END{exit !f}' "$D/board.tsv"
+ph=$(as lead task add --to rev --out out/{id}-plan.md --msg "also write out/{id}-notes.md" "placeholder task")
+check "task add --out expands {id}"  awk -F'\t' -v id="$ph" '$1==id && $5=="out/" id "-plan.md"{f=1} END{exit !f}' "$D/board.tsv"
+check "task add --msg expands {id}"  grep -qF "out/$ph-notes.md" "$D/inbox/rev.md"
 
 # rebind: impl moves to a new pane (running cat, like the others)
 newp=$(tmux split-window -d -P -F '#{pane_id}' -t "$impl" cat)

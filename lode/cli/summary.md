@@ -18,8 +18,9 @@ after a command prints the full usage (exit 0); unknown commands exit 1.
 | `send <role[,role…]\|@all\|you> <msg>` | log + inbox + doorbell (unrung doorbells are logged) | [messaging.md](messaging.md) |
 | `say <role[,role…]\|@all> <msg>` | `send`, but refuses unless the caller is the human | [messaging.md](messaging.md) |
 | `note <text>` | `sys` line in the timeline | [messaging.md](messaging.md) |
-| `task add --to R [--dep T] [--out out/x.md] [--msg M] <title>` | new board row + notify owner | [tasks.md](tasks.md) |
-| `task set <id> <status> [--out F] [--evidence F]` | update row, pane label, log | [tasks.md](tasks.md) |
+| `task add --to R [--dep T] [--out out/x.md] [--msg M] <title>` | new board row + notify owner; `{id}` → the new id | [tasks.md](tasks.md) |
+| `task set <id> <status> [--out F] [--evidence F] [--force]` | update row, pane label, log; `done` gate-checks F | [tasks.md](tasks.md) |
+| `task next-id` | id the next `add` will take | [tasks.md](tasks.md) |
 | `board` / `status` | board table / agents + model + board | [tasks.md](tasks.md) |
 | `log [-f] [-n N]` | formatted `channel.log` | [messaging.md](messaging.md) |
 | `peek <role> [N]` | last N lines of the pane (`capture-pane -J`); refuses a pane failing `owns_pane` | — |

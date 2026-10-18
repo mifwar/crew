@@ -4,7 +4,7 @@
 stateDiagram-v2
   [*] --> queued: crew task add
   queued --> working: crew task set Tn working
-  working --> done: set Tn done --evidence out/Tn-tests.log
+  working --> done: set Tn done (result file must end STATUS: DONE / FINAL:)
   working --> blocked
   working --> needs_input: needs-input
   blocked --> working
@@ -30,6 +30,12 @@ The result path is **absolute** on purpose: agents run in the repo, and a
 relative `out/` would create files inside the worktree (breaking reviewers'
 read-only rule). Prints the new id on stdout.
 
+`{id}` in `--out` and `--msg` is replaced with the id this add has just taken,
+so a lead can name the result file before the id exists:
+`--out out/{id}-fix.md`. `crew task next-id` prints the same id without adding
+anything (`T<rows+1>`; `T1` on empty). Both expansions happen before the
+`--out` validation, so `out/{id}.md` is checked as `out/Tn.md`.
+
 ## Ids follow the order of `crew task add` calls
 
 The id only exists after the row does (`T<rows+1>`), and `add` immediately
@@ -49,14 +55,33 @@ existed.
 A `--msg` that *also* names a path would still conflict; `lead.md` tells the
 lead to name paths only with `--out` (pi once wrote both files when it wasn't).
 
-## `crew task set <id> <status> [--out <file>] [--evidence <file>]`
+## `crew task set <id> <status> [--out <file>] [--evidence <file>] [--force]`
 
 Status must be `queued|working|done|blocked|needs-input`. Only the task's
 owner, `lead` or `you` may set it (advisory, like sender labels: it stops a
 worker closing someone else's task by mistake). Under the lock,
 rewrites the row via `awk` → `board.tsv.tmp` → `mv`; `--evidence` fills
 column 7 (old 6-column rows gain it). Then updates the owner's
-pane label (only if `owns_pane`) and logs `"<caller> set Tn → status (file)"`.
+pane label (only if `owns_pane`) and logs `"<caller> set Tn → status (file)"`
+(plus `[forced]` when `--force` was used).
+
+### `done` gate: the result file must say so
+
+`set … done` reads the effective result file (`--out`, else column 5) and
+requires its **last non-empty line** to start with `STATUS: DONE` or
+`FINAL:`. Otherwise the task stays open and the error quotes what the file
+says:
+
+- no file named, or the file does not exist / is blank → points at the write and at `--force`;
+- last line `STATUS: BLOCKED`, `STATUS: PARTIAL`, `STATUS: NEEDS-INPUT`, … → `Tn stays open: <file> ends with '…'`;
+- anything else → asks for `STATUS: DONE`/`FINAL:`.
+
+A trailing `\r` is stripped before that check, so CRLF result files — including a
+CRLF blank row after `STATUS: DONE` — behave like LF ones.
+
+`--force` skips the check and logs `[forced]` on the `set` line, so the board
+history shows the shortcut. The gate applies to `lead` and `you` too. Only
+`done` is gated; moving a task to `blocked` still does not need an exit file.
 
 ## Locking
 
@@ -85,7 +110,9 @@ Timestamp-only `awk substr` calls slice ASCII and are safe.
 
 - Path `~/.crew/<name>/out/<task>-<role>.md`.
 - Last line exactly `STATUS: DONE|BLOCKED|NEEDS-INPUT`; reviewers
-  `FINAL: AGREE|DISAGREE`. Tools (the web viewer, the lead) key on these.
+  `FINAL: AGREE|DISAGREE`. Tools (the web viewer, the lead) key on these, and
+  `task set … done` refuses to close a task whose file does not end that way
+  (`--force` overrides; see above).
 - Claims that something was run or verified need an evidence file (command +
   output, e.g. `out/T3-tests.log`) attached with `--evidence`. The lead treats
   claims without one as unverified; the web board shows `no evidence` on done
