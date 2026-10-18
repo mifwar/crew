@@ -24,6 +24,7 @@ flowchart LR
 bash -n bin/crew                  # syntax
 bash -n share/crew/listing.sh      # sourced listing/sweep helpers
 bash -n share/crew/pane.sh         # sourced pane readers, ring and its hold
+bash -n share/crew/watch.sh        # status observations and foreground watch
 test/smoke.sh                     # behaviour; must print "all passed"
 node --check <(sed -n '/<script>/,/<\/script>/p' share/crew/web.html | sed '1d;$d')
 bun build --no-bundle share/crew/web.ts >/dev/null
@@ -32,6 +33,7 @@ bun build --no-bundle share/crew/web.ts >/dev/null
 `test/smoke.sh` uses its own `CREW_HOME` (mktemp) and a detached tmux session,
 so it never touches real crews. `KEEP=1 test/smoke.sh` keeps both for
 debugging. Extend it whenever behaviour changes — it is the only test suite.
+It sources `test/watch.sh` for the shared observer and detached watcher checks.
 
 ## Testing against real agents
 

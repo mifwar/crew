@@ -3,14 +3,14 @@
 `crew` runs several coding-agent CLIs (Claude Code, Codex, pi) as a team inside
 tmux. It is a Bash entrypoint (`bin/crew`, macOS bash 3.2 compatible) with
 a sourced listing/sweep module and a sourced pane module (`share/crew/listing.sh`,
-`share/crew/pane.sh`), plus
+`share/crew/pane.sh`), a shared status/watch module (`share/crew/watch.sh`), plus
 markdown role templates (`share/crew/`) and a Bun web viewer (read-only by default)
 (`share/crew/web.ts` + `web.html`). Messages are plain files under
 `~/.crew/<name>/`; tmux `send-keys` is only the "doorbell" that types a
 one-line `[crew] from → to: …` notice into the recipient's prompt. Rings wait
 for recognised drafts to clear, or report a skipped doorbell while keeping the
 inbox message; zero wait checks once without disabling protection. There is no
-daemon and no IPC: each `crew` call does its work and exits, and agents call it
+background daemon and no IPC: commands run on demand, and agents call them
 from their own shell tool. A crew has one **lead** that assigns tasks on a
 board (`board.tsv`), workers that write results to `out/` ending in an exact
 `STATUS:` / `FINAL:` line and back claims with evidence files, and the human
@@ -22,7 +22,10 @@ this crew's labels, because tmux pane ids are reused after a server restart;
 `crew rebind` moves a role to a new pane. `crew add rev2=pi impl2=%12` grows
 a running crew by spawning or adopting agents. New role files point to the
 live roster; existing role files stay untouched.
-`crew ls` shows projects, actual pane ownership, tasks and activity;
+`crew status` adds heuristic stuck/error notes and printed context/quota;
+`crew watch` emits debounced state changes, optionally ringing the lead through
+the normal guarded delivery path. `crew ls` shows projects, actual pane
+ownership, tasks and activity;
 `crew sweep` previews stale-crew cleanup and `--apply` marks stale crews ended
 without touching panes.
 `crew override lead impl` promotes

@@ -3,8 +3,9 @@
 One Bash entrypoint, one `cmd_*` function per command, dispatched at the bottom.
 `ls`/`sweep` and their two helpers are sourced from `share/crew/listing.sh`
 via `CREW_SHARE`; the pane readers, `pane_hold`, the `ring` doorbell and its
-draft hold come from `share/crew/pane.sh` the same way. See
-[listing.md](listing.md) and [messaging.md](messaging.md).
+draft hold come from `share/crew/pane.sh` the same way. Status observations
+and the foreground watcher come from `share/crew/watch.sh`. See
+[listing.md](listing.md), [messaging.md](messaging.md) and [watch.md](watch.md).
 `-s <name>` before the command selects a crew; `-h`/`--help` anywhere right
 after a command prints the full usage (exit 0); unknown commands exit 1.
 
@@ -21,7 +22,8 @@ after a command prints the full usage (exit 0); unknown commands exit 1.
 | `task add --to R [--dep T] [--out out/x.md] [--msg M] <title>` | new board row + notify owner; `{id}` → the new id | [tasks.md](tasks.md) |
 | `task set <id> <status> [--out F] [--evidence F] [--force]` | update row, pane label, log; `done` gate-checks F | [tasks.md](tasks.md) |
 | `task next-id` | id the next `add` will take | [tasks.md](tasks.md) |
-| `board` / `status` | board table / agents + model + board | [tasks.md](tasks.md) |
+| `board` / `status` | board table / agents, model, stuck/error notes, context/quota + board | [tasks.md](tasks.md), [watch.md](watch.md) |
+| `watch [--every 120] [--quiet-after 10m] [--ring]` | debounced state-change notices, optionally ring lead | [watch.md](watch.md) |
 | `log [-f] [-n N]` | formatted `channel.log` | [messaging.md](messaging.md) |
 | `peek <role> [N]` | last N lines of the pane (`capture-pane -J`); refuses a pane failing `owns_pane` | — |
 | `inbox [role] [--last [N]] [--from R] [--since HH:MM]` | whole inbox entries; default: the caller's role (`you`: lead) | [messaging.md](messaging.md) |
@@ -72,6 +74,9 @@ so a crew pane moved to another window shows its label only after that window
 gets `pane-border-status top`. Windows styled before a format change keep the
 old format until `crew restyle` (styles every window holding an owned pane,
 refreshes models).
+
+Status also includes idle/error notes and recognised context/quota footers,
+using the shared observer in `share/crew/watch.sh`; see [watch.md](watch.md).
 
 ## Agent names (`detect_cli`)
 

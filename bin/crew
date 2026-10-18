@@ -47,7 +47,8 @@ crew — coding agents working together in tmux
   crew task set <id> <queued|working|done|blocked|needs-input> [--out <file>] [--evidence <file>] [--force]
   crew task next-id                                   id the next task add will use
   crew board                                          task board
-  crew status                                         agents + board
+  crew status                                         agents + board, stuck/error notes and context/quota
+  crew watch [--every 120] [--quiet-after 10m] [--ring]  foreground state-change notices (or doorbells to lead)
   crew log [-f] [-n N]                                channel timeline
   crew peek <role> [lines]                            last lines of an agent's pane
   crew inbox [role] [--last [N]] [--from <role>] [--since HH:MM]
@@ -88,6 +89,11 @@ crew — coding agents working together in tmux
   (default 30, capped at 3600); skipped rings warn and leave the message in the
   inbox. CREW_RING_WAIT=0 checks once and refuses a busy editor immediately;
   web sends use it to avoid waiting. Dialog and tmux mode checks stay active.
+
+  Watch defaults: --every 120 seconds, --quiet-after 10m of unchanged pane/task
+  text before idle notices. Errors and empty-board notices are immediate.
+  Durations accept seconds or s/m/h; --quiet-after 0 reports idle immediately.
+  --ring uses the guarded lead doorbell instead of stdout. Ctrl-C stops watch.
 
   Files: ~/.crew/<name>/ (panes, board.tsv, channel.log, inbox/, out/, roles/)
   Role templates: share/crew/ next to this script (protocol.md, roles/<role>.md)
@@ -168,6 +174,7 @@ log_line() { # kind from to text
 
 # Pane readers, the doorbell ring and its draft hold.
 . "$CREW_SHARE/pane.sh"
+. "$CREW_SHARE/watch.sh"
 
 # Program name for labels: "codex --sandbox …" → codex. Claude's process is
 # named after its version (e.g. 2.1.284), so a bare version means claude.
@@ -843,9 +850,9 @@ cmd_log() {
 
 cmd_status() {
   resolve_session
-  local role pane cli origin cmd last model
+  local role pane cli origin cmd last model cap observation health resources reason note
   printf 'crew %s  (%s)  %s\n\n' "$S" "$(meta mode)$([ -f "$D/ended" ] && echo ', ended')" "$D"
-  { printf 'ROLE\tCLI\tMODEL\tPANE\tRUNNING\tLAST MESSAGE\n'
+  { printf 'ROLE\tCLI\tMODEL\tPANE\tRUNNING\tLAST MESSAGE\tNOTE\tCONTEXT / QUOTA\n'
     while IFS="$(printf '\t')" read -r role pane cli origin; do
       if ! cmd=$(tmux display-message -p -t "$pane" '#{pane_current_command}' 2>/dev/null); then cmd="(gone)"
       elif ! owns_pane "$pane" "$role"; then cmd="STALE (pane reused)"
@@ -853,11 +860,17 @@ cmd_status() {
       last=$(awk -F'\t' -v r="$role" '$3==r && $2!="sys"{l=substr($1,12,5) " → " $4 ": " $5} END{print l}' "$D/channel.log")
       last=$(truncate_text "$last" 70)
       model=""
+      note=""; resources=""
       if owns_pane "$pane" "$role"; then
         refresh_model "$pane"
         model=$(tmux display-message -p -t "$pane" '#{@crew_model}' 2>/dev/null) || model=""
+        cap=$(tmux capture-pane -p -J -t "$pane" 2>/dev/null) || cap=""
+        observation=$(printf '%s\n' "$cap" | pane_observation "$(short_cli "$cli")")
+        IFS='|' read -r health resources reason <<< "$observation"
+        if [ "$health" = error ]; then note="ERROR: $reason"
+        elif [ "$health" = idle ] && [ "$(role_tasks "$role" active)" -gt 0 ]; then note='IDLE with queued/working task'; fi
       fi
-      printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$role" "$(short_cli "$cli")" "${model:--}" "$pane" "$cmd" "${last:--}"
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$role" "$(short_cli "$cli")" "${model:--}" "$pane" "$cmd" "${last:--}" "${note:--}" "${resources:--}"
     done < "$D/panes"
   } | column -t -s "$(printf '\t')"
   echo; cmd_board
@@ -983,6 +996,7 @@ case "$cmd" in
   task) cmd_task "$@" ;;
   board) cmd_board ;;
   status) cmd_status ;;
+  watch) cmd_watch "$@" ;;
   log) cmd_log "$@" ;;
   peek) cmd_peek "$@" ;;
   inbox) cmd_inbox "$@" ;;

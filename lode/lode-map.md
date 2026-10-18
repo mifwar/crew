@@ -17,6 +17,7 @@ flowchart TD
   - [lifecycle.md](cli/lifecycle.md) — `up` / `add` / `adopt` / `rebind` / `override` / `down`, `--self` / `--here`, pane ids, readiness
   - [messaging.md](cli/messaging.md) — `send`/`say`/`note`, doorbell, `owns_pane`, sender identity, `log`
   - [tasks.md](cli/tasks.md) — board, `task add --out` / `set --evidence`, `done` gate + `--force`, `{id}`/`next-id`, locking, result-file contract
+  - [watch.md](cli/watch.md) — shared status observations, foreground watcher, quiet threshold and guarded lead notices
   - [listing.md](cli/listing.md) — sourced listing/sweep module, project/liveness listing, relative activity, dry-run stale cleanup
 - agents/
   - [summary.md](agents/summary.md) — per-CLI needs table, shared behaviour, adding a CLI
