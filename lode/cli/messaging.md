@@ -51,6 +51,11 @@ flowchart TD
   counts as left by a killed call and the ring goes ahead; the ring removes it
   either way. `ring --now` skips the hold and is used only by `start_agent`
   (a pane crew just created). `CREW_RING_WAIT=0` still checks the pane once.
+- Timer delivery uses an internal `RING_TRY_LOCK=1` mode: an existing pane
+  ring lock causes immediate refusal with inbox retention. It never bypasses
+  the lock or draft/dialog holds. Ordinary sends keep the 10-second behavior
+  above. Per-timer dispatch locks coordinate cancellation outside the shared
+  timer metadata lock; see [timers.md](timers.md).
 - `crew send you` has no pane: log + `inbox/you.md` + an 8-second tmux status
   message. Easy to miss; keep `crew log -f` or `crew web` open.
 - The doorbell and inbox heading show `sender_label`: the role, `you (terminal)`,

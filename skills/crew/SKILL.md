@@ -71,6 +71,11 @@ crew send you "Summary: … (out/summary.md)"
 crew status                     # roles, models, panes, stuck/error notes, context/quota, board
 crew watch --every 120 --quiet-after 10m   # foreground state-change notices
 crew watch --ring &              # lead background shell: doorbells instead of stdout
+crew at +30m lead "check worker progress"
+crew at 03:00 lead "start checks" # next local 03:00
+crew every 30m lead "review the board"
+crew timers                     # ids, schedules and process state
+crew timers cancel timer-...
 ```
 
 - Task ids (`T1`, `T2`, …) follow the order of `add` calls, and each owner is
@@ -95,6 +100,14 @@ crew watch --ring &              # lead background shell: doorbells instead of s
   `--ring` uses the lead inbox and guarded doorbell (skipped rings stay in
   the inbox); otherwise events print to stdout. It exits when the crew ends
   or on Ctrl-C. It never answers prompts or resumes workers.
+- `at` and `every` start detached timer workers recorded under the crew's
+  `timers/`. Delays accept positive seconds or `s`/`m`/`h`; `HH:MM` means the
+  next local occurrence. Repeats first fire after one interval and do not
+  replay missed intervals. `timers cancel <id>` stops a timer; `down` cancels
+  the crew's timers. Messages use the normal inbox and guarded doorbell,
+  checking drafts once and refusing a contended doorbell immediately. A skipped
+  ring stays in the inbox without retry.
+  Timer senders are labelled `timer`, not the scheduling human or agent.
 - Wait for doorbells instead of polling; they arrive as your next prompt.
 - "not ringing <role>: … approval prompt" means the message is in its inbox
   but the agent wasn't told. Ask the user to answer that prompt, then send a

@@ -93,6 +93,11 @@ crew -s voucher add "rev2=pi" impl2=%12
 
 ## `crew down`
 
+First hold `.timers.lock`, mark the crew ended and its timers cancelled,
+then release that lock. Stop workers through their individual dispatch locks
+before pane teardown; pane I/O never holds the crew-wide timer lock. No timer
+dispatch can occur after shutdown completes. See [timers.md](timers.md).
+
 For each pane in `panes`:
 - skip (with a warning) if `owns_pane` fails — the id is gone or reused;
 - `spawned` → `kill-pane` (the caller's own pane last, so the script isn't

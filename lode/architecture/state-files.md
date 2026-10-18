@@ -14,6 +14,7 @@ flowchart TD
   d --> inbox["inbox/role.md  full message text"]
   d --> out["out/  result files"]
   d --> roles["roles/role.md  rendered instructions"]
+  d --> timers["timers/id/ config, owner, next/claimed, message, dispatch lock"]
   d --> ended["ended  (exists after crew down)"]
   d --> lock[".board.lock/ .panes.lock/  (dirs, held during rewrites)"]
   d --> rlock[".ring<pane>.lock/  (dir, held while typing a doorbell)"]
@@ -72,6 +73,17 @@ and the web viewer treat a missing 7th as `-`.
 `all` (broadcast). `from` is a role, `you` or `outside`; `from`/`to` are `-`
 for pure system lines. The log does not record *how* `you` sent (terminal vs
 web); the doorbell and inbox heading do.
+
+## Timers
+
+`timers/timer-<epoch>-<pid>/` holds `config` (`at|every⇥interval-seconds⇥role`),
+`owner` (`pid⇥process-start-time`), `next`/`claimed` (epoch), `message` (literal full text),
+`ready` (publication marker) and `worker.log`. `done` / `cancelled` markers
+retain completed/cancelled history. The crew-wide `.timers.lock` serializes
+publication, schedule claims and shutdown markers. Each timer's
+`.dispatch.lock` serializes pane dispatch with cancellation; pane I/O never
+holds the crew-wide lock. See
+[../cli/timers.md](../cli/timers.md).
 
 ## Lifecycle
 
