@@ -368,6 +368,7 @@ intro_submit() { # role pane text
   done
   owns_pane "$2" "$1" || { echo "crew: not submitting $1 ($2): pane is gone or reused" >&2; return 0; }
   got=$(draft_text "$2") || return 0          # unreadable again: leave the draft alone
+  [ -n "$got" ] || return 0                    # cleared since the pane_hold check
   want=$(printf '%s' "$3" | tr -d '[:space:]'); got=$(printf '%s' "$got" | tr -d '[:space:]')
   if [ "$got" != "$want" ]; then
     echo "crew: $1 ($2) holds a draft that is not crew's startup line; not pressing Enter. Submit it yourself when ready: tmux send-keys -t $2 Enter" >&2

@@ -569,6 +569,36 @@ check "a foreign draft gets no extra Enter"   test ! -s "$foreign_enters"
 check "  the refusal names the foreign draft" grep -q "not crew's startup line" "$CREW_HOME/fgn-err"
 check "  and the draft is intact, intro gone" bash -c "test \$(tmux capture-pane -p -J -t $fgn | grep -oF 'someone else is typing' | wc -l) -eq 1 && ! tmux capture-pane -p -J -t $fgn | grep -qF '[crew]'"
 
+# R1: the draft note keeps pane_hold's precedence — a dialog or copy/choose
+# mode is never read as a draft, even with a draft-looking row on screen.
+tmux send-keys -t "$fgn" Enter; sleep 0.2
+tmux send-keys -t "$fgn" "Do you want to proceed?" Enter; sleep 0.3
+"$CREW" -s t status > "$CREW_HOME/c6-dialog-status"
+check "a dialog pane gets no draft note" bash -c "! awk '\$1==\"fgn\"' '$CREW_HOME/c6-dialog-status' | grep -q 'draft pending'"
+copymode="$CREW_HOME/copy-claude.sh"
+printf '%s\n' '#!/bin/sh' 'printf "❯ copy-mode draft"' 'while read -r _; do :; done' > "$copymode"
+CREW_RING_WAIT=1 "$CREW" -s t add "cpd=$CREW_HOME/bin/claude $copymode" >/dev/null 2>&1
+cpd=$(awk -F'\t' '$1=="cpd"{print $2}' "$D/panes")
+tmux copy-mode -t "$cpd"; sleep 0.3
+"$CREW" -s t status > "$CREW_HOME/c6-copy-status"
+check "a copy-mode pane gets no draft note" bash -c "! awk '\$1==\"cpd\"' '$CREW_HOME/c6-copy-status' | grep -q 'draft pending'"
+tmux copy-mode -q -t "$cpd"; sleep 0.3
+"$CREW" -s t status > "$CREW_HOME/c6-copy-status2"
+check "  copy mode exit restores the draft note" bash -c "awk '\$1==\"cpd\"' '$CREW_HOME/c6-copy-status2' | grep -q 'draft pending'"
+
+# R2: an editor that clears between the last pane_hold and draft_text is not a
+# foreign draft — nothing typed, no refusal warning.
+sed -n '/^intro_submit()/,/^}/p' "$CREW" > "$CREW_HOME/intro-submit.sh"
+check "a cleared editor prints no refusal" bash -c '
+  . "$1/intro-submit.sh"
+  TAB=$(printf "\t")
+  pane_hold() { printf "draft\tunsubmitted draft in the editor"; }
+  owns_pane() { return 0; }
+  draft_text() { printf ""; }
+  tmux() { :; }
+  err=$(intro_submit r %1 "[crew] hi" 2>&1)
+  [ -z "$err" ]' _ "$CREW_HOME"
+
 # A pane showing an approval prompt gets no doorbell (a digit would pick an option).
 rev=$(awk -F'\t' '$1=="rev"{print $2}' "$D/panes")
 tmux send-keys -t "$rev" "Do you want to proceed?" Enter; sleep 0.3

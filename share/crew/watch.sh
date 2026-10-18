@@ -63,13 +63,20 @@ role_tasks() { # role [active]; open includes blocked/needs-input
 }
 
 # One observation for `crew status` and `crew watch`: the caller's capture
-# (stdin) and cli are parsed once, so a pane holding a draft reads as
-# `draft pending: doorbells are held` without a second capture or a ps.
+# (stdin) and cli are parsed once, with pane_hold's precedence — a dialog or
+# copy/choose mode is never read as a draft. Nothing when the editor is free,
+# unreadable, or a CLI whose editor crew cannot read.
 draft_note() { # pane cli — the caller's capture on stdin
-  local cli text dims=""
+  local cli cap text dims=""
   cli=$(short_cli "$2")
+  cap=$(cat) || return 0
+  if printf '%s\n' "$cap" | dialog_capture; then return 0; fi
+  case "$(tmux display-message -p -t "$1" '#{pane_in_mode}' 2>/dev/null)" in
+    0|'') ;;
+    *) return 0 ;;
+  esac
   case "$cli" in pi) dims=$(tmux display-message -p -t "$1" '#{pane_width} #{pane_height} #{cursor_y}' 2>/dev/null) ;; esac
-  text=$(pane_editor_text "$cli" "$dims") || return 0
+  text=$(printf '%s\n' "$cap" | pane_editor_text "$cli" "$dims") || return 0
   [ -z "$text" ] || printf 'draft pending: doorbells are held'
 }
 

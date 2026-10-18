@@ -24,7 +24,9 @@ crew watch --ring &  # foreground loop placed in the lead shell background
 queued/working tasks: a pane whose editor holds a draft gets
 `draft pending: doorbells are held` from `draft_note`, which parses the scan's
 own capture and the roster CLI through the shared `pane_editor_text`
-dispatcher — no second capture and no `detect_cli` per pane. `watch` emits one
+dispatcher — no second capture and no `detect_cli` per pane — and keeps
+`pane_hold`'s precedence: a captured dialog or a pane in copy/choose mode is
+never read as a draft. `watch` emits one
 timestamped stdout line per new event, or uses the lead
 inbox and existing guarded doorbell with `--ring`:
 
