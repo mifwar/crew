@@ -81,6 +81,11 @@ crew — coding agents working together in tmux
   anything else (e.g. an agent that isn't in the crew) is "outside". This is a
   label to stop accidental relays, not a security boundary.
 
+  Doorbells wait up to CREW_RING_WAIT seconds for a recognised draft to clear
+  (default 30, capped at 3600); skipped rings warn and leave the message in the
+  inbox. CREW_RING_WAIT=0 checks once and refuses a busy editor immediately;
+  web sends use it to avoid waiting. Dialog and tmux mode checks stay active.
+
   Files: ~/.crew/<name>/ (panes, board.tsv, channel.log, inbox/, out/, roles/)
   Role templates: share/crew/ next to this script (protocol.md, roles/<role>.md)
 EOF
@@ -158,16 +163,8 @@ log_line() { # kind from to text
 
 # ---------- tmux helpers ----------
 
-# Two crew calls ringing one pane at once would interleave their keystrokes
-# into one garbled prompt, so a ring holds a per-pane mkdir lock. A ring takes
-# ~0.3 s, so a lock still held after 10 s is left by a killed call: ring anyway.
-ring() { # pane text — type one line into the pane and submit it
-  local l="$D/.ring${1#%}.lock" rc=0
-  take_lock "$l" 100 || true
-  tmux send-keys -t "$1" -l -- "$2" && sleep 0.3 && tmux send-keys -t "$1" Enter || rc=$?
-  rmdir "$l" 2>/dev/null || true
-  return "$rc"
-}
+# Pane readers, the doorbell ring and its draft hold.
+. "$CREW_SHARE/pane.sh"
 
 # Program name for labels: "codex --sandbox …" → codex. Claude's process is
 # named after its version (e.g. 2.1.284), so a bare version means claude.
@@ -240,18 +237,6 @@ set_pane_status() { # role text
   [ -n "$p" ] && owns_pane "$p" "$1" && tmux set-option -p -t "$p" @crew_status "$2" 2>/dev/null || true
 }
 
-# Dialogs answer keystrokes: Enter takes the highlighted choice (claude's
-# trust dialog "No, exit", codex's update "Update now" and trust "Trust and
-# continue") and a digit picks an option in an approval prompt ("T1 done"
-# types a 1). Nothing crew types may land in one, and crew never answers one.
-# Seen: startup footers claude "Enter to confirm · Esc to cancel", codex
-# "enter continue · esc skip"; approvals claude "Do you want to proceed?",
-# codex "Would you like to run the following command?", both "…don't ask again…".
-DIALOG_RE='enter (to )?(confirm|continue)|trust this folder|do you want to proceed|would you like to (run|make|grant|send)|don.t ask again'
-in_dialog() { # pane
-  tmux capture-pane -p -t "$1" 2>/dev/null | sed '/^[[:space:]]*$/d' | tail -n 15 | grep -qiE "$DIALOG_RE"
-}
-
 wait_ready() { # pane — wait until the pane's screen stops changing
   local prev="" cur i=0 stable=0
   while [ "$i" -lt "$BOOT_WAIT" ]; do
@@ -305,18 +290,23 @@ write_role_files() {
 }
 
 intro() { # role pane — never typed into a startup dialog (see in_dialog)
-  local msg="You are agent '$1' in crew '$S'. Read $D/roles/$1.md now and follow it for the rest of this session. Do not reply until you receive a task."
+  local msg="You are agent '$1' in crew '$S'. Read $D/roles/$1.md now and follow it for the rest of this session. Do not reply until you receive a task." why
   owns_pane "$2" "$1" || { echo "crew: not introducing $1 ($2): pane is gone or reused" >&2; return 0; }
   if [ "$2" = "${TMUX_PANE:-}" ]; then
     printf '%s\n' "$msg"
   elif in_dialog "$2"; then
     echo "crew: $1 ($2) is showing a startup dialog; answer it there yourself, then: crew -s $S send $1 \"$msg\"" >&2
-  else ring "$2" "[crew] $msg"; fi
+  else
+    why=$(ring "$2" "[crew] $msg") || true
+    if [ -n "$why" ]; then
+      echo "crew: nothing typed into $1 ($2): $why. Send the intro yourself when the pane is free: crew -s $S send $1 \"$msg\"" >&2
+    fi
+  fi
 }
 
 start_agent() { # role pane spec — never amend the user's command
   owns_pane "$2" "$1" || die "$1's pane is gone or reused; no command typed"
-  ring "$2" "$3"
+  ring --now "$2" "$3"
   case "$3" in
     codex|codex\ *) case "$3" in *dangerously*|*network_access*) ;; *)
       echo "crew: $1 (codex) is sandboxed, so its 'crew send' can't reach tmux and its messages won't ring. Start it with flags that allow that." >&2 ;;
@@ -532,13 +522,12 @@ deliver() { # role text label
   printf '\n## %s  %s → %s\n\n%s\n' "$(now)" "$(sender_label)" "$3" "$2" >> "$D/inbox/$1.md"
   if ! owns_pane "$pane" "$1"; then why="pane $pane is gone or now belongs to something else"
   elif [ "$pane" = "${TMUX_PANE:-}" ]; then printf '%s\n' "$2"; return 0
-  elif in_dialog "$pane"; then why="pane $pane is showing a dialog or approval prompt"
   else
     refresh_model "$pane"
     line=$(oneline "$2")
     [ ${#line} -le "$RING_MAX" ] || line="long message; read the latest entry in $D/inbox/$1.md"
-    ring "$pane" "[crew] $(sender_label) → $3: $line" 2>/dev/null && return 0
-    why="could not reach pane $pane"
+    why=$(ring "$pane" "[crew] $(sender_label) → $3: $line") || true
+    [ -n "$why" ] || return 0
   fi
   echo "crew: not ringing $1: $why (saved to inbox/$1.md)" >&2
   log_line sys "$ME" "$1" "$1 not rung: $why; message is in inbox/$1.md"

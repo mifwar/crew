@@ -30,6 +30,22 @@ The result path is **absolute** on purpose: agents run in the repo, and a
 relative `out/` would create files inside the worktree (breaking reviewers'
 read-only rule). Prints the new id on stdout.
 
+## Ids follow the order of `crew task add` calls
+
+The id only exists after the row does (`T<rows+1>`), and `add` immediately
+messages the owner with it. Decide the numbering first and add tasks in that
+order; a later add never takes an earlier id.
+
+A wrong order is fixed at the source, not with follow-up messages: while the
+affected rows are still `queued`, take `$D/.board.lock` (same lock `add` and
+`set` use), rewrite `board.tsv` into the intended order, then send each owner
+one final line naming its id. Once a worker has moved its id off `queued`,
+leave the board as it is and re-send the mapping instead. In `ringrace` three
+workers were told T1/T3/T2 by add order, then got two "correction"
+messages, then the board was regenerated and each was re-told; the
+corrections were the wasted half — the timeline showed ids that no longer
+existed.
+
 A `--msg` that *also* names a path would still conflict; `lead.md` tells the
 lead to name paths only with `--out` (pi once wrote both files when it wasn't).
 

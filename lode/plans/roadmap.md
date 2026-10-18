@@ -26,12 +26,17 @@ flowchart TD
 - **Codex**: does its shell tool have a tty? Checked only for Claude Code.
   Test: from inside the agent run `crew -s <crew> whoami` in a crew it isn't
   part of; expect `outside`.
+- **Draft detection coverage**: the ring hold reads rendered text. Pi border-like
+  draft rows can look empty with the cursor elsewhere, and hidden editors or
+  typing after inspection can escape detection. Stronger guarantees need an
+  editor-buffer integration, not more guessed border rules; see
+  [messaging.md](../cli/messaging.md#ring-hold-never-type-into-a-draft).
 - **Doorbell floods**: rings to one pane are serialized (`.ring<pane>.lock`),
   but many rings to a busy agent still become many queued prompts. Consider
   coalescing ("3 new messages, read inbox/x.md") when a ring for that pane is
   already waiting on the lock.
 - **pi startup dialogs**: none seen so far; if one appears, add its footer to
-  `DIALOG_RE` ([../cli/lifecycle.md](../cli/lifecycle.md#readiness-heuristic)).
+  `dialog_capture` ([../cli/lifecycle.md](../cli/lifecycle.md#readiness-heuristic)).
 
 ## Candidate improvements
 
