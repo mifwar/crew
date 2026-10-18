@@ -4,9 +4,13 @@
 table (`pane_patterns`) for `crew status` and `crew watch`. `pane_observation`
 reads a capture and returns `state|resources|reason`. Error patterns cover
 retry/connection failures, timeouts, context exhaustion/limits, rate limits
-and quota. The last 30 nonblank rows supply errors; the last eight supply
-input prompts and busy indicators (busy wins over idle). Context and 5h
-percentages are shown only if printed by the CLI, including pi `42%/1.0M`,
+and quota exhaustion. Errors match UI forms from the start of a row after
+common UI gutters / `Error:` prefixes; crew doorbell echoes are excluded.
+Healthy quota descriptions and completed prose beginning with Working or
+Thinking do not change an idle observation. Busy requires a stop/interrupt
+affordance or a pi activity border. The last 30 nonblank rows supply errors;
+the last eight supply input prompts and busy indicators (busy wins over idle).
+Context and 5h percentages are shown only if printed by the CLI, including pi `42%/1.0M`,
 Codex `Context 38% used · 5h 62% left`, and Claude auto-compact/context rows.
 These are observations, not agent state or permission to type.
 

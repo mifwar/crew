@@ -2,15 +2,14 @@
 # Keep the rendered-text patterns in one table for status and watch alike.
 pane_patterns() {
   cat <<'EOF'
-error	retry failed	Retry failed
-error	connection error	Connection error
-error	request timed out	Request timed out
-error	context.*(exhausted|limit|too long)	context exhausted/limit
-error	rate[ -]+limit	rate limit
-error	quota	quota
-busy	(esc|ctrl-c|ctrl[+]c).*interrupt|esc.*stop
-busy	^[[:space:]]*(working|thinking)([[:space:].]|…|$)
-busy	─.*(working|thinking).*─
+error	^retry failed([[:space:]:.!]|$)	Retry failed
+error	^connection error([[:space:]:.!]|$)	Connection error
+error	^request timed out([[:space:]:.!]|$)	Request timed out
+error	^context.*(exhausted|too long|limit([[:space:]]+(reached|exceeded)|$)|length[[:space:]]+exceeded)	context exhausted/limit
+error	^rate[ -]+limit([[:space:]]+(exceeded|reached|hit)|$)	rate limit
+error	^quota[[:space:]]+(exhausted|exceeded|reached|depleted)|^(you have )?(exhausted|exceeded|reached).*quota|^insufficient[_ ]quota	quota
+busy	(esc|ctrl-c|ctrl[+]c)[[:space:]]+to[[:space:]]+(interrupt|stop)[[:space:])]*$
+busy	^[[:space:]]*─.*(working|thinking).*─[[:space:]]*$
 idle	^[[:space:]]*(›|❯|>)([[:space:]]|$)
 idle	^[[:space:]]*(do you want to proceed|would you like to (run|make|grant))
 pi_idle	^(─){8,}[[:space:]]*$
@@ -33,6 +32,14 @@ pane_observation() { # cli; capture on stdin -> state|resources|reason
     END {
       for (j=1; j<=count; j++) for (i=1; i<=n; i++) {
         s=row[j]
+        # Doorbell echoes describe another role; they are never pane errors.
+        if (index(s, "[crew]")) continue
+        # Match error UI forms from their start, allowing common UI gutters.
+        if (kind[i]=="error") {
+          sub(/^[[:space:]]*/, "", s)
+          while (sub(/^│|^›|^❯|^•|^●|^!|^⚠|^️|^✗/, "", s)) sub(/^[[:space:]]*/, "", s)
+          sub(/^error:[[:space:]]*/, "", s)
+        }
         if (s !~ re[i]) continue
         if (kind[i]=="error" && j>count-30) reason=label[i]
         if (kind[i]=="busy" && j>count-8) busy=1

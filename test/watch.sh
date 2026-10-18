@@ -11,6 +11,16 @@ check 'observer reads Claude context' observe_is 'idle|context left until auto-c
 check 'observer reads percentage-first context' observe_is 'idle|13% context left|' claude '❯ ' '13% context left'
 check 'observer does not call a working editor idle' observe_is 'busy||' codex 'Working… esc to interrupt' '› '
 check 'transcript working text does not suppress an idle prompt' observe_is 'idle||' codex 'I am working on the assigned task.' '› '
+for prose in 'Working tree is clean.' 'Thinking through the result is complete.'; do
+  check "completed response stays idle: $prose" observe_is 'idle||' codex "$prose" '› Ask Codex to do anything'
+done
+check 'watch notification echo does not mark lead errored' observe_is 'idle||' codex '[crew] watch → lead: worker errored with an open task: Connection error' '› '
+check 'healthy quota description stays idle' observe_is 'idle||' codex '5h quota: 62% left' '› '
+check 'healthy context limit description stays idle' observe_is 'idle||' codex 'Context limit is 1.0M tokens.' '› '
+check 'healthy rate limit description stays idle' observe_is 'idle||' codex 'Rate limit: 62% remaining.' '› '
+check 'quoted error prose stays idle' observe_is 'idle||' codex 'The old Connection error has been resolved.' '› '
+check 'error UI prefix remains recognised' observe_is 'error||Connection error' codex '⚠ Error: Connection error' '› '
+check 'quota exhaustion stays an error' observe_is 'error||quota' codex 'You have exceeded your quota.' '› '
 for phrase in 'Retry failed' 'Connection error' 'Request timed out' 'Context limit reached' 'Rate limit exceeded' 'Quota exhausted'; do
   check "observer recognises $phrase" bash -c '. "$1/share/crew/watch.sh"; result=$(printf "%s\n" "$2" | pane_observation codex); case "$result" in error\|*) exit 0;; *) exit 1;; esac' _ "$ROOT" "$phrase"
 done
