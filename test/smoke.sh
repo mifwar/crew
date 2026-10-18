@@ -93,6 +93,13 @@ check "inbox refuses an unknown role"   bash -c "! CREW_SESSION=t CREW_AGENT=lea
 check "inbox refuses a bad --since"     bash -c "! CREW_SESSION=t CREW_AGENT=lead '$CREW' inbox lead --since 9am"
 as rev send lead "$(awk 'BEGIN{for(i=0;i<520;i++)printf "x"}')" >/dev/null; sleep 0.5
 check "long doorbells name crew inbox --last" screen_has "$lead" "crew inbox --last"
+as rev send lead $'body one\n## Findings\nbody two' >/dev/null; sleep 0.3
+check "inbox --last keeps a body with an H2" bash -c "'$CREW' -s t inbox lead --last | grep -q 'body one' && '$CREW' -s t inbox lead --last | grep -q 'body two'"
+check "inbox --from keeps a body with an H2" bash -c "'$CREW' -s t inbox lead --from rev --last | grep -q 'body one' && '$CREW' -s t inbox lead --from rev --last | grep -q Findings"
+inbox_minute=$(awk '/^## [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T/{print substr($0, 15, 5)}' "$D/inbox/lead.md" | tail -n 1)
+check "inbox --since keeps a body with an H2" bash -c "'$CREW' -s t inbox lead --since $inbox_minute | grep -q 'body one'"
+check "inbox --last rejects a non-integer count" bash -c "! CREW_SESSION=t CREW_AGENT=lead '$CREW' inbox lead --last 1garbage"
+check "inbox --last rejects zero"        bash -c "! CREW_SESSION=t CREW_AGENT=lead '$CREW' inbox lead --last 0"
 as lead note "rejected R3" >/dev/null
 check "note lands in the log"           grep -qF 'note (lead): rejected R3' "$D/channel.log"
 check "whoami hints in a foreign pane"  bash -c "TMUX_PANE=%999999 '$CREW' -s t whoami 2>&1 | grep -q \"isn't in crew t\""

@@ -220,11 +220,13 @@ just a pointer to it. Read-only: no ring, no pane access.
 - The role defaults to the caller's own role; `you` and `outside` default to
   `lead`. An unknown role dies; an empty or filtered-out result prints
   `(no messages)`. `crew inbox you` reads the human's `inbox/you.md`.
-- `--last [N]` keeps the newest N entries (no N = 1), `--from <role>` matches
-  the heading's sender exactly or as `role (…)` (so `--from you` covers
-  terminal and web), `--since HH:MM` keeps entries at or after that time.
-- Entries are the file's own headings `## <timestamp>  <sender> → <to>` plus
-  the multi-line body; awk filters on the heading before collecting, so one
-  `## ` line in a body would still split it (markdown convention).
+- `--last [N]` keeps the newest N entries (no N = 1; a non-integer or zero
+  count dies), `--from <role>` matches the heading's sender exactly or as
+  `role (…)` (so `--from you` covers terminal and web), `--since HH:MM` keeps
+  entries at or after that time.
+- Entry boundaries are only lines matching the header the writer emits,
+  `## <ISO timestamp>  <sender> → <to>` (timestamp pattern plus the arrow), so
+  an H2 like `## Findings` inside a message body never splits an entry: the
+  body is kept and printed whole.
 
 Related: [summary.md](summary.md), [tasks.md](tasks.md), [../roles/summary.md](../roles/summary.md).

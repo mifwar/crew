@@ -851,7 +851,15 @@ cmd_inbox() {
   local role="" last="" from="" since=""
   while [ $# -gt 0 ]; do
     case "$1" in
-      --last) last=1; shift; case "${1:-}" in [0-9]*) last="$1"; shift ;; esac ;;
+      --last)
+        shift
+        case "${1:-}" in
+          [0-9]*)
+            case "$1" in *[!0-9]*) die "bad --last count: $1" ;; esac
+            [ "$1" -ge 1 ] || die '--last needs a count of at least 1'
+            last="$1"; shift ;;
+          *) last=1 ;;
+        esac ;;
       --from|--since)
         [ $# -ge 2 ] || die "$1 needs a value"
         case "$1" in --from) from="$2" ;; --since) since="$2" ;; esac
@@ -868,10 +876,14 @@ cmd_inbox() {
     || die "no agent '$role' in crew $S (have: $(roles | tr '\n' ' ')you)"
   local f="$D/inbox/$role.md" out
   [ -s "$f" ] || { echo "(no messages for $role)"; return 0; }
-  # Entries start with "## <timestamp>  <sender> → <to>". The filters read that
-  # heading; --last keeps only the newest N matching entries.
+  # Entries start with the header the writer emits — "## <ISO timestamp>  <sender>
+  # → <to>" — so an H2 inside a body never splits one. --last keeps the newest
+  # N matching entries.
   out=$(awk -v last="$last" -v from="$from" -v since="$since" '
-    /^## / {
+    function is_header(l) {
+      return l ~ /^## [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]  / && l ~ /→/
+    }
+    is_header($0) {
       if (cur) { n++; e[n] = buf }
       split($0, p, "  "); sender = p[2]; sub(/ → .*/, "", sender)
       cur = (since == "" || substr($0, 15, 5) >= since) \
