@@ -23,6 +23,7 @@ after a command prints the full usage (exit 0); unknown commands exit 1.
 | `board` / `status` | board table / agents + model + board | [tasks.md](tasks.md) |
 | `log [-f] [-n N]` | formatted `channel.log` | [messaging.md](messaging.md) |
 | `peek <role> [N]` | last N lines of the pane (`capture-pane -J`); refuses a pane failing `owns_pane` | — |
+| `inbox [role] [--last [N]] [--from R] [--since HH:MM]` | whole inbox entries; default: the caller's role (`you`: lead) | [messaging.md](messaging.md) |
 | `web [--port N] [--open] [--allow-send]` | exec the Bun viewer | [../web/summary.md](../web/summary.md) |
 | `restyle` | re-apply the border format to the crew's windows | below |
 | `down` | close spawned panes, unlabel adopted ones, mark ended | [lifecycle.md](lifecycle.md) |
