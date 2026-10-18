@@ -121,6 +121,12 @@ gate=$(as lead task add --to impl --out gate.md "gate check")
 check "next-id predicts the next add"  test "$(as lead task next-id)" = "T$(( $(wc -l < "$D/board.tsv") + 1 ))"
 check "task set done refuses a missing result" bash -c "! CREW_SESSION=t CREW_AGENT=impl '$CREW' task set $gate done"
 check "  and leaves the task open"     test "$(awk -F'\t' -v id="$gate" '$1==id{print $3}' "$D/board.tsv")" = queued
+: > "$D/out/gate.md"
+check "empty result gets the documented error" bash -c "CREW_SESSION=t CREW_AGENT=impl '$CREW' task set $gate done 2>&1 | grep -q 'stays open'"
+check "  and the empty result stays open" test "$(awk -F'\t' -v id="$gate" '$1==id{print $3}' "$D/board.tsv")" = queued
+printf '   \n\t\n\n' > "$D/out/gate.md"
+check "whitespace-only result gets the documented error" bash -c "CREW_SESSION=t CREW_AGENT=impl '$CREW' task set $gate done 2>&1 | grep -q 'stays open'"
+check "  and the whitespace result stays open" test "$(awk -F'\t' -v id="$gate" '$1==id{print $3}' "$D/board.tsv")" = queued
 printf 'STATUS: BLOCKED — no time\n' > "$D/out/gate.md"
 check "task set done refuses a BLOCKED result" bash -c "! CREW_SESSION=t CREW_AGENT=impl '$CREW' task set $gate done"
 check "  and the error says it stays open" bash -c "CREW_SESSION=t CREW_AGENT=impl '$CREW' task set $gate done 2>&1 | grep -q 'stays open'"
