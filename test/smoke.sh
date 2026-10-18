@@ -650,15 +650,19 @@ R="$CREW_HOME/rm"
 asr() { local role="$1"; shift; CREW_SESSION=rm CREW_AGENT="$role" "$CREW" "$@"; }
 check "rev template carries the review-only marker" grep -q 'crew:review-only' "$ROOT/share/crew/roles/rev.md"
 check "rendered role file keeps the marker" grep -q 'crew:review-only' "$R/roles/rev.md"
-rm_err=$(asr lead task add --to rev "review the thing" 2>&1 >/dev/null)
+rm_err=$(asr lead task add --to rev "ship the fix" 2>&1 >/dev/null)
 check "task add warns for a review-only owner" bash -c 'printf "%s" "$1" | grep -q review-only' _ "$rm_err"
 check "  and still records the task"    awk -F'\t' '$2=="rev"{f=1} END{exit !f}' "$R/board.tsv"
+rm_err=$(asr lead task add --to rev "REVIEW round 1 of the fix" 2>&1 >/dev/null)
+check "task add stays quiet for a review title" test -z "$rm_err"
+rm_err=$(asr lead task add --to rev --msg "audit the diff" "check this" 2>&1 >/dev/null)
+check "task add stays quiet for a review --msg" test -z "$rm_err"
 rm_err=$(asr lead task add --to impl "impl open one" 2>&1 >/dev/null)
 check "task add does not warn for impl" test -z "$rm_err"
 asr lead task add --to impl "impl open two" >/dev/null 2>&1
-asr impl task set T3 working >/dev/null 2>&1
+asr impl task set T5 working >/dev/null 2>&1
 asr lead task add --to impl "impl finished" >/dev/null 2>&1
-asr impl task set T4 done --force >/dev/null 2>&1
+asr impl task set T6 done --force >/dev/null 2>&1
 printf 'kept\n' > "$R/out/impl-result.md"
 rm_impl=$(awk -F'\t' '$1=="impl"{print $2}' "$R/panes")
 check "remove refuses lead"             bash -c '! "$1" -s rm remove lead' _ "$CREW"
@@ -670,8 +674,8 @@ check "remove closes a spawned pane"    bash -c '! tmux display -p -t "$1" "#{pa
 rm_roster=$(awk -F'\t' '$1=="impl"{print $1}' "$R/panes")
 check "remove drops the roster row"     test -z "$rm_roster"
 rm_states=$(awk -F'\t' '$2=="impl"{print $1 ":" $3}' "$R/board.tsv" | tr '\n' ' ')
-check "remove blocks queued and working tasks" test "$rm_states" = "T2:blocked T3:blocked T4:done "
-check "remove logs the removal and blocked tasks" grep -q 'removed impl.*blocked: T2 T3' "$R/channel.log"
+check "remove blocks queued and working tasks" test "$rm_states" = "T4:blocked T5:blocked T6:done "
+check "remove logs the removal and blocked tasks" grep -q 'removed impl.*blocked: T4 T5' "$R/channel.log"
 check "remove keeps the inbox and out/ files" test -f "$R/inbox/impl.md" -a -f "$R/out/impl-result.md"
 rm_adopted=$(tmux new-window -d -P -F '#{pane_id}' -t "$TS:" cat)
 asr lead add test="$rm_adopted" >/dev/null 2>&1
@@ -687,6 +691,19 @@ check "  and unlabels it"                test -z "$(tmux display -p -t "$rm_keep
 rm_keep_row=$(awk -F'\t' '$1=="keep"' "$R/panes")
 check "  and still drops the roster row" test -z "$rm_keep_row"
 tmux kill-pane -t "$rm_keep"
+# a pane that exists but no longer carries the role's labels: leave it alone
+asr lead add reused=cat >/dev/null 2>&1
+rm_reused=$(awk -F'\t' '$1=="reused"{print $2}' "$R/panes")
+tmux set-option -p -t "$rm_reused" @crew_session other
+tmux set-option -p -t "$rm_reused" @crew_role other
+rm_before=$(tmux capture-pane -p -J -t "$rm_reused" | cksum)
+rm_err=$(asr lead remove reused 2>&1 >/dev/null)
+check "remove leaves a reused pane open" test "$(tmux display -p -t "$rm_reused" '#{pane_id}')" = "$rm_reused"
+check "  and does not touch its screen"  test "$(tmux capture-pane -p -J -t "$rm_reused" | cksum)" = "$rm_before"
+rm_reused_row=$(awk -F'\t' '$1=="reused"' "$R/panes")
+check "  and still drops the roster row" test -z "$rm_reused_row"
+check "  and warns on stderr"            bash -c 'printf "%s" "$1" | grep -q "no longer carries"' _ "$rm_err"
+tmux kill-pane -t "$rm_reused"
 rm_ghost=$(tmux new-window -d -P -F '#{pane_id}' -t "$TS:" cat)
 asr lead add ghost="$rm_ghost" >/dev/null 2>&1
 tmux kill-pane -t "$rm_ghost"

@@ -636,11 +636,14 @@ cmd_task() {
       done
       [ -n "$to" ] && [ -n "$title" ] || die 'usage: crew task add --to <role> [--dep T1] [--msg ..] <title>'
       [ -n "$(pane_of "$to")" ] || die "no agent '$to'"
-      # A rendered role file can carry the explicit review-only marker; warn
-      # (but still record the task) so a read-only reviewer is not silently
-      # handed work someone meant for an implementer.
+      # A rendered role file can carry the explicit review-only marker. A task
+      # whose title or --msg names review work is what that role is for; warn
+      # only on the rest, so the guard doesn't become noise that gets tuned out.
       if grep -q 'crew:review-only' "$D/roles/$to.md" 2>/dev/null; then
-        echo "crew: $to is marked review-only; the task was added anyway" >&2
+        case " $(printf '%s %s' "$title" "$msg" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' ' ') " in
+          *" review "*|*" verdict "*|*" audit "*) ;;
+          *) echo "crew: $to is marked review-only; the task was added anyway" >&2 ;;
+        esac
       fi
       lock board
       local id="T$(( $(wc -l < "$D/board.tsv") + 1 ))"
@@ -862,15 +865,14 @@ cmd_remove() {
     how="pane $pane reused; left alone"
     echo "crew: leaving $pane open: it no longer carries $role's labels" >&2
   fi
+  # Nobody can finish its queued/working tasks any more: block them and name
+  # them in the log line, so the board stays explainable. Both new files are
+  # prepared before either is published, then moved back to back.
+  open_ids=$(awk -F'\t' -v r="$role" '$2==r && ($3=="queued" || $3=="working"){print $1}' "$D/board.tsv" | tr '\n' ' ')
+  awk -F'\t' -v OFS='\t' -v r="$role" '$2==r && ($3=="queued" || $3=="working"){$3="blocked"} {print}' "$D/board.tsv" > "$D/board.tsv.tmp"
   awk -F'\t' -v r="$role" '$1!=r' "$D/panes" > "$D/panes.tmp"
   mv "$D/panes.tmp" "$D/panes"
-  # Nobody can finish its queued/working tasks any more: block them and name
-  # them in the log line, so the board stays explainable.
-  open_ids=$(awk -F'\t' -v r="$role" '$2==r && ($3=="queued" || $3=="working"){print $1}' "$D/board.tsv" | tr '\n' ' ')
-  if [ -n "$open_ids" ]; then
-    awk -F'\t' -v OFS='\t' -v r="$role" '$2==r && ($3=="queued" || $3=="working"){$3="blocked"} {print}' "$D/board.tsv" > "$D/board.tsv.tmp"
-    mv "$D/board.tsv.tmp" "$D/board.tsv"
-  fi
+  mv "$D/board.tsv.tmp" "$D/board.tsv"
   unlock
   log_line sys "$ME" "$role" "$ME removed $role ($how); tasks blocked: ${open_ids:-none}; inbox and out/ kept"
   [ -z "$kill_later" ] || tmux kill-pane -t "$pane" 2>/dev/null || true

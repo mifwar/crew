@@ -198,9 +198,10 @@ adopted one is unlabelled and kept, and `--keep-pane` keeps even a spawned pane
 gone or reused is left alone, with a warning. The roster row is dropped under
 `.panes.lock`; the role's `queued`/`working` board rows become `blocked` under
 `.board.lock` (done/blocked rows and dependencies untouched), and the `sys` log
-line names the role, the pane action and the blocked ids. Inbox, `out/`
-results, evidence and the rendered role file stay; adding the role again
-(`crew add rev=codex`) starts from a new pane.
+line names the role, the pane action and the blocked ids. The board has no note
+column, so that log line **is** the removal's note; the blocked rows stay bare.
+Inbox, `out/` results, evidence and the rendered role file stay; adding the role
+again (`crew add rev=codex`) starts from a new pane.
 
 ```mermaid
 flowchart TD

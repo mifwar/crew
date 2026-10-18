@@ -48,9 +48,11 @@ These encode what worked in the user's manual cross-agent reviews: an
 independent first opinion, verifying every claim, and explicit final lines.
 
 `rev.md` ends with the machine marker `<!-- crew:review-only -->`. Rendered
-role files keep it, and `crew task add --to <role>` warns on stderr (still
-recording the task) when the owner's rendered file carries it. The marker is
-the contract; prose like "You review" is not matched.
+role files keep it; `crew task add --to <role>` warns on stderr (still
+recording the task) when the owner's rendered file carries it and neither the
+title nor `--msg` names review work — `review`, `re-review`, `verdict` or
+`audit` as case-insensitive words. The marker is the contract; prose like
+"You review" is not matched.
 
 ## Editing templates
 

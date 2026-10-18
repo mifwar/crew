@@ -86,8 +86,9 @@ crew timers cancel timer-...
   `.board.lock` while the rows are still `queued`, then send each owner one
   final id line — don't stack "correction" messages (see the repo's
   `lode/cli/tasks.md`). `task add --to` also warns on stderr when the owner's
-  rendered role file carries the review-only marker, but still records the
-  task; only `lead` or `you` can `crew remove` a role.
+  rendered role file carries the review-only marker and the title/`--msg`
+  names no review work; it still records the task. Only `lead` or `you` can
+  `crew remove` a role.
 - Each task names one result file (`--out`); results end in `STATUS:` or `FINAL:`.
   `task set … done` reads that file and refuses unless its last non-empty line
   starts with `STATUS: DONE` or `FINAL:` (`STATUS: BLOCKED`/`PARTIAL` leave the
