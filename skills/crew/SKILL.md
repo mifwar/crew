@@ -63,6 +63,7 @@ crew task add --to impl --out out/{id}-fix.md "…"   # {id} expands to the new 
 crew task next-id               # the id the next add will take
 crew task set T2 done           # refuses unless that file ends STATUS: DONE / FINAL:; --force overrides
 crew board                      # EVIDENCE column shows what backs each claim
+crew inbox rev --last           # whole entries of a role's inbox (--from, --since)
 crew send rev2 "Round 2: verdict per item on out/accepted.md"
 crew send impl,rev "API contract changed: see out/api.md"   # several at once
 crew note "Rejected R3: out of scope per the user"
@@ -83,7 +84,7 @@ crew status                     # roles, models, panes (STALE = pane reused), bo
 - Wait for doorbells instead of polling; they arrive as your next prompt.
 - "not ringing <role>: … approval prompt" means the message is in its inbox
   but the agent wasn't told. Ask the user to answer that prompt, then send a
-  short nudge ("read your inbox").
+  short nudge ("read your inbox", or `crew inbox --last` for its full text).
 - Doorbells wait for recognised Claude, Codex and pi drafts to clear (default
   `CREW_RING_WAIT=30`, capped at 3600 seconds). On timeout, nothing is typed;
   the message remains in the inbox and the sender gets a warning plus a log

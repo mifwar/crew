@@ -78,6 +78,28 @@ check "crew say refuses without a tty"  bash -c "! '$CREW' -s t say lead hi"
 check "crew say works for the human"    human "$CREW" -s t say lead "ship it"
 sleep 0.3
 check "say rung as you (terminal)"      screen_has "$lead" "[crew] you (terminal) → lead: ship it"
+as rev send lead "inbox-marker" >/dev/null; as lead send impl "inbox-impl-last" >/dev/null; sleep 0.3
+check "inbox prints whole entries"      bash -c "'$CREW' -s t inbox lead | grep -q inbox-marker"
+check "inbox --last keeps only the newest" bash -c "'$CREW' -s t inbox lead --last | grep -q inbox-marker && ! '$CREW' -s t inbox lead --last | grep -q 'ship it'"
+check "inbox --last N keeps the newest N" bash -c "'$CREW' -s t inbox lead --last 2 | grep -q 'ship it'"
+check "inbox --from filters by sender"  bash -c "'$CREW' -s t inbox lead --from rev | grep -q inbox-marker && ! '$CREW' -s t inbox lead --from rev | grep -q 'ship it'"
+check "inbox --from you covers both channels" bash -c "'$CREW' -s t inbox lead --from you | grep -q 'ship it'"
+inbox_minute=$(awk -F'  ' '/^## /{print substr($1, 15, 5)}' "$D/inbox/lead.md" | tail -n 1)
+check "inbox --since keeps that minute" bash -c "'$CREW' -s t inbox lead --since $inbox_minute | grep -q inbox-marker"
+check "inbox --since drops older entries" bash -c "! '$CREW' -s t inbox lead --since 24:00 | grep -q inbox-marker"
+check "inbox defaults to the caller's role" bash -c "CREW_SESSION=t CREW_AGENT=impl '$CREW' inbox --last | grep -q inbox-impl-last"
+check "inbox works for the human"       human "$CREW" -s t inbox --last
+check "inbox refuses an unknown role"   bash -c "! CREW_SESSION=t CREW_AGENT=lead '$CREW' inbox nobody"
+check "inbox refuses a bad --since"     bash -c "! CREW_SESSION=t CREW_AGENT=lead '$CREW' inbox lead --since 9am"
+as rev send lead "$(awk 'BEGIN{for(i=0;i<520;i++)printf "x"}')" >/dev/null; sleep 0.5
+check "long doorbells name crew inbox --last" screen_has "$lead" "crew inbox --last"
+as rev send lead $'body one\n## Findings\nbody two' >/dev/null; sleep 0.3
+check "inbox --last keeps a body with an H2" bash -c "'$CREW' -s t inbox lead --last | grep -q 'body one' && '$CREW' -s t inbox lead --last | grep -q 'body two'"
+check "inbox --from keeps a body with an H2" bash -c "'$CREW' -s t inbox lead --from rev --last | grep -q 'body one' && '$CREW' -s t inbox lead --from rev --last | grep -q Findings"
+inbox_minute=$(awk '/^## [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T/{print substr($0, 15, 5)}' "$D/inbox/lead.md" | tail -n 1)
+check "inbox --since keeps a body with an H2" bash -c "'$CREW' -s t inbox lead --since $inbox_minute | grep -q 'body one'"
+check "inbox --last rejects a non-integer count" bash -c "! CREW_SESSION=t CREW_AGENT=lead '$CREW' inbox lead --last 1garbage"
+check "inbox --last rejects zero"        bash -c "! CREW_SESSION=t CREW_AGENT=lead '$CREW' inbox lead --last 0"
 as lead note "rejected R3" >/dev/null
 check "note lands in the log"           grep -qF 'note (lead): rejected R3' "$D/channel.log"
 check "whoami hints in a foreign pane"  bash -c "TMUX_PANE=%999999 '$CREW' -s t whoami 2>&1 | grep -q \"isn't in crew t\""

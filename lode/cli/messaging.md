@@ -42,7 +42,8 @@ flowchart TD
   does one plain `send` per name: separate log lines, doorbells and inbox
   entries. `@all` can't be in a list.
 - The doorbell is the message flattened to one line. Over `RING_MAX` (500)
-  chars it becomes `long message; read the latest entry in …/inbox/<role>.md`.
+  chars it becomes `long message; see: crew inbox --last` — a pointer into the
+  recipient's inbox, not the text.
 - `ring` = hold (below), then `send-keys -l -- "$text"`, sleep 0.3, `send-keys
   Enter`, holding `$D/.ring<pane>.lock` (mkdir) throughout. Without the lock,
   parallel sends to one pane typed all texts into one prompt line and then N
@@ -209,5 +210,23 @@ terminal pane or `crew web --allow-send`.
 
 `fmt_log` prints `HH:MM:SS  from → to  text` (`· text` for sys lines).
 `-f` follows (`tail -f`), `-n N` sets the backlog (default 40).
+
+## `crew inbox`
+
+`crew inbox [role] [--last [N]] [--from <role>] [--since HH:MM]` prints whole
+delivery entries from `inbox/<role>.md` — the long-message doorbell above is
+just a pointer to it. Read-only: no ring, no pane access.
+
+- The role defaults to the caller's own role; `you` and `outside` default to
+  `lead`. An unknown role dies; an empty or filtered-out result prints
+  `(no messages)`. `crew inbox you` reads the human's `inbox/you.md`.
+- `--last [N]` keeps the newest N entries (no N = 1; a non-integer or zero
+  count dies), `--from <role>` matches the heading's sender exactly or as
+  `role (…)` (so `--from you` covers terminal and web), `--since HH:MM` keeps
+  entries at or after that time.
+- Entry boundaries are only lines matching the header the writer emits,
+  `## <ISO timestamp>  <sender> → <to>` (timestamp pattern plus the arrow), so
+  an H2 like `## Findings` inside a message body never splits an entry: the
+  body is kept and printed whole.
 
 Related: [summary.md](summary.md), [tasks.md](tasks.md), [../roles/summary.md](../roles/summary.md).

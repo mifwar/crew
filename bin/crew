@@ -50,6 +50,8 @@ crew — coding agents working together in tmux
   crew status                                         agents + board
   crew log [-f] [-n N]                                channel timeline
   crew peek <role> [lines]                            last lines of an agent's pane
+  crew inbox [role] [--last [N]] [--from <role>] [--since HH:MM]
+                                                      whole entries of a role's inbox
   crew web [--port N] [--open] [--allow-send]         browser view on 127.0.0.1 (needs bun); read-only
                                                       unless --allow-send adds a compose box
   crew restyle                                        re-apply the pane border format to the crew's windows
@@ -526,7 +528,7 @@ deliver() { # role text label
   else
     refresh_model "$pane"
     line=$(oneline "$2")
-    [ ${#line} -le "$RING_MAX" ] || line="long message; read the latest entry in $D/inbox/$1.md"
+    [ ${#line} -le "$RING_MAX" ] || line="long message; see: crew inbox --last"
     why=$(ring "$pane" "[crew] $(sender_label) → $3: $line") || true
     [ -n "$why" ] || return 0
   fi
@@ -869,6 +871,60 @@ cmd_peek() {
   tmux capture-pane -p -J -t "$pane" -S -300 | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' | tail -n "${2:-25}"
 }
 
+cmd_inbox() {
+  resolve_session; resolve_me
+  local role="" last="" from="" since=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --last)
+        shift
+        case "${1:-}" in
+          [0-9]*)
+            case "$1" in *[!0-9]*) die "bad --last count: $1" ;; esac
+            [ "$1" -ge 1 ] || die '--last needs a count of at least 1'
+            last="$1"; shift ;;
+          *) last=1 ;;
+        esac ;;
+      --from|--since)
+        [ $# -ge 2 ] || die "$1 needs a value"
+        case "$1" in --from) from="$2" ;; --since) since="$2" ;; esac
+        shift 2 ;;
+      -*) die "bad option: $1" ;;
+      *) [ -z "$role" ] || die "unexpected argument: $1"; role="$1"; shift ;;
+    esac
+  done
+  case "$since" in ""|[0-9][0-9]:[0-9][0-9]) ;; *) die '--since wants HH:MM' ;; esac
+  if [ -z "$role" ]; then
+    case "$ME" in you|outside) role=lead ;; *) role="$ME" ;; esac
+  fi
+  [ "$role" = you ] || [ -n "$(pane_of "$role")" ] \
+    || die "no agent '$role' in crew $S (have: $(roles | tr '\n' ' ')you)"
+  local f="$D/inbox/$role.md" out
+  [ -s "$f" ] || { echo "(no messages for $role)"; return 0; }
+  # Entries start with the header the writer emits — "## <ISO timestamp>  <sender>
+  # → <to>" — so an H2 inside a body never splits one. --last keeps the newest
+  # N matching entries.
+  out=$(awk -v last="$last" -v from="$from" -v since="$since" '
+    function is_header(l) {
+      return l ~ /^## [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]  / && l ~ /→/
+    }
+    is_header($0) {
+      if (cur) { n++; e[n] = buf }
+      split($0, p, "  "); sender = p[2]; sub(/ → .*/, "", sender)
+      cur = (since == "" || substr($0, 15, 5) >= since) \
+        && (from == "" || sender == from || sender ~ ("^" from " \\("))
+      buf = $0; next
+    }
+    { if (cur) buf = buf "\n" $0 }
+    END {
+      if (cur) { n++; e[n] = buf }
+      start = (last != "" && n > last) ? n - last + 1 : 1
+      for (i = start; i <= n; i++) print e[i]
+    }' "$f")
+  [ -n "$out" ] || { echo "(no messages)"; return 0; }
+  printf '%s\n' "$out"
+}
+
 cmd_down() {
   resolve_session
   local role pane cli origin win last=""
@@ -929,6 +985,7 @@ case "$cmd" in
   status) cmd_status ;;
   log) cmd_log "$@" ;;
   peek) cmd_peek "$@" ;;
+  inbox) cmd_inbox "$@" ;;
   web) cmd_web "$@" ;;
   down) cmd_down ;;
   ls) cmd_ls "$@" ;;
