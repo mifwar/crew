@@ -76,6 +76,9 @@ says:
 - last line `STATUS: BLOCKED`, `STATUS: PARTIAL`, `STATUS: NEEDS-INPUT`, … → `Tn stays open: <file> ends with '…'`;
 - anything else → asks for `STATUS: DONE`/`FINAL:`.
 
+A trailing `\r` is stripped before that check, so CRLF result files — including a
+CRLF blank row after `STATUS: DONE` — behave like LF ones.
+
 `--force` skips the check and logs `[forced]` on the `set` line, so the board
 history shows the shortcut. The gate applies to `lead` and `you` too. Only
 `done` is gated; moving a task to `blocked` still does not need an exit file.

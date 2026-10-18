@@ -133,6 +133,10 @@ check "  and the error says it stays open" bash -c "CREW_SESSION=t CREW_AGENT=im
 printf 'STATUS: DONE — verified\n' > "$D/out/gate.md"
 as impl task set "$gate" done >/dev/null
 check "a STATUS: DONE result passes"  awk -F'\t' -v id="$gate" '$1==id && $3=="done"{f=1} END{exit !f}' "$D/board.tsv"
+crlf=$(as lead task add --to impl --out crlf.md "crlf check")
+printf 'verified\r\nSTATUS: DONE\r\n\r\n' > "$D/out/crlf.md"
+as impl task set "$crlf" done >/dev/null
+check "a CRLF result with a blank CR row passes" awk -F'\t' -v id="$crlf" '$1==id && $3=="done"{f=1} END{exit !f}' "$D/board.tsv"
 fgate=$(as lead task add --to impl --out fgate.md "force check")
 as impl task set "$fgate" done --force >/dev/null
 check "--force closes without a result" awk -F'\t' -v id="$fgate" '$1==id && $3=="done"{f=1} END{exit !f}' "$D/board.tsv"

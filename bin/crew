@@ -650,7 +650,9 @@ cmd_task() {
         [ -n "$out" ] || out="$rowout"
         [ -n "$out" ] && [ "$out" != - ] || die "$id stays open: no result file; pass --out or --force"
         [ -f "$D/$out" ] || die "$id stays open: $D/$out does not exist (write the result, or --force)"
-        last=$(awk 'NF{l=$0} END{print l}' "$D/$out")
+        # CRLF files: drop the trailing CR so the blank test and the prefix
+        # match see the line, not a carriage return.
+        last=$(awk '{sub(/\r$/,"")} $0 !~ /^[[:space:]]*$/ {l=$0} END{print l}' "$D/$out")
         case "$last" in
           'STATUS: DONE'*|'FINAL:'*) ;;
           'STATUS:'*) die "$id stays open: $out ends with '$last'; fix the result or --force" ;;
