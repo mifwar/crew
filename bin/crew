@@ -43,8 +43,9 @@ crew — coding agents working together in tmux
   crew send <role[,role…]|@all|you> <message>         message agents (@all: lead/you only)
   crew say <role[,role…]|@all> <message>              same, but only for the human at a terminal
   crew note <text>                                    add a note to the timeline
-  crew task add --to <role> [--dep T1] [--out out/x.md] [--msg ..] <title>
-  crew task set <id> <queued|working|done|blocked|needs-input> [--out <file>] [--evidence <file>]
+  crew task add --to <role> [--dep T1] [--out out/x.md] [--msg ..] <title>   ({id} → new id)
+  crew task set <id> <queued|working|done|blocked|needs-input> [--out <file>] [--evidence <file>] [--force]
+  crew task next-id                                   id the next task add will use
   crew board                                          task board
   crew status                                         agents + board
   crew log [-f] [-n N]                                channel timeline
@@ -609,12 +610,14 @@ cmd_task() {
       done
       [ -n "$to" ] && [ -n "$title" ] || die 'usage: crew task add --to <role> [--dep T1] [--msg ..] <title>'
       [ -n "$(pane_of "$to")" ] || die "no agent '$to'"
+      lock board
+      local id="T$(( $(wc -l < "$D/board.tsv") + 1 ))"
+      # {id} lets a brief name its own result file before the id exists.
+      out=${out//\{id\}/$id}; msg=${msg//\{id\}/$id}
       # --out names the one result file (inside the crew's out/), so a task
       # message never offers two paths.
       case "$out" in ""|out/*) ;; */*) die "--out must be out/<name>.md" ;; *) out="out/$out" ;; esac
       [ -z "$out" ] || printf '%s' "$out" | grep -Eq '^out/[A-Za-z0-9._-]+\.md$' || die "--out must be out/<name>.md"
-      lock board
-      local id="T$(( $(wc -l < "$D/board.tsv") + 1 ))"
       [ -n "$out" ] || out="out/$id-$to.md"
       printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$id" "$to" queued "${dep:--}" "$out" "$(oneline "$title")" - >> "$D/board.tsv"
       unlock
@@ -623,29 +626,48 @@ cmd_task() {
       cmd_send "$to" "$id for you: $title${dep:+ (needs $dep)}${msg:+ — ${msg%.}}. Write $D/$out (not in your working directory), then: crew task set $id done [--evidence <file>] && crew send lead \"$id done\"" >/dev/null
       echo "$id" ;;
     set)
-      [ $# -ge 2 ] || die 'usage: crew task set <id> <status> [--out <file>] [--evidence <file>]'
-      local id="$1" st="$2" out="" ev=""; shift 2
+      [ $# -ge 2 ] || die 'usage: crew task set <id> <status> [--out <file>] [--evidence <file>] [--force]'
+      local id="$1" st="$2" out="" ev="" force=""; shift 2
       while [ $# -gt 0 ]; do
         case "$1" in
           --out) out="$(oneline "$2")"; shift 2 ;;
           --evidence) ev="$(oneline "$2")"; shift 2 ;;
+          --force) force=1; shift ;;
           *) die "bad option: $1" ;;
         esac
       done
       case "$st" in queued|working|done|blocked|needs-input) ;; *) die "bad status: $st" ;; esac
       lock board
       resolve_me
-      local owner; owner=$(awk -F'\t' -v id="$id" '$1==id{print $2; exit}' "$D/board.tsv")
+      local owner rowout last; owner=$(awk -F'\t' -v id="$id" '$1==id{print $2; exit}' "$D/board.tsv")
       [ -n "$owner" ] || die "no task $id"
       # Advisory like sender labels: catches a worker closing someone else's task.
       [ "$ME" = "$owner" ] || [ "$ME" = lead ] || [ "$ME" = you ] || die "$id is $owner's; only $owner, lead or you can set it"
+      # done needs the named result file to say so; --force is the logged escape
+      # hatch, so a task can't be closed on a missing or blocked result.
+      if [ "$st" = done ] && [ -z "$force" ]; then
+        rowout=$(awk -F'\t' -v id="$id" '$1==id{print $5; exit}' "$D/board.tsv")
+        [ -n "$out" ] || out="$rowout"
+        [ -n "$out" ] && [ "$out" != - ] || die "$id stays open: no result file; pass --out or --force"
+        [ -f "$D/$out" ] || die "$id stays open: $D/$out does not exist (write the result, or --force)"
+        last=$(grep -v '^[[:space:]]*$' "$D/$out" | tail -n 1)
+        case "$last" in
+          'STATUS: DONE'*|'FINAL:'*) ;;
+          'STATUS:'*) die "$id stays open: $out ends with '$last'; fix the result or --force" ;;
+          *) die "$id stays open: $out's last line is not 'STATUS: DONE' or 'FINAL: …'; --force to override" ;;
+        esac
+      fi
       awk -F'\t' -v OFS='\t' -v id="$id" -v st="$st" -v out="$out" -v ev="$ev" \
         '$1==id{$3=st; if(out!="") $5=out; if(ev!="") $7=ev; else if($7=="") $7="-"} {print}' "$D/board.tsv" > "$D/board.tsv.tmp"
       mv "$D/board.tsv.tmp" "$D/board.tsv"
       unlock
       set_pane_status "$owner" "$id $st"
-      log_line sys "$ME" - "$ME set $id → $st${out:+ ($out)}${ev:+ evidence: $ev}" ;;
-    *) die 'usage: crew task add|set ...' ;;
+      log_line sys "$ME" - "$ME set $id → $st${out:+ ($out)}${ev:+ evidence: $ev}${force:+ [forced]}" ;;
+    next-id)
+      [ $# -eq 0 ] || die 'usage: crew task next-id'
+      [ -s "$D/board.tsv" ] || { echo T1; return; }
+      echo "T$(( $(wc -l < "$D/board.tsv") + 1 ))" ;;
+    *) die 'usage: crew task add|set|next-id ...' ;;
   esac
 }
 

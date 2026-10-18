@@ -59,6 +59,9 @@ printed.
 
 ```sh
 crew task add --to rev --out out/R1-rev.md --msg "diff: git diff main...HEAD in /path" "Round 1 review of PR #42"
+crew task add --to impl --out out/{id}-fix.md "…"   # {id} expands to the new id (also in --msg)
+crew task next-id               # the id the next add will take
+crew task set T2 done           # refuses unless that file ends STATUS: DONE / FINAL:; --force overrides
 crew board                      # EVIDENCE column shows what backs each claim
 crew send rev2 "Round 2: verdict per item on out/accepted.md"
 crew send impl,rev "API contract changed: see out/api.md"   # several at once
@@ -74,6 +77,9 @@ crew status                     # roles, models, panes (STALE = pane reused), bo
   final id line — don't stack "correction" messages (see the repo's
   `lode/cli/tasks.md`).
 - Each task names one result file (`--out`); results end in `STATUS:` or `FINAL:`.
+  `task set … done` reads that file and refuses unless its last non-empty line
+  starts with `STATUS: DONE` or `FINAL:` (`STATUS: BLOCKED`/`PARTIAL` leave the
+  task open and say so); `--force` closes it anyway and notes it in the log.
 - Wait for doorbells instead of polling; they arrive as your next prompt.
 - "not ringing <role>: … approval prompt" means the message is in its inbox
   but the agent wasn't told. Ask the user to answer that prompt, then send a
