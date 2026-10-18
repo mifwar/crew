@@ -15,7 +15,7 @@ flowchart TD
   d --> out["out/  result files"]
   d --> roles["roles/role.md  rendered instructions"]
   d --> timers["timers/id/ config, owner, next/claimed, message, dispatch lock"]
-  d --> slots["locks/name/ max, slot.pid.random/owner + held"]
+  d --> slots["locks/name/ max, slot.pid.random/owner + workload + run + held"]
   d --> ended["ended  (exists after crew down)"]
   d --> lock[".board.lock/ .panes.lock/  (dirs, held during rewrites)"]
   d --> rlock[".ring<pane>.lock/  (dir, held while typing a doorbell)"]
@@ -90,10 +90,12 @@ holds the crew-wide lock. See
 
 `locks/<name>/max` records the capacity fixed on first use. Each temporary
 `slot.<pid>.<random>/` directory reserves one slot before admission;
-`owner` stores `pid⇥process-start-time⇥role⇥command`, and `held` marks a
-running command. Empty/unpublished slots still identify their owner through
-the directory name. Dead/reused-pid reservations are removed during
-acquisition; completed/interrupted commands remove their own slot. This
+`owner` stores `wrapper-pid⇥UTC-start-time⇥role⇥command`, `workload` stores
+`command-pid⇥UTC-start-time`, `run` releases the published workload gate,
+and `held` marks an admitted command. Empty/unpublished slots still identify their owner through
+the directory name. A live wrapper or live workload retains its reservation; process identity
+uses explicit C locale/UTC start times. Dead/reused-pid reservations are
+removed during acquisition; completed/interrupted commands remove their own slot. This
 state is separate from the board/pane rewrite locks. See
 [../cli/semaphore.md](../cli/semaphore.md).
 

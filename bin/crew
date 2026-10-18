@@ -111,7 +111,8 @@ crew — coding agents working together in tmux
   Lock slots live under the crew locks/<name>/ directory. Each name keeps
   its first --max capacity; later callers must use the same value. Waiting
   prints to stderr; command arguments, streams and exit status are preserved.
-  Dead/reused-pid slots are recovered automatically. Status lists holders.
+  A surviving command keeps its slot if the wrapper dies. Dead/reused-pid
+  slots are recovered automatically. Status lists wrapper and command pids.
 
   Files: ~/.crew/<name>/ (panes, board.tsv, channel.log, inbox/, out/, roles/)
   Role templates: share/crew/ next to this script (protocol.md, roles/<role>.md)

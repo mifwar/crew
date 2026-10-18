@@ -81,6 +81,41 @@ check 'dead and reused pid slots recover' "$CREW" -s sem-test lock --name stale 
 check 'recovery removes dead slots' sem_empty "$sem_stale"
 check 'reused pid process is never signalled' kill -0 "$$"
 
+# Start-time identity must compare across different caller timezones.
+sem_tz_jobs="$CREW_HOME/sem-tz-jobs"; mkdir "$sem_tz_jobs"
+TZ=UTC "$CREW" -s sem-test lock --name timezone -- sh "$sem_fixture" "$sem_tz_jobs" tz-one gate > "$CREW_HOME/sem-tz-one" 2>&1 & sem_tz_one=$!
+check 'UTC holder starts workload' sem_until sem_file "$sem_tz_jobs/ready-tz-one"
+TZ=Asia/Jakarta "$CREW" -s sem-test lock --name timezone -- sh "$sem_fixture" "$sem_tz_jobs" tz-two quick > "$CREW_HOME/sem-tz-two" 2>&1 & sem_tz_two=$!
+check 'different timezone contender waits for live holder' sem_until grep -q 'waiting for lock timezone' "$CREW_HOME/sem-tz-two"
+check 'timezone difference cannot overlap workloads' bash -c '! grep -q "start tz-two" "$1/events"' _ "$sem_tz_jobs"
+touch "$sem_tz_jobs/release"
+check 'UTC workload completes' wait "$sem_tz_one"
+check 'other timezone workload runs after release' wait "$sem_tz_two"
+
+# Kill only the wrapper: its direct gated command must still own capacity.
+sem_orphan_jobs="$CREW_HOME/sem-orphan-jobs"; mkdir "$sem_orphan_jobs"
+"$CREW" -s sem-test lock --name orphan -- sh "$sem_fixture" "$sem_orphan_jobs" orphan-one gate > "$CREW_HOME/sem-orphan-one" 2>&1 & sem_orphan_one=$!
+check 'SIGKILL fixture begins real workload' sem_until sem_file "$sem_orphan_jobs/ready-orphan-one"
+sem_orphan_slot=""
+for sem_slot in "$sem_dir/locks/orphan"/slot.*; do [ ! -d "$sem_slot" ] || sem_orphan_slot="$sem_slot"; done
+check 'workload identity is published before command starts' test -s "$sem_orphan_slot/workload"
+IFS="$(printf '\t')" read -r sem_workload_pid sem_workload_started < "$sem_orphan_slot/workload"
+kill -KILL "$sem_orphan_one"
+wait "$sem_orphan_one" 2>/dev/null || true
+check 'direct workload survives the killed wrapper' kill -0 "$sem_workload_pid"
+"$CREW" -s sem-test lock --name orphan -- sh "$sem_fixture" "$sem_orphan_jobs" orphan-two quick > "$CREW_HOME/sem-orphan-two" 2>&1 & sem_orphan_two=$!
+check 'contender waits for orphaned direct workload' sem_until grep -q 'waiting for lock orphan' "$CREW_HOME/sem-orphan-two"
+check 'wrapper death does not free running workload capacity' bash -c '! grep -q "start orphan-two" "$1/events"' _ "$sem_orphan_jobs"
+"$CREW" -s sem-test status > "$CREW_HOME/sem-orphan-status"
+check 'status includes surviving command pid' grep -q "$sem_workload_pid" "$CREW_HOME/sem-orphan-status"
+touch "$sem_orphan_jobs/release"
+check 'contender runs once orphaned workload exits' wait "$sem_orphan_two"
+check 'SIGKILL recovery never overlaps direct commands' awk '
+  $1=="start" {active++; starts++; if (active>1) bad=1}
+  $1=="end" {active--; if (active<0) bad=1}
+  END {exit bad || active!=0 || starts!=2}' "$sem_orphan_jobs/events"
+check 'dead wrapper and completed workload slot recovers' sem_empty "$sem_dir/locks/orphan"
+
 # Signal handling stops the direct command before releasing its slot.
 CREW_SESSION=sem-test CREW_AGENT=worker "$CREW" lock -- sleep 30 > "$CREW_HOME/sem-holder" 2>&1 & sem_holder=$!
 sem_holder_shown() {

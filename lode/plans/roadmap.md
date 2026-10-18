@@ -9,8 +9,8 @@ cleanup and guarded identity fallback for missing/foreign tool-shell panes
 and heuristic stuck/error status with a foreground watcher
 (see [watch.md](../cli/watch.md)), detached timed doorbells (`at`/`every`,
 with bounded dispatch and cancellation; see [timers.md](../cli/timers.md)) and
-named command semaphores with holder listing (see
-[semaphore.md](../cli/semaphore.md)) are all in place. Roles link to the live
+named command semaphores with workload lifetime tracking and holder listing
+(see [semaphore.md](../cli/semaphore.md)) are all in place. Roles link to the live
 roster; pane-spec resolution is
 shared, and listing/cleanup lives in a sourced module (see [../lode-map.md](../lode-map.md)).
 What remains are open questions and candidate improvements. When one ships,

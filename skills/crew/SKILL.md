@@ -120,7 +120,8 @@ crew lock --name checks --max 2 -- ./run-checks
   same `--max` value (the first use fixes it for that crew). Put the command
   after `--`; arguments, streams and exit status are preserved. Waiting prints
   one line to stderr. Dead/reused-pid reservations are recovered automatically,
-  and `status` shows current holders. Names are independent and crew-scoped.
+  and `status` shows wrapper/command pids. A command that survives a killed
+  wrapper keeps its capacity until it exits. Names are independent and crew-scoped.
 - Wait for doorbells instead of polling; they arrive as your next prompt.
 - "not ringing <role>: … approval prompt" means the message is in its inbox
   but the agent wasn't told. Ask the user to answer that prompt, then send a
