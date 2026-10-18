@@ -93,6 +93,10 @@ crew -s voucher add "rev2=pi" impl2=%12
 
 ## `crew down`
 
+First hold `.timers.lock`, mark the crew ended, cancel its detached timer
+workers, then release that lock. Scheduling and delivery share the lock, so
+no new timer/delivery can cross shutdown. See [timers.md](timers.md).
+
 For each pane in `panes`:
 - skip (with a warning) if `owns_pane` fails — the id is gone or reused;
 - `spawned` → `kill-pane` (the caller's own pane last, so the script isn't

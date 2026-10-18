@@ -49,6 +49,9 @@ crew — coding agents working together in tmux
   crew board                                          task board
   crew status                                         agents + board, stuck/error notes and context/quota
   crew watch [--every 120] [--quiet-after 10m] [--ring]  foreground state-change notices (or doorbells to lead)
+  crew at <HH:MM|+30m> <role> <message>               schedule one guarded doorbell (local time)
+  crew every <30m> <role> <message>                    repeat guarded doorbells until cancelled
+  crew timers [cancel <id>]                            list or cancel this crew's timers
   crew log [-f] [-n N]                                channel timeline
   crew peek <role> [lines]                            last lines of an agent's pane
   crew inbox [role] [--last [N]] [--from <role>] [--since HH:MM]
@@ -94,6 +97,11 @@ crew — coding agents working together in tmux
   text before idle notices. Errors and empty-board notices are immediate.
   Durations accept seconds or s/m/h; --quiet-after 0 reports idle immediately.
   --ring uses the guarded lead doorbell instead of stdout. Ctrl-C stops watch.
+
+  Timers run detached, recorded under the crew timers/ directory. Delays use
+  seconds or s/m/h (positive integers). HH:MM uses the next local occurrence.
+  Repeats first fire after one interval; crew down cancels all timers. Rings
+  inspect drafts once; skipped rings remain in the inbox without retry.
 
   Files: ~/.crew/<name>/ (panes, board.tsv, channel.log, inbox/, out/, roles/)
   Role templates: share/crew/ next to this script (protocol.md, roles/<role>.md)
@@ -175,6 +183,7 @@ log_line() { # kind from to text
 # Pane readers, the doorbell ring and its draft hold.
 . "$CREW_SHARE/pane.sh"
 . "$CREW_SHARE/watch.sh"
+. "$CREW_SHARE/timers.sh"
 
 # Program name for labels: "codex --sandbox …" → codex. Claude's process is
 # named after its version (e.g. 2.1.284), so a bare version means claude.
@@ -941,8 +950,11 @@ cmd_inbox() {
 cmd_down() {
   resolve_session
   local role pane cli origin win last=""
+  lock timers
   log_line sys - - "crew down"
   touch "$D/ended"
+  timer_cancel_all
+  unlock
   [ "$(cat "$CREW_HOME/.current" 2>/dev/null)" != "$S" ] || rm -f "$CREW_HOME/.current"
   echo "crew '$S' closed; files kept in $D"
   # Close panes crew started; unlabel panes it adopted. If the caller is a
@@ -997,6 +1009,9 @@ case "$cmd" in
   board) cmd_board ;;
   status) cmd_status ;;
   watch) cmd_watch "$@" ;;
+  at|every) cmd_timer_add "$cmd" "$@" ;;
+  timers) cmd_timers "$@" ;;
+  _timer) cmd_timer_run "$@" ;;
   log) cmd_log "$@" ;;
   peek) cmd_peek "$@" ;;
   inbox) cmd_inbox "$@" ;;

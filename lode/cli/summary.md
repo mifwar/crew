@@ -4,8 +4,9 @@ One Bash entrypoint, one `cmd_*` function per command, dispatched at the bottom.
 `ls`/`sweep` and their two helpers are sourced from `share/crew/listing.sh`
 via `CREW_SHARE`; the pane readers, `pane_hold`, the `ring` doorbell and its
 draft hold come from `share/crew/pane.sh` the same way. Status observations
-and the foreground watcher come from `share/crew/watch.sh`. See
-[listing.md](listing.md), [messaging.md](messaging.md) and [watch.md](watch.md).
+and the foreground watcher come from `share/crew/watch.sh`; detached timer
+workers live in `share/crew/timers.sh`. See [listing.md](listing.md),
+[messaging.md](messaging.md), [watch.md](watch.md) and [timers.md](timers.md).
 `-s <name>` before the command selects a crew; `-h`/`--help` anywhere right
 after a command prints the full usage (exit 0); unknown commands exit 1.
 
@@ -24,6 +25,8 @@ after a command prints the full usage (exit 0); unknown commands exit 1.
 | `task next-id` | id the next `add` will take | [tasks.md](tasks.md) |
 | `board` / `status` | board table / agents, model, stuck/error notes, context/quota + board | [tasks.md](tasks.md), [watch.md](watch.md) |
 | `watch [--every 120] [--quiet-after 10m] [--ring]` | debounced state-change notices, optionally ring lead | [watch.md](watch.md) |
+| `at <HH:MM\|+30m> <role> <message>` / `every <30m> <role> <message>` | detached guarded doorbells | [timers.md](timers.md) |
+| `timers [cancel <id>]` | list timers or stop one | [timers.md](timers.md) |
 | `log [-f] [-n N]` | formatted `channel.log` | [messaging.md](messaging.md) |
 | `peek <role> [N]` | last N lines of the pane (`capture-pane -J`); refuses a pane failing `owns_pane` | — |
 | `inbox [role] [--last [N]] [--from R] [--since HH:MM]` | whole inbox entries; default: the caller's role (`you`: lead) | [messaging.md](messaging.md) |

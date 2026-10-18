@@ -741,5 +741,6 @@ check "install works with scratch bin and skill destinations" env CREW_BIN_DIR="
 check "installed symlink finds the sourced listing module" env CREW_HOME="$CREW_HOME/empty-root" "$CREW_HOME/install-bin/crew" ls
 
 . "$ROOT/test/watch.sh"
+. "$ROOT/test/timers.sh"
 
 [ "$fail" = 0 ] && echo "all passed" || { echo "some checks failed"; exit 1; }

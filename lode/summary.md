@@ -10,7 +10,7 @@ markdown role templates (`share/crew/`) and a Bun web viewer (read-only by defau
 one-line `[crew] from → to: …` notice into the recipient's prompt. Rings wait
 for recognised drafts to clear, or report a skipped doorbell while keeping the
 inbox message; zero wait checks once without disabling protection. There is no
-background daemon and no IPC: commands run on demand, and agents call them
+coordinating daemon and no IPC: commands run on demand, and agents call them
 from their own shell tool. A crew has one **lead** that assigns tasks on a
 board (`board.tsv`), workers that write results to `out/` ending in an exact
 `STATUS:` / `FINAL:` line and back claims with evidence files, and the human
@@ -24,8 +24,10 @@ a running crew by spawning or adopting agents. New role files point to the
 live roster; existing role files stay untouched.
 `crew status` adds heuristic stuck/error notes and printed context/quota;
 `crew watch` emits debounced state changes, optionally ringing the lead through
-the normal guarded delivery path. `crew ls` shows projects, actual pane
-ownership, tasks and activity;
+the normal guarded delivery path.
+`crew at` and `crew every` run detached timer workers for guarded doorbells,
+recorded under the crew; `crew timers` lists/cancels them and `down` stops them.
+`crew ls` shows projects, actual pane ownership, tasks and activity;
 `crew sweep` previews stale-crew cleanup and `--apply` marks stale crews ended
 without touching panes.
 `crew override lead impl` promotes
