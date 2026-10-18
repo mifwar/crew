@@ -367,7 +367,7 @@ intro_submit() { # role pane text
     waited=$((waited + 1)); sleep 0.5
   done
   owns_pane "$2" "$1" || { echo "crew: not submitting $1 ($2): pane is gone or reused" >&2; return 0; }
-  got=$(draft_text "$2"); [ -n "$got" ] || return 0          # cleared since the check
+  got=$(draft_text "$2") || return 0          # unreadable again: leave the draft alone
   want=$(printf '%s' "$3" | tr -d '[:space:]'); got=$(printf '%s' "$got" | tr -d '[:space:]')
   if [ "$got" != "$want" ]; then
     echo "crew: $1 ($2) holds a draft that is not crew's startup line; not pressing Enter. Submit it yourself when ready: tmux send-keys -t $2 Enter" >&2
@@ -990,7 +990,7 @@ cmd_status() {
         cap=$(tmux capture-pane -p -J -t "$pane" 2>/dev/null) || cap=""
         observation=$(printf '%s\n' "$cap" | pane_observation "$(short_cli "$cli")")
         IFS='|' read -r health resources reason <<< "$observation"
-        draft=$(draft_note "$pane")
+        draft=$(printf '%s\n' "$cap" | draft_note "$pane" "$cli")
         if [ "$health" = error ]; then note="ERROR: $reason"
         elif [ -n "$draft" ]; then note="$draft"
         elif [ "$health" = idle ] && [ "$(role_tasks "$role" active)" -gt 0 ]; then note='IDLE with queued/working task'; fi

@@ -22,9 +22,10 @@ crew watch --ring &  # foreground loop placed in the lead shell background
 
 `status` flags errors, pending drafts and idle input prompts with
 queued/working tasks: a pane whose editor holds a draft gets
-`draft pending: doorbells are held` from `draft_note` (the `pane_hold`
-detector, so it covers the CLIs whose editor row crew can read).
-`watch` emits one timestamped stdout line per new event, or uses the lead
+`draft pending: doorbells are held` from `draft_note`, which parses the scan's
+own capture and the roster CLI through the shared `pane_editor_text`
+dispatcher — no second capture and no `detect_cli` per pane. `watch` emits one
+timestamped stdout line per new event, or uses the lead
 inbox and existing guarded doorbell with `--ring`:
 
 - errored with an open task (next scan, no quiet wait);

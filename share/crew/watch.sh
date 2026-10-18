@@ -62,14 +62,15 @@ role_tasks() { # role [active]; open includes blocked/needs-input
     END {print n+0}' "$D/board.tsv"
 }
 
-# One observation for `crew status` and `crew watch`: this pane is holding an
-# unsubmitted draft, so every doorbell to it is held. Nothing when the editor
-# is free, unreadable, or a CLI pane_hold cannot read.
-draft_note() { # pane
-  case "$(pane_hold "$1")" in
-    draft"$TAB"*) printf 'draft pending: doorbells are held' ;;
-    *) return 0 ;;
-  esac
+# One observation for `crew status` and `crew watch`: the caller's capture
+# (stdin) and cli are parsed once, so a pane holding a draft reads as
+# `draft pending: doorbells are held` without a second capture or a ps.
+draft_note() { # pane cli — the caller's capture on stdin
+  local cli text dims=""
+  cli=$(short_cli "$2")
+  case "$cli" in pi) dims=$(tmux display-message -p -t "$1" '#{pane_width} #{pane_height} #{cursor_y}' 2>/dev/null) ;; esac
+  text=$(pane_editor_text "$cli" "$dims") || return 0
+  [ -z "$text" ] || printf 'draft pending: doorbells are held'
 }
 
 watch_duration() { # digits + optional s/m/h; bounded to avoid shell overflow
@@ -103,7 +104,7 @@ watch_scan() { # private cache quiet-seconds ring?; one observation per owned pa
     cap=$(tmux capture-pane -p -J -t "$pane" 2>/dev/null) || continue
     observation=$(printf '%s\n' "$cap" | pane_observation "$(short_cli "$cli")")
     IFS='|' read -r health resources reason <<< "$observation"
-    draft=$(draft_note "$pane")
+    draft=$(printf '%s\n' "$cap" | draft_note "$pane" "$cli")
     tasks=$(awk -F'\t' -v r="$role" '$2==r && $3!="done"' "$D/board.tsv")
     fingerprint=$(printf '%s\n%s\n%s\n' "$pane" "$cap" "$tasks" | cksum)
     previous=""; changed=$current_time; sent=-

@@ -358,7 +358,7 @@ check "pane_hold: a parser crash holds as unreadable" bash -c '
   short_cli() { printf "pi"; }
   pane_cli() { printf "pi"; }
   . "$1/share/crew/pane.sh"
-  pi_box_draft() { printf "simulated parser error\n" >&2; return 2; }
+  pi_box_text() { printf "simulated parser error\n" >&2; return 2; }
   case "$(pane_hold %1)" in unreadable*) exit 0 ;; *) exit 1 ;; esac' _ "$ROOT"
 
 # G1/T12: dialog UI rows, not phrases quoted in an agent's transcript
@@ -552,6 +552,22 @@ check "status has no draft note for sw"     bash -c "! awk '\$1==\"sw\"' '$CREW_
 for i in $(seq 1 40); do grep -q 'nev draft pending' "$CREW_HOME/c6-watch" && break; sleep 0.2; done
 check "watch reports the pending draft"      grep -q 'nev draft pending: doorbells are held' "$CREW_HOME/c6-watch"
 kill "$c6_watch" 2>/dev/null; wait "$c6_watch" 2>/dev/null || true
+
+# C6 refusal: a draft that is not crew's line (here: replaced after ring) must
+# survive untouched — intro_submit presses nothing and says why.
+foreign="$CREW_HOME/foreign-claude.sh"; foreign_enters="$CREW_HOME/foreign-enters"
+printf '%s\n' \
+  '#!/bin/sh' \
+  'printf "❯ "' \
+  'read -r line || exit 0' \
+  'printf "\033[2J\033[H❯ someone else is typing"' \
+  'while read -r _; do printf "x\n" >> "$1"; done' > "$foreign"
+err=$("$CREW" -s t add "fgn=$CREW_HOME/bin/claude $foreign $foreign_enters" 2> "$CREW_HOME/fgn-err" >/dev/null)
+fgn=$(awk -F'\t' '$1=="fgn"{print $2}' "$D/panes")
+sleep 0.3
+check "a foreign draft gets no extra Enter"   test ! -s "$foreign_enters"
+check "  the refusal names the foreign draft" grep -q "not crew's startup line" "$CREW_HOME/fgn-err"
+check "  and the draft is intact, intro gone" bash -c "test \$(tmux capture-pane -p -J -t $fgn | grep -oF 'someone else is typing' | wc -l) -eq 1 && ! tmux capture-pane -p -J -t $fgn | grep -qF '[crew]'"
 
 # A pane showing an approval prompt gets no doorbell (a digit would pick an option).
 rev=$(awk -F'\t' '$1=="rev"{print $2}' "$D/panes")
