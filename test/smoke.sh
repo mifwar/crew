@@ -325,6 +325,14 @@ check "pi parser: 100-of-120 dashes row is content, not a border" pi_box w "120 
 check "pi parser: a labelled top border still counts" pi_box w "148 5 4" "$(printf '%s  Working  %s' "$(ndashes 62)" "$(ndashes 66)")" "draft" "$(ndashes 146)" "" ""
 check "pi parser: the cursor row is never a border" pi_box w "20 3 1" "$(ndashes 18)" "$(ndashes 20)" "$(ndashes 18)"
 check "pi parser: an idle box is idle" pi_box idle "120 5 4" "$(ndashes 118)" "" "$(ndashes 118)" "" ""
+ptext() { # want dims row...
+  local want="$1" dims="$2" got; shift 2
+  got=$(printf '%s\n' "$@" | pi_box_text "$dims")
+  [ "$got" = "$want" ]
+}
+check "pi text: wrapped draft rows join"  ptext "one two" "120 5 4" "$(ndashes 118)" "one" "two" "$(ndashes 118)" ""
+check "pi text: an idle box is empty"     ptext "" "120 4 2" "$(ndashes 118)" "" "$(ndashes 118)" ""
+check "claude text: after the prompt mark" test "$(printf '❯ write the answer\n' | prompt_row_text '❯' '')" = "write the answer"
 
 # G2: pi's braille Working spinner in the top border used to kill the parser
 # ("awk: towc: multibyte conversion failure", empty output read as free) and a
@@ -350,7 +358,7 @@ check "pane_hold: a parser crash holds as unreadable" bash -c '
   short_cli() { printf "pi"; }
   pane_cli() { printf "pi"; }
   . "$1/share/crew/pane.sh"
-  pi_box_draft() { printf "simulated parser error\n" >&2; return 2; }
+  pi_box_text() { printf "simulated parser error\n" >&2; return 2; }
   case "$(pane_hold %1)" in unreadable*) exit 0 ;; *) exit 1 ;; esac' _ "$ROOT"
 
 # G1/T12: dialog UI rows, not phrases quoted in an agent's transcript
@@ -501,6 +509,95 @@ check "a held intro is not typed into the draft" bash -c "! tmux capture-pane -p
 check "  the intro is not appended to the draft"  bash -c "! tmux capture-pane -p -J -t $draftrev | grep -qF '[crew]'"
 check "  the draft is still exactly one copy"     bash -c "test \$(tmux capture-pane -p -J -t $draftrev | grep -oF 'draft left in a fresh pane' | wc -l) -eq 1"
 check "  and crew says the intro was not typed"  bash -c "printf '%s' \"\$1\" | grep -q 'nothing typed into draftrev'" _ "$err"
+
+# C6: crew's own startup line can be left as a draft by a CLI that swallowed
+# ring's Enter (seen with pi). The intro retries once, only while the editor
+# still holds exactly crew's line, then warns; status/watch flag the draft.
+swallow="$CREW_HOME/swallow-claude.sh"; swallow_out="$CREW_HOME/swallow-out"
+printf '%s\n' \
+  '#!/bin/sh' \
+  'printf "❯ "' \
+  'read -r line || exit 0' \
+  'printf "\r\033[K❯ %s" "$line"' \
+  'read -r _ || exit 0' \
+  'printf "%s\n" "$line" >> "$1"' \
+  'printf "\r\033[K❯ \n"' \
+  'while :; do sleep 1; done' > "$swallow"
+err=$("$CREW" -s t add "sw=$CREW_HOME/bin/claude $swallow $swallow_out" 2>&1 >/dev/null)
+for i in $(seq 1 25); do [ -s "$swallow_out" ] && break; sleep 0.2; done
+check "a swallowed startup Enter is retried"  bash -c "test \$(wc -l < '$swallow_out' | tr -d ' ') = 1"
+check "  it submitted exactly crew's intro"  bash -c "grep -q \"You are agent 'sw'\" '$swallow_out' && test \$(grep -c 'You are agent' '$swallow_out') = 1"
+check "  and no warning was printed"        bash -c "! printf '%s' \"\$1\" | grep -q 'startup draft'" _ "$err"
+
+never="$CREW_HOME/never-claude.sh"; never_out="$CREW_HOME/never-enters"
+printf '%s\n' \
+  '#!/bin/sh' \
+  'printf "❯ "' \
+  'read -r line || exit 0' \
+  'printf "\r\033[K❯ %s" "$line"' \
+  'while read -r _; do printf "x\n" >> "$1"; done' > "$never"
+err=$("$CREW" -s t add "nev=$CREW_HOME/bin/claude $never $never_out" 2>&1 >/dev/null)
+nev=$(awk -F'\t' '$1=="nev"{print $2}' "$D/panes")
+for i in $(seq 1 25); do [ -s "$never_out" ] && break; sleep 0.2; done
+sleep 0.3   # enough for a looping retry to show up as a second Enter
+check "a startup line that never submits warns" bash -c "printf '%s' \"\$1\" | grep -qF 'tmux send-keys -t $nev Enter'" _ "$err"
+check "  and says the draft blocks doorbells"   bash -c "printf '%s' \"\$1\" | grep -q 'startup draft'" _ "$err"
+check "  and only one extra Enter was sent"    bash -c "test \$(wc -l < '$never_out' | tr -d ' ') = 1"
+check "  and the pane still holds the draft"   bash -c "tmux capture-pane -p -J -t $nev | grep -q \"You are agent 'nev'\""
+"$CREW" -s t status > "$CREW_HOME/c6-status"
+check "status notes a pending draft"        bash -c "awk '\$1==\"nev\"' '$CREW_HOME/c6-status' | grep -q 'draft pending'"
+check "  and says doorbells are held"       bash -c "awk '\$1==\"nev\"' '$CREW_HOME/c6-status' | grep -q 'doorbells are held'"
+check "status has no draft note for sw"     bash -c "! awk '\$1==\"sw\"' '$CREW_HOME/c6-status' | grep -q 'draft pending'"
+"$CREW" -s t watch --every 1 --quiet-after 0 > "$CREW_HOME/c6-watch" 2>&1 & c6_watch=$!
+for i in $(seq 1 40); do grep -q 'nev draft pending' "$CREW_HOME/c6-watch" && break; sleep 0.2; done
+check "watch reports the pending draft"      grep -q 'nev draft pending: doorbells are held' "$CREW_HOME/c6-watch"
+kill "$c6_watch" 2>/dev/null; wait "$c6_watch" 2>/dev/null || true
+
+# C6 refusal: a draft that is not crew's line (here: replaced after ring) must
+# survive untouched — intro_submit presses nothing and says why.
+foreign="$CREW_HOME/foreign-claude.sh"; foreign_enters="$CREW_HOME/foreign-enters"
+printf '%s\n' \
+  '#!/bin/sh' \
+  'printf "❯ "' \
+  'read -r line || exit 0' \
+  'printf "\033[2J\033[H❯ someone else is typing"' \
+  'while read -r _; do printf "x\n" >> "$1"; done' > "$foreign"
+err=$("$CREW" -s t add "fgn=$CREW_HOME/bin/claude $foreign $foreign_enters" 2> "$CREW_HOME/fgn-err" >/dev/null)
+fgn=$(awk -F'\t' '$1=="fgn"{print $2}' "$D/panes")
+sleep 0.3
+check "a foreign draft gets no extra Enter"   test ! -s "$foreign_enters"
+check "  the refusal names the foreign draft" grep -q "not crew's startup line" "$CREW_HOME/fgn-err"
+check "  and the draft is intact, intro gone" bash -c "test \$(tmux capture-pane -p -J -t $fgn | grep -oF 'someone else is typing' | wc -l) -eq 1 && ! tmux capture-pane -p -J -t $fgn | grep -qF '[crew]'"
+
+# R1: the draft note keeps pane_hold's precedence — a dialog or copy/choose
+# mode is never read as a draft, even with a draft-looking row on screen.
+tmux send-keys -t "$fgn" Enter; sleep 0.2
+tmux send-keys -t "$fgn" "Do you want to proceed?" Enter; sleep 0.3
+"$CREW" -s t status > "$CREW_HOME/c6-dialog-status"
+check "a dialog pane gets no draft note" bash -c "! awk '\$1==\"fgn\"' '$CREW_HOME/c6-dialog-status' | grep -q 'draft pending'"
+copymode="$CREW_HOME/copy-claude.sh"
+printf '%s\n' '#!/bin/sh' 'printf "❯ copy-mode draft"' 'while read -r _; do :; done' > "$copymode"
+CREW_RING_WAIT=1 "$CREW" -s t add "cpd=$CREW_HOME/bin/claude $copymode" >/dev/null 2>&1
+cpd=$(awk -F'\t' '$1=="cpd"{print $2}' "$D/panes")
+tmux copy-mode -t "$cpd"; sleep 0.3
+"$CREW" -s t status > "$CREW_HOME/c6-copy-status"
+check "a copy-mode pane gets no draft note" bash -c "! awk '\$1==\"cpd\"' '$CREW_HOME/c6-copy-status' | grep -q 'draft pending'"
+tmux copy-mode -q -t "$cpd"; sleep 0.3
+"$CREW" -s t status > "$CREW_HOME/c6-copy-status2"
+check "  copy mode exit restores the draft note" bash -c "awk '\$1==\"cpd\"' '$CREW_HOME/c6-copy-status2' | grep -q 'draft pending'"
+
+# R2: an editor that clears between the last pane_hold and draft_text is not a
+# foreign draft — nothing typed, no refusal warning.
+sed -n '/^intro_submit()/,/^}/p' "$CREW" > "$CREW_HOME/intro-submit.sh"
+check "a cleared editor prints no refusal" bash -c '
+  . "$1/intro-submit.sh"
+  TAB=$(printf "\t")
+  pane_hold() { printf "draft\tunsubmitted draft in the editor"; }
+  owns_pane() { return 0; }
+  draft_text() { printf ""; }
+  tmux() { :; }
+  err=$(intro_submit r %1 "[crew] hi" 2>&1)
+  [ -z "$err" ]' _ "$CREW_HOME"
 
 # A pane showing an approval prompt gets no doorbell (a digit would pick an option).
 rev=$(awk -F'\t' '$1=="rev"{print $2}' "$D/panes")

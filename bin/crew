@@ -347,8 +347,40 @@ intro() { # role pane — never typed into a startup dialog (see in_dialog)
     why=$(ring "$2" "[crew] $msg") || true
     if [ -n "$why" ]; then
       echo "crew: nothing typed into $1 ($2): $why. Send the intro yourself when the pane is free: crew -s $S send $1 \"$msg\"" >&2
+    else
+      intro_submit "$1" "$2" "[crew] $msg"
     fi
   fi
+}
+
+# ring's Enter can be swallowed while a CLI is still starting (seen with pi:
+# the intro sat as a draft and held every later doorbell for hours). Wait,
+# then press Enter once more — only while the editor still holds exactly the
+# line crew typed, so no other draft is ever submitted. Still a draft after
+# that gets one warning with the manual keystroke; never a loop.
+intro_submit() { # role pane text
+  local why want got waited=0
+  while :; do
+    why=$(pane_hold "$2")
+    case "$why" in draft"$TAB"*) ;; *) return 0 ;; esac
+    [ "$waited" -lt 6 ] || break
+    waited=$((waited + 1)); sleep 0.5
+  done
+  owns_pane "$2" "$1" || { echo "crew: not submitting $1 ($2): pane is gone or reused" >&2; return 0; }
+  got=$(draft_text "$2") || return 0          # unreadable again: leave the draft alone
+  [ -n "$got" ] || return 0                    # cleared since the pane_hold check
+  want=$(printf '%s' "$3" | tr -d '[:space:]'); got=$(printf '%s' "$got" | tr -d '[:space:]')
+  if [ "$got" != "$want" ]; then
+    echo "crew: $1 ($2) holds a draft that is not crew's startup line; not pressing Enter. Submit it yourself when ready: tmux send-keys -t $2 Enter" >&2
+    return 0
+  fi
+  tmux send-keys -t "$2" Enter
+  waited=0
+  while [ "$waited" -lt 6 ]; do
+    sleep 0.5; waited=$((waited + 1))
+    case "$(pane_hold "$2")" in draft"$TAB"*) ;; *) return 0 ;; esac
+  done
+  echo "crew: $1 ($2) still holds an unsubmitted startup draft after a second Enter; doorbells to it will be held until it is submitted. Submit it yourself: tmux send-keys -t $2 Enter" >&2
 }
 
 start_agent() { # role pane spec — never amend the user's command
@@ -939,7 +971,7 @@ cmd_log() {
 
 cmd_status() {
   resolve_session
-  local role pane cli origin cmd last model cap observation health resources reason note
+  local role pane cli origin cmd last model cap observation health resources reason note draft
   printf 'crew %s  (%s)  %s\n\n' "$S" "$(meta mode)$([ -f "$D/ended" ] && echo ', ended')" "$D"
   { printf 'ROLE\tCLI\tMODEL\tPANE\tRUNNING\tLAST MESSAGE\tNOTE\tCONTEXT / QUOTA\n'
     while IFS="$(printf '\t')" read -r role pane cli origin; do
@@ -959,7 +991,9 @@ cmd_status() {
         cap=$(tmux capture-pane -p -J -t "$pane" 2>/dev/null) || cap=""
         observation=$(printf '%s\n' "$cap" | pane_observation "$(short_cli "$cli")")
         IFS='|' read -r health resources reason <<< "$observation"
+        draft=$(printf '%s\n' "$cap" | draft_note "$pane" "$cli")
         if [ "$health" = error ]; then note="ERROR: $reason"
+        elif [ -n "$draft" ]; then note="$draft"
         elif [ "$health" = idle ] && [ "$(role_tasks "$role" active)" -gt 0 ]; then note='IDLE with queued/working task'; fi
       fi
       printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$role" "$(short_cli "$cli")" "${model:--}" "$pane" "$cmd" "${last:--}" "${note:--}" "${resources:--}"

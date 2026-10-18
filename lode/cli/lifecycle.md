@@ -269,6 +269,15 @@ remains held ([messaging.md](messaging.md#ring-hold-never-type-into-a-draft)).
 `start_agent` uses `ring --now`: it types into a pane crew just created. With
 `CREW_RING_WAIT=0` intros inspect once and refuse a busy pane immediately.
 
+A CLI still starting can swallow ring's Enter, leaving crew's intro as a
+draft that then holds every later doorbell (pi did this for hours in
+`ringrace`). After a typed intro, `intro_submit` waits (~3 s, bounded), and if
+the editor still holds a draft it presses Enter once more — but only when
+`draft_text` shows the editor holds exactly the line crew typed, so no other
+draft is ever submitted. Still a draft after that prints a warning with the
+`tmux send-keys -t %P Enter` hint; there is no loop. `crew status`/`crew watch`
+flag the state as `draft pending: doorbells are held` ([watch.md](watch.md)).
+
 `crew sweep --apply` ends only crews with zero owned panes, without touching
 any pane; default sweep is a dry run. See [listing.md](listing.md).
 

@@ -51,7 +51,7 @@ in_dialog() { # pane
 # are checked for every pane, and a parser that fails is a hold too: a crashed
 # recogniser is not evidence of an empty editor.
 pane_hold() { # pane
-  local cli cap why="" rc=0
+  local cli cap why="" dims=""
   cap=$(tmux capture-pane -p -t "$1" 2>/dev/null) || return 0
   if printf '%s\n' "$cap" | dialog_capture; then
     printf 'dialog\tpane %s is showing a dialog or approval prompt' "$1"; return 0
@@ -61,20 +61,30 @@ pane_hold() { # pane
     *) printf 'mode\tpane %s is in copy/choose mode' "$1"; return 0 ;;
   esac
   cli=$(short_cli "$(pane_cli "$1")")
-  case "$cli" in
-    claude) why=$(printf '%s\n' "$cap" | prompt_row_draft '❯' '') || rc=$? ;;
-    codex)  why=$(printf '%s\n' "$cap" | prompt_row_draft '›' 'Ask Codex to do anything') || rc=$? ;;
-    pi)     why=$(printf '%s\n' "$cap" | pi_box_draft "$(tmux display-message -p -t "$1" '#{pane_width} #{pane_height} #{cursor_y}' 2>/dev/null)") || rc=$? ;;
-    *) return 0 ;;
+  case "$cli" in pi) dims=$(tmux display-message -p -t "$1" '#{pane_width} #{pane_height} #{cursor_y}' 2>/dev/null) ;; esac
+  if ! why=$(printf '%s\n' "$cap" | pane_editor_text "$cli" "$dims"); then
+    printf 'unreadable\tcould not read the %s editor' "$cli"; return 0
+  fi
+  [ -z "$why" ] || printf 'draft\tunsubmitted draft in the editor'
+}
+
+# The one CLI→parser dispatch for the editor's pending text. Capture rows on
+# stdin; `dims` is pi's "pane_width pane_height cursor_y". Prints the text the
+# editor would submit, nothing when it is idle or the CLI's editor is one crew
+# cannot read; a nonzero rc means a known CLI's parser failed, and a crashed
+# recogniser is never evidence of a free editor (see pane_hold).
+pane_editor_text() { # cli dims
+  case "$1" in
+    claude) prompt_row_text '❯' '' ;;
+    codex)  prompt_row_text '›' 'Ask Codex to do anything' ;;
+    pi)     pi_box_text "$2" ;;
   esac
-  if [ "$rc" != 0 ]; then printf 'unreadable\tcould not read the %s editor' "$cli"; return 0; fi
-  [ -z "$why" ] || printf 'draft\t%s' "$why"
 }
 
 # The bottom-most prompt row, minus a known placeholder: blank (or the
 # placeholder) means an idle editor, other text a draft. No marker at all
 # means we cannot read this editor, so the pane is left alone.
-prompt_row_draft() { # marker placeholder — capture rows on stdin
+prompt_row_text() { # marker placeholder — capture rows on stdin
   local marker="$1" placeholder="$2" row text
   row=$(grep -F -- "$marker" | tail -n 1) || true
   [ -n "$row" ] || return 0
@@ -83,7 +93,7 @@ prompt_row_draft() { # marker placeholder — capture rows on stdin
   if [ -n "$placeholder" ]; then
     case "$text" in "$placeholder"*) return 0 ;; esac   # a renamed placeholder becomes a loud hold
   fi
-  printf 'unsubmitted draft in the editor'
+  printf '%s' "$text"
 }
 
 # pi draws its editor as a box: its top and bottom are the last two rows that
@@ -92,7 +102,7 @@ prompt_row_draft() { # marker placeholder — capture rows on stdin
 # cannot confuse it. A border is a dashes-only row spanning the pane or a
 # mostly-dashes row carrying a label (`── ⠧ Working ──`); a 100-of-120-dash
 # draft row is neither. The cursor row is editor content, never a border.
-pi_box_draft() { # "pane_width pane_height cursor_y" — capture rows on stdin
+pi_box_text() { # "pane_width pane_height cursor_y" — capture rows on stdin
   LC_ALL=C awk -v dims="${1:-}" '
     BEGIN { split(dims, d, " "); w = d[1] + 0; h = d[2] + 0; cy = -1
             if (h > 0 && d[3] ~ /^[0-9]+$/) cy = d[3] + 0
@@ -111,8 +121,34 @@ pi_box_draft() { # "pane_width pane_height cursor_y" — capture rows on stdin
       if (!bot) exit
       for (j = bot - 1; j >= 1; j--) if (border(row[j]) && j != cur) { top = j; break }
       if (!top) exit
-      for (k = top + 1; k < bot; k++) if (row[k] != "") { print "unsubmitted draft in the editor"; exit }
+      out = ""
+      for (k = top + 1; k < bot; k++) if (row[k] != "") out = out (out != "" ? " " : "") row[k]
+      if (out != "") print out
     }'
+}
+
+pi_box_draft() { # "pane_width pane_height cursor_y" — capture rows on stdin
+  local text
+  text=$(pi_box_text "$@") || return $?
+  [ -z "$text" ] || printf 'unsubmitted draft in the editor\n'
+}
+
+# The text the editor would submit right now, nothing when it is idle or
+# unreadable. The capture mode follows the parser: claude/codex need wrapped
+# lines joined, pi's box parser compares full-width borders and reads the raw
+# screen. Used by the startup retry in bin/crew to check a draft is exactly
+# the line crew typed.
+draft_text() { # pane
+  local cli cap dims=""
+  cli=$(short_cli "$(pane_cli "$1")")
+  case "$cli" in
+    claude|codex) cap=$(tmux capture-pane -p -J -t "$1" 2>/dev/null) || return 0 ;;
+    pi)
+      cap=$(tmux capture-pane -p -t "$1" 2>/dev/null) || return 0
+      dims=$(tmux display-message -p -t "$1" '#{pane_width} #{pane_height} #{cursor_y}' 2>/dev/null) ;;
+    *) return 0 ;;
+  esac
+  printf '%s\n' "$cap" | pane_editor_text "$cli" "$dims"
 }
 
 # Seconds ring() may hold a doorbell for (CREW_RING_WAIT): digits, else the

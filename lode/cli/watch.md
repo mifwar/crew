@@ -20,11 +20,18 @@ crew watch --every 120 --quiet-after 10m
 crew watch --ring &  # foreground loop placed in the lead shell background
 ```
 
-`status` flags errors and idle input prompts with queued/working tasks.
-`watch` emits one timestamped stdout line per new event, or uses the lead
+`status` flags errors, pending drafts and idle input prompts with
+queued/working tasks: a pane whose editor holds a draft gets
+`draft pending: doorbells are held` from `draft_note`, which parses the scan's
+own capture and the roster CLI through the shared `pane_editor_text`
+dispatcher — no second capture and no `detect_cli` per pane — and keeps
+`pane_hold`'s precedence: a captured dialog or a pane in copy/choose mode is
+never read as a draft. `watch` emits one
+timestamped stdout line per new event, or uses the lead
 inbox and existing guarded doorbell with `--ring`:
 
 - errored with an open task (next scan, no quiet wait);
+- draft pending: doorbells are held (next scan, no quiet wait);
 - stuck: input prompt with queued/working task (after quiet threshold);
 - idle with no open task (after quiet threshold);
 - board has no open tasks (next scan).
@@ -42,8 +49,11 @@ threshold 600 seconds.
 flowchart LR
   owned[owns_pane] --> capture[pane capture] --> observe[pane_observation]
   table[pane_patterns] --> observe
+  owned --> hold[pane_hold draft_note]
   observe --> status[status notes and resource column]
+  hold --> status
   observe --> quiet[watch quiet timer and state cache]
+  hold --> quiet
   board[board.tsv] --> quiet
   quiet --> stdout[timestamped event]
   quiet --> deliver[optional guarded delivery to lead]
@@ -63,7 +73,8 @@ SIGTERM, cleans its cache, and terminates its current sleep process.
 
 Verification is part of `test/smoke.sh`, via `test/watch.sh`: sample CLI
 footers/errors, busy precedence, duration errors, quiet/debounce transitions,
-empty board, guarded lead delivery/reused panes, and normal-exit cleanup.
+empty board, guarded lead delivery/reused panes, normal-exit cleanup, and
+`draft pending` notes/events from the startup-draft fixtures.
 
 Related: [summary.md](summary.md), [tasks.md](tasks.md),
 [messaging.md](messaging.md), [../practices.md](../practices.md).
