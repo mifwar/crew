@@ -181,6 +181,8 @@ Startup dialogs receive no input: answer them yourself, then use the printed
 - If a tool shell inherits a missing/foreign `TMUX_PANE`, matching
   `CREW_SESSION` / `CREW_AGENT` hints identify its role only while that role's
   recorded pane still belongs to the crew. Actual crew-pane bindings take
-  priority; a detached unlabelled pane stays outside. These are advisory labels.
+  priority; a detached unlabelled pane stays outside. `crew whoami` prints the
+  deciding check, and an outside `crew send` repeats that reason on stderr.
+  These are advisory labels.
 - Borders look wrong: `crew restyle`.
 - Done: `crew down` (closes panes crew started; keeps yours; files stay).

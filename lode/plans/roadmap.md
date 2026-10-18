@@ -26,9 +26,10 @@ flowchart TD
 
 - **pi**: does its shell tool have a tty (would a non-member pi be labelled
   `you (terminal)`)? Does it queue text typed during a turn?
-- **Codex**: does its shell tool have a tty? Checked only for Claude Code.
-  Test: from inside the agent run `crew -s <crew> whoami` in a crew it isn't
-  part of; expect `outside`.
+- **Codex tool-shell identity**: answered — tool calls run through a shared,
+  detached app-server daemon and inherit its stale `CREW_*`/`TMUX_PANE`
+  ([../agents/codex.md](../agents/codex.md)). Candidate: detect the stale
+  daemon and explain how to restart it from the right crew pane.
 - **Draft detection coverage**: the ring hold reads rendered text. Pi border-like
   draft rows can look empty with the cursor elsewhere, and hidden editors or
   typing after inspection can escape detection. Stronger guarantees need an

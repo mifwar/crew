@@ -196,6 +196,16 @@ never get fallback identity. These remain advisory labels, not authentication.
 `env_identity_ok` owns these early-return checks; `resolve_me` selects the
 pane binding, then eligible env identity, then human/outside provenance.
 
+`crew whoami` prints the deciding check as a `why: …` line, e.g. `pane %5
+is bound to impl`, `env CREW_AGENT=impl, CREW_SESSION=t; TMUX_PANE %999999
+not found`, or `TMUX_PANE %13 is unlabelled`. Refusals name the first failed
+check: no `CREW_AGENT`, a mismatched `CREW_SESSION`, no pane bound to the
+role, the role's pane gone or relabelled, the pane unlabelled, or the pane
+labelled to this crew but bound to no role. A `crew send` that resolves as
+`outside` writes the same reason plus the `crew whoami` hint to stderr (once
+per invocation, before recipient checks); the doorbell label stays
+`outside %N (not in this crew)`.
+
 `up` and spawning `add` both pass `CREW_SESSION` / `CREW_AGENT` to their new
 panes. Adoption cannot modify an already-running agent's environment.
 

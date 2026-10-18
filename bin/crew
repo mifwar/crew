@@ -87,7 +87,9 @@ crew — coding agents working together in tmux
 
   Senders: a crew pane is its role; a terminal (tty) outside the crew is "you";
   anything else (e.g. an agent that isn't in the crew) is "outside". This is a
-  label to stop accidental relays, not a security boundary.
+  label to stop accidental relays, not a security boundary. `crew whoami`
+  prints why the caller resolved (a `why:` line); a send labelled outside also
+  warns on stderr with that reason.
 
   Doorbells wait up to CREW_RING_WAIT seconds for a recognised draft to clear
   (default 30, capped at 3600); skipped rings warn and leave the message in the
@@ -138,29 +140,39 @@ resolve_session() {
 # shell tools have no tty) or sent from `crew web --allow-send`; else "outside".
 # Advisory only: it keeps honest mistakes (relayed approvals, stale panes)
 # visible, but any process can write the crew files directly.
+# Sets ENV_WHY on every path so `crew whoami` (and an outside `crew send`)
+# can say which check resolved or refused the caller.
 env_identity_ok() {
-  [ -n "${CREW_AGENT:-}" ] && [ "${CREW_SESSION:-}" = "$S" ] || return 1
   local pane other
+  if [ -z "${CREW_AGENT:-}" ]; then ENV_WHY="no CREW_AGENT set"; return 1; fi
+  if [ "${CREW_SESSION:-}" != "$S" ]; then ENV_WHY="CREW_SESSION=${CREW_SESSION:-unset} does not match crew $S"; return 1; fi
   pane=$(pane_of "$CREW_AGENT")
-  [ -n "$pane" ] && owns_pane "$pane" "$CREW_AGENT" || return 1
-  [ -n "${TMUX_PANE:-}" ] || return 0
-  pane_id "$TMUX_PANE" >/dev/null || return 0
+  if [ -z "$pane" ]; then ENV_WHY="no pane is bound to role $CREW_AGENT"; return 1; fi
+  if ! owns_pane "$pane" "$CREW_AGENT"; then ENV_WHY="pane $pane is not owned by role $CREW_AGENT (gone or relabelled)"; return 1; fi
+  if [ -z "${TMUX_PANE:-}" ]; then ENV_WHY="env CREW_AGENT=$CREW_AGENT, CREW_SESSION=$S; no TMUX_PANE"; return 0; fi
+  if ! pane_id "$TMUX_PANE" >/dev/null; then ENV_WHY="env CREW_AGENT=$CREW_AGENT, CREW_SESSION=$S; TMUX_PANE $TMUX_PANE not found"; return 0; fi
   # Existing unlabelled/detached and unbound same-crew panes stay outside.
-  other=$(tmux display-message -p -t "$TMUX_PANE" '#{@crew_session}' 2>/dev/null) || return 1
-  [ -n "$other" ] && [ "$other" != "$S" ]
+  other=$(tmux display-message -p -t "$TMUX_PANE" '#{@crew_session}' 2>/dev/null) || { ENV_WHY="TMUX_PANE $TMUX_PANE could not be inspected"; return 1; }
+  if [ -n "$other" ] && [ "$other" != "$S" ]; then
+    ENV_WHY="env CREW_AGENT=$CREW_AGENT, CREW_SESSION=$S; TMUX_PANE $TMUX_PANE belongs to crew $other"
+    return 0
+  fi
+  if [ -n "$other" ]; then ENV_WHY="TMUX_PANE $TMUX_PANE is labelled for crew $S but bound to no role"
+  else ENV_WHY="TMUX_PANE $TMUX_PANE is unlabelled"; fi
+  return 1
 }
 
 resolve_me() {
-  ME=""; VIA=""
+  ME=""; VIA=""; WHY=""
   # Bindings override startup env after takeover; Codex tool shells may
   # inherit a missing/foreign TMUX_PANE and need the guarded env fallback.
   if [ -n "${TMUX_PANE:-}" ]; then ME=$(awk -F'\t' -v p="$TMUX_PANE" '$2==p{print $1; exit}' "$D/panes")
   fi
-  if [ -n "$ME" ]; then return 0
-  elif env_identity_ok; then ME="$CREW_AGENT"
-  elif [ -t 0 ]; then ME=you; VIA=terminal
-  elif [ "${CREW_VIA:-}" = web ]; then ME=you; VIA=web
-  else ME=outside; fi
+  if [ -n "$ME" ]; then WHY="pane $TMUX_PANE is bound to $ME"; return 0
+  elif env_identity_ok; then ME="$CREW_AGENT"; WHY="$ENV_WHY"
+  elif [ -t 0 ]; then ME=you; VIA=terminal; WHY="stdin is a terminal"
+  elif [ "${CREW_VIA:-}" = web ]; then ME=you; VIA=web; WHY="web send (CREW_VIA=web)"
+  else ME=outside; WHY="${ENV_WHY:-no identity signal}"; fi
 }
 
 # How a sender is shown in doorbells.
@@ -563,6 +575,11 @@ deliver() { # role text label
 cmd_send() {
   resolve_session; resolve_me
   [ $# -ge 2 ] || die 'usage: crew send <role[,role…]|@all|you> <message>'
+  # An outside caller still gets through (advisory label), but must see why.
+  if [ "$ME" = outside ] && [ -z "${OUTSIDE_WARNED:-}" ]; then
+    OUTSIDE_WARNED=1
+    printf 'crew: sending as outside (not in crew %s): %s; see: crew -s %s whoami\n' "$S" "$WHY" "$S" >&2
+  fi
   local to="$1" r list; shift
   local text="$*"
   case "$to" in
@@ -1081,6 +1098,7 @@ case "$cmd" in
   sweep) cmd_sweep "$@" ;;
   whoami)
     resolve_session; resolve_me; echo "$ME in crew $S"
+    echo "why: $WHY"
     if [ -n "${TMUX_PANE:-}" ] && { [ "$ME" = outside ] || [ "$ME" = you ]; } \
       && [ -z "$(awk -F'\t' -v p="$TMUX_PANE" '$2==p' "$D/panes")" ]; then
       echo "crew: pane $TMUX_PANE isn't in crew $S; if an agent moved here: crew rebind <role>" >&2

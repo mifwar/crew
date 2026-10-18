@@ -36,7 +36,7 @@ after a command prints the full usage (exit 0); unknown commands exit 1.
 | `down` | close spawned panes, unlabel adopted ones, mark ended | [lifecycle.md](lifecycle.md) |
 | `ls [--live]` | projects, actual pane liveness, task counts and last activity | [listing.md](listing.md) |
 | `sweep [--apply]` | dry-run stale cleanup, or mark stale crews ended without touching panes | [listing.md](listing.md) |
-| `whoami`, `path` | caller identity, crew dir | — |
+| `whoami`, `path` | caller identity + `why:` reason, crew dir | — |
 
 ```mermaid
 flowchart TD

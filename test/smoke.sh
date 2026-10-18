@@ -73,6 +73,9 @@ check "you (terminal) can broadcast"    human "$CREW" -s t send @all "pause"
 check "broadcast rung as you (terminal)" screen_has "$impl" "[crew] you (terminal) → @all: pause"
 "$CREW" -s t send lead "from nowhere" >/dev/null 2>&1; sleep 0.3
 check "non-tty non-member is 'outside'" screen_has "$lead" "[crew] outside"
+check "outside send warns with the reason and whoami hint" bash -c 'CREW_SESSION=other CREW_AGENT=impl TMUX_PANE=%999999 "$1" -s t send lead "warn-check" 2> "$2" >/dev/null; grep -q "sending as outside (not in crew t): CREW_SESSION=other does not match crew t; see: crew -s t whoami" "$2"' _ "$CREW" "$CREW_HOME/outside-send-err"
+check "  and the outside doorbell label is unchanged" screen_has "$lead" "[crew] outside %999999 (not in this crew) → lead: warn-check"
+check "outside multi-send warns once" bash -c 'CREW_SESSION=other CREW_AGENT=impl TMUX_PANE=%999999 "$1" -s t send impl,rev "multi-warn" 2> "$2" >/dev/null; test "$(grep -c "sending as outside" "$2")" = 1' _ "$CREW" "$CREW_HOME/outside-multi-err"
 check "outside cannot broadcast"        bash -c "! '$CREW' -s t send @all nope"
 check "crew say refuses without a tty"  bash -c "! '$CREW' -s t say lead hi"
 check "crew say works for the human"    human "$CREW" -s t say lead "ship it"
@@ -104,19 +107,30 @@ as lead note "rejected R3" >/dev/null
 check "note lands in the log"           grep -qF 'note (lead): rejected R3' "$D/channel.log"
 check "whoami hints in a foreign pane"  bash -c "TMUX_PANE=%999999 '$CREW' -s t whoami 2>&1 | grep -q \"isn't in crew t\""
 check "identity from env"               bash -c "CREW_SESSION=t CREW_AGENT=rev '$CREW' whoami | grep -q '^rev '"
+check "  and says the env fallback has no pane" bash -c "env -u TMUX_PANE CREW_SESSION=t CREW_AGENT=rev '$CREW' whoami | grep -q '^why: env CREW_AGENT=rev, CREW_SESSION=t; no TMUX_PANE'"
 check "identity from pane id"           bash -c "TMUX_PANE=$impl '$CREW' whoami | grep -q '^impl '"
+check "  and says which pane resolved it" bash -c "TMUX_PANE=$impl '$CREW' whoami | grep -q '^why: pane $impl is bound to impl'"
 check "identity falls back from a missing tool-shell pane" bash -c 'CREW_SESSION=t CREW_AGENT=impl TMUX_PANE=%999999 "$1" whoami | grep -q "^impl "' _ "$CREW"
+check "  and reports the tool-shell pane as gone" bash -c 'CREW_SESSION=t CREW_AGENT=impl TMUX_PANE=%999999 "$1" whoami | grep -q "^why: env CREW_AGENT=impl, CREW_SESSION=t; TMUX_PANE %999999 not found"' _ "$CREW"
 foreign_pane=$(tmux new-window -d -P -F '#{pane_id}' -t "$TS:" cat)
 tmux set-option -p -t "$foreign_pane" @crew_session unrelated
 tmux set-option -p -t "$foreign_pane" @crew_role other
 check "identity falls back from another crew's pane" bash -c 'CREW_SESSION=t CREW_AGENT=impl TMUX_PANE="$2" "$1" whoami | grep -q "^impl "' _ "$CREW" "$foreign_pane"
+check "  and says the pane belongs to that crew" bash -c 'CREW_SESSION=t CREW_AGENT=impl TMUX_PANE="$2" "$1" whoami | grep -q "^why: env CREW_AGENT=impl, CREW_SESSION=t; TMUX_PANE $2 belongs to crew unrelated"' _ "$CREW" "$foreign_pane"
+tmux set-option -p -u -t "$foreign_pane" @crew_session
+check "identity rejects an unlabelled pane" bash -c 'CREW_SESSION=t CREW_AGENT=impl TMUX_PANE="$2" "$1" whoami | grep -q "^outside "' _ "$CREW" "$foreign_pane"
+check "  and says the pane is unlabelled" bash -c 'CREW_SESSION=t CREW_AGENT=impl TMUX_PANE="$2" "$1" whoami | grep -q "^why: TMUX_PANE $2 is unlabelled"' _ "$CREW" "$foreign_pane"
 tmux set-option -p -t "$foreign_pane" @crew_session t
 check "identity rejects an unbound pane labelled to this crew" bash -c 'CREW_SESSION=t CREW_AGENT=impl TMUX_PANE="$2" "$1" whoami | grep -q "^outside "' _ "$CREW" "$foreign_pane"
+check "  and says the same-crew pane is bound to no role" bash -c 'CREW_SESSION=t CREW_AGENT=impl TMUX_PANE="$2" "$1" whoami | grep -q "^why: TMUX_PANE $2 is labelled for crew t but bound to no role"' _ "$CREW" "$foreign_pane"
 check "fallback identity can update its own task" bash -c 'CREW_SESSION=t CREW_AGENT=lead TMUX_PANE=%999999 "$1" task add --to impl identity-check > "$2" && CREW_SESSION=t CREW_AGENT=impl TMUX_PANE=%999999 "$1" task set "$(cat "$2")" done --force' _ "$CREW" "$CREW_HOME/identity-task"
 # Existing board count assertions expect the first task to be T1 below.
 : > "$D/board.tsv"
 check "identity fallback refuses an unknown env role" bash -c 'CREW_SESSION=t CREW_AGENT=absent TMUX_PANE=%999999 "$1" whoami | grep -q "^outside "' _ "$CREW"
+check "  and says no pane is bound to that role" bash -c 'CREW_SESSION=t CREW_AGENT=absent TMUX_PANE=%999999 "$1" whoami | grep -q "^why: no pane is bound to role absent"' _ "$CREW"
 check "identity fallback refuses a different crew env" bash -c 'CREW_SESSION=other CREW_AGENT=impl TMUX_PANE=%999999 "$1" -s t whoami | grep -q "^outside "' _ "$CREW"
+check "  and names the mismatched session" bash -c 'CREW_SESSION=other CREW_AGENT=impl TMUX_PANE=%999999 "$1" -s t whoami | grep -q "^why: CREW_SESSION=other does not match crew t"' _ "$CREW"
+check "whoami explains a missing CREW_AGENT" bash -c "env -u CREW_AGENT -u TMUX_PANE '$CREW' -s t whoami | grep -q '^why: no CREW_AGENT set'"
 tmux kill-pane -t "$foreign_pane"
 
 for i in $(seq 1 15); do as lead task add --to rev "task $i" >/dev/null 2>&1 & done; wait
@@ -510,6 +524,7 @@ check "  and the log says so"           grep -q 'rev not rung: pane .* gone or n
 check "zero wait still refuses a reused pane" bash -c "CREW_SESSION=t CREW_AGENT=lead CREW_RING_WAIT=0 '$CREW' send rev zero-reuse >/dev/null 2>&1; ! tmux capture-pane -p -t $rev | grep -q 'zero-reuse'"
 check "peek refuses a reused pane"     bash -c "! '$CREW' -s t peek rev"
 check "identity fallback refuses a reused role pane" bash -c 'CREW_SESSION=t CREW_AGENT=rev TMUX_PANE=%999999 "$1" whoami | grep -q "^outside "' _ "$CREW"
+check "  and says the role pane is not owned" bash -c 'CREW_SESSION=t CREW_AGENT=rev TMUX_PANE=%999999 "$1" whoami 2>/dev/null | grep -q "^why: pane .* is not owned by role rev"' _ "$CREW"
 check "status marks reused pane STALE"  bash -c "'$CREW' -s t status | grep -q 'STALE'"
 
 "$CREW" -s t down >/dev/null 2>&1
