@@ -644,6 +644,56 @@ check "down keeps a pane adopted by add" test "$(tmux display -p -t "$adopted" '
 check "down unlabels a pane adopted by add" test -z "$(tmux display -p -t "$adopted" '#{@crew_role}')"
 check "add refuses ended crews" bash -c '! "$1" -s expand add later=cat' _ "$CREW"
 
+# Removing a role: close spawned panes, block its open tasks, keep the files.
+"$CREW" up rm --in "$TS" lead=cat impl=cat rev=cat >/dev/null 2>&1
+R="$CREW_HOME/rm"
+asr() { local role="$1"; shift; CREW_SESSION=rm CREW_AGENT="$role" "$CREW" "$@"; }
+check "rev template carries the review-only marker" grep -q 'crew:review-only' "$ROOT/share/crew/roles/rev.md"
+check "rendered role file keeps the marker" grep -q 'crew:review-only' "$R/roles/rev.md"
+rm_err=$(asr lead task add --to rev "review the thing" 2>&1 >/dev/null)
+check "task add warns for a review-only owner" bash -c 'printf "%s" "$1" | grep -q review-only' _ "$rm_err"
+check "  and still records the task"    awk -F'\t' '$2=="rev"{f=1} END{exit !f}' "$R/board.tsv"
+rm_err=$(asr lead task add --to impl "impl open one" 2>&1 >/dev/null)
+check "task add does not warn for impl" test -z "$rm_err"
+asr lead task add --to impl "impl open two" >/dev/null 2>&1
+asr impl task set T3 working >/dev/null 2>&1
+asr lead task add --to impl "impl finished" >/dev/null 2>&1
+asr impl task set T4 done --force >/dev/null 2>&1
+printf 'kept\n' > "$R/out/impl-result.md"
+rm_impl=$(awk -F'\t' '$1=="impl"{print $2}' "$R/panes")
+check "remove refuses lead"             bash -c '! "$1" -s rm remove lead' _ "$CREW"
+check "remove refuses an unknown role"  bash -c '! "$1" -s rm remove nobody' _ "$CREW"
+check "remove refuses a worker caller"  bash -c '! CREW_SESSION=rm CREW_AGENT=rev "$1" remove rev' _ "$CREW"
+check "refused removals change nothing" awk -F'\t' '$1=="lead" || $1=="impl"{n++} END{exit !(n==2)}' "$R/panes"
+asr lead remove impl >/dev/null
+check "remove closes a spawned pane"    bash -c '! tmux display -p -t "$1" "#{pane_id}" | grep -q .' _ "$rm_impl"
+rm_roster=$(awk -F'\t' '$1=="impl"{print $1}' "$R/panes")
+check "remove drops the roster row"     test -z "$rm_roster"
+rm_states=$(awk -F'\t' '$2=="impl"{print $1 ":" $3}' "$R/board.tsv" | tr '\n' ' ')
+check "remove blocks queued and working tasks" test "$rm_states" = "T2:blocked T3:blocked T4:done "
+check "remove logs the removal and blocked tasks" grep -q 'removed impl.*blocked: T2 T3' "$R/channel.log"
+check "remove keeps the inbox and out/ files" test -f "$R/inbox/impl.md" -a -f "$R/out/impl-result.md"
+rm_adopted=$(tmux new-window -d -P -F '#{pane_id}' -t "$TS:" cat)
+asr lead add test="$rm_adopted" >/dev/null 2>&1
+asr lead remove test >/dev/null
+check "remove keeps an adopted pane open" test "$(tmux display -p -t "$rm_adopted" '#{pane_id}')" = "$rm_adopted"
+check "  and unlabels it"                test -z "$(tmux display -p -t "$rm_adopted" '#{@crew_role}')"
+tmux kill-pane -t "$rm_adopted"
+asr lead add keep=cat >/dev/null 2>&1
+rm_keep=$(awk -F'\t' '$1=="keep"{print $2}' "$R/panes")
+asr lead remove keep --keep-pane >/dev/null
+check "remove --keep-pane keeps a spawned pane" test "$(tmux display -p -t "$rm_keep" '#{pane_id}')" = "$rm_keep"
+check "  and unlabels it"                test -z "$(tmux display -p -t "$rm_keep" '#{@crew_role}')"
+rm_keep_row=$(awk -F'\t' '$1=="keep"' "$R/panes")
+check "  and still drops the roster row" test -z "$rm_keep_row"
+tmux kill-pane -t "$rm_keep"
+rm_ghost=$(tmux new-window -d -P -F '#{pane_id}' -t "$TS:" cat)
+asr lead add ghost="$rm_ghost" >/dev/null 2>&1
+tmux kill-pane -t "$rm_ghost"
+rm_ghost_state=$("$CREW" -s rm status | awk '$1=="ghost"{print $5}')
+check "status shows gone for a missing pane" test "$rm_ghost_state" = gone
+"$CREW" -s rm down >/dev/null 2>&1
+
 # Listing and sweeping only inspect pane identity, including reused ids.
 fixture() {
   local name="$1" dir="$CREW_HOME/$1"

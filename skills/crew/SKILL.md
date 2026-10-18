@@ -69,6 +69,8 @@ crew send impl,rev "API contract changed: see out/api.md"   # several at once
 crew note "Rejected R3: out of scope per the user"
 crew send you "Summary: … (out/summary.md)"
 crew status                     # roles, models, panes, stuck/error notes, context/quota, board
+crew remove rev                 # drop a role: blocks its open tasks, closes its spawned pane
+crew remove rev --keep-pane     # same, but unlabel the pane and leave it open
 crew watch --every 120 --quiet-after 10m   # foreground state-change notices
 crew watch --ring &              # lead background shell: doorbells instead of stdout
 crew at +30m lead "check worker progress"
@@ -83,7 +85,9 @@ crew timers cancel timer-...
   order. If the order slipped, rewrite `~/.crew/<name>/board.tsv` under
   `.board.lock` while the rows are still `queued`, then send each owner one
   final id line — don't stack "correction" messages (see the repo's
-  `lode/cli/tasks.md`).
+  `lode/cli/tasks.md`). `task add --to` also warns on stderr when the owner's
+  rendered role file carries the review-only marker, but still records the
+  task; only `lead` or `you` can `crew remove` a role.
 - Each task names one result file (`--out`); results end in `STATUS:` or `FINAL:`.
   `task set … done` reads that file and refuses unless its last non-empty line
   starts with `STATUS: DONE` or `FINAL:` (`STATUS: BLOCKED`/`PARTIAL` leave the

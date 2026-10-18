@@ -1,9 +1,9 @@
-# Crew lifecycle: up, add, adopt, down
+# Crew lifecycle: up, add, adopt, remove, down
 
 ```mermaid
 stateDiagram-v2
   [*] --> Up: crew up / crew adopt
-  Up --> Up: add / send / task / status / web
+  Up --> Up: add / remove / send / task / status / web
   Up --> Ended: crew down (writes ended)
   Ended --> Up: crew up same name (old dir moved to name.TIMESTAMP)
 ```
@@ -180,6 +180,39 @@ flowchart TD
   kind -- new pane --> adopt[adopt successor and detach previous pane]
   swap & adopt --> refresh[refresh roles and notify agents]
   refresh --> recover[successor reads board and history and continues]
+```
+
+## `crew remove <role> [--keep-pane]`
+
+```sh
+crew -s voucher remove rev                # close rev's spawned pane, block its tasks
+crew -s voucher remove rev --keep-pane    # keep the pane, unlabelled
+```
+
+Drops a role from the roster. Only `you` or the current `lead` may invoke it
+(checked before and after the locks, like `override`); `lead` itself cannot be
+removed — hand over with `crew override lead impl` first. An unknown role or an
+ended crew dies. The pane follows `down`'s rules: a spawned pane is closed, an
+adopted one is unlabelled and kept, and `--keep-pane` keeps even a spawned pane
+(unlabelled, so `owns_pane` still guards it from later typing). A pane that is
+gone or reused is left alone, with a warning. The roster row is dropped under
+`.panes.lock`; the role's `queued`/`working` board rows become `blocked` under
+`.board.lock` (done/blocked rows and dependencies untouched), and the `sys` log
+line names the role, the pane action and the blocked ids. Inbox, `out/`
+results, evidence and the rendered role file stay; adding the role again
+(`crew add rev=codex`) starts from a new pane.
+
+```mermaid
+flowchart TD
+  remove[remove role] --> guard[refuse lead; caller must be lead/you]
+  guard --> look[pane_of role]
+  look --> own{owns_pane?}
+  own -- "spawned, no --keep-pane" --> close[close pane]
+  own -- "adopted or --keep-pane" --> unlabel[unlabel, keep pane]
+  own -- "gone / reused" --> leave[leave alone]
+  close & unlabel & leave --> drop[drop roster row]
+  drop --> block[queued/working tasks to blocked]
+  block --> log[sys log naming the blocked ids]
 ```
 
 ## Readiness heuristic
