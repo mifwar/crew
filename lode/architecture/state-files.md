@@ -8,6 +8,7 @@ flowchart TD
   home["~/.crew/"] --> cur[".current  (name of the default crew)"]
   home --> d["name/"]
   d --> panes["panes  role⇥pane⇥cli⇥origin"]
+  d --> pending["pending.tsv  role⇥pane⇥cli⇥timestamp (unapproved successors)"]
   d --> meta["meta  key=value"]
   d --> board["board.tsv  id⇥owner⇥status⇥dep⇥out⇥title⇥evidence"]
   d --> log["channel.log  time⇥kind⇥from⇥to⇥text"]
@@ -37,6 +38,20 @@ rev2	%133	codex -c sandbox_workspace_write.network_access=true …	spawned
   tasks; completed task owners and output paths stay unchanged.
 - `origin` is `spawned` or `adopted`. Files written before this column existed
   have 3 fields; readers default a missing origin to `spawned`.
+
+## `pending.tsv`
+
+```
+lead	%1063	pi	2026-10-19T03:15:10
+```
+
+A successor pane `crew override --request <role>=<cli spec>` spawned but the
+human has not approved yet. Written under `.panes.lock`; the approving
+override removes the row and records the pane as `origin=spawned`, a failed
+start removes it with nothing bound. `crew status` prints each row with its
+approval command. The pane carries no `@crew_*` label and no `panes` row in
+the meantime, so `down` cannot ownership-check or close it
+([../cli/succession.md](../cli/succession.md)).
 
 ## `meta`
 

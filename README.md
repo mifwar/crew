@@ -30,13 +30,21 @@ crew agent or an agent you started in a new tmux pane:
 ```sh
 crew -s voucher override lead impl   # existing impl becomes lead; old lead becomes impl
 crew -s voucher override lead %12    # new, unlabelled pane becomes lead; old pane stays open
+crew -s voucher override lead=pi     # spawn a fresh pi lead and hand it the role
+crew -s voucher remove rev2          # drop a dead or finished role (blocks its open tasks)
 ```
 
-Run from a terminal (or the current lead). The successor receives role
-instructions and a handover with the old leader's pane output. It reads the
-existing board, inboxes and results to continue. Private agent conversation
-history is not transferred. With an existing agent, its unfinished tasks
-move to the new lead too; completed tasks and output paths stay unchanged.
+Run from a terminal (or the current lead). A worker whose lead is dead can ask
+instead: `crew override --request lead=pi` readies a successor (spawning one
+for a CLI spec) and prints the approval command for you. An
+`out/handover-<role>.md` written by the
+outgoing role is named to the successor first; otherwise the successor gets
+role instructions and a handover with the old leader's pane output. It reads
+the existing board, inboxes and results to continue. Private agent
+conversation history is not transferred. With an existing agent, its
+unfinished tasks move to the new lead too; completed tasks and output paths
+stay unchanged. `crew status` prints a ready recovery command when it flags
+the lead.
 
 `install.sh` also links a shared skill (`skills/crew`) into each installed
 agent's skills dir, so Claude Code, Codex and pi know how to lead a crew.

@@ -15,6 +15,8 @@ Crew files: `{{DIR}}` (board.tsv, channel.log, inbox/, out/).
 - Send a message by running this shell command (keep it to one line):
   `crew send <role> "<message>"`. Put anything long in a file under `{{DIR}}/out/` and send the path.
 - Report to `lead`. Message other agents only when lead asks you to. Only lead may use `@all`.
+- If lead doesn't answer (after one nudge), or its pane shows a provider limit, escalate to the human:
+  `crew send you "<question>"` and wait for their `crew say` reply. Don't sit idle on a dead lead.
 - Do not send acknowledgements ("ok", "got it", "thanks"). Send a message only when you finish,
   get blocked, or need a decision.
 - Never type into other tmux panes. `crew send` is the only way to reach an agent.
@@ -29,6 +31,8 @@ Crew files: `{{DIR}}` (board.tsv, channel.log, inbox/, out/).
   evidence file is treated as unverified.
 - Then mark the task and notify lead, e.g.
   `crew task set T3 done --evidence out/T3-tests.log && crew send lead "T3 done → out/T3-{{ROLE}}.md"`.
+- If you must stop (provider limit, handover), first write `{{DIR}}/out/handover-{{ROLE}}.md` with the
+  current state, open tasks, decisions and next steps. A successor reads that file first.
 - Useful: `crew board`, `crew log -n 20`, `crew whoami`, `crew note "<text>"` (adds a timeline note).
 
 ## Your role

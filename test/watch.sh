@@ -24,6 +24,9 @@ check 'quota exhaustion stays an error' observe_is 'error||quota' codex 'You hav
 for phrase in 'Retry failed' 'Connection error' 'Request timed out' 'Context limit reached' 'Rate limit exceeded' 'Quota exhausted'; do
   check "observer recognises $phrase" bash -c '. "$1/share/crew/watch.sh"; result=$(printf "%s\n" "$2" | pane_observation codex); case "$result" in error\|*) exit 0;; *) exit 1;; esac' _ "$ROOT" "$phrase"
 done
+check 'observer recognises the Codex provider limit banner' observe_is 'error||provider limit' codex '■ You’ve hit your usage limit. Upgrade to Pro' '› Ask Codex to do anything'
+check 'observer recognises the Claude provider limit banner' observe_is 'error||provider limit' claude '❯ ' 'You’ve hit your limit · resets 3pm'
+check 'observer recognises a 429 rate limit row' observe_is 'error||rate limit' pi '429 rate limit exceeded, retrying'
 check 'duration handles leading zero minutes' test "$(watch_duration 08m)" = 480
 check 'watch rejects a zero interval' bash -c '! "$1" -s t watch --every 0' _ "$CREW"
 check 'watch rejects missing duration' bash -c '! "$1" -s t watch --quiet-after' _ "$CREW"
@@ -42,11 +45,22 @@ watch_board() {
   printf 'T1\tworker\t%s\t-\tout/test.md\twatch work\t-\n' "$1" > "$watch_dir/board.next"
   mv "$watch_dir/board.next" "$watch_dir/board.tsv"
 }
+watch_board_lead() {
+  printf 'T1\tlead\t%s\t-\tout/test.md\tlead work\t-\n' "$1" > "$watch_dir/board.next"
+  mv "$watch_dir/board.next" "$watch_dir/board.tsv"
+}
 watch_type() { # every new test path that types checks ownership first
   local S=watch-test
   [ -n "$watch_pane" ] && owns_pane "$watch_pane" worker || return 1
   tmux send-keys -t "$watch_pane" -l -- "$1"
   tmux send-keys -t "$watch_pane" Enter
+  sleep 0.2
+}
+watch_type_lead() { # same guard, lead's fixture pane
+  local S=watch-test
+  [ -n "$watch_lead" ] && owns_pane "$watch_lead" lead || return 1
+  tmux send-keys -t "$watch_lead" -l -- "$1"
+  tmux send-keys -t "$watch_lead" Enter
   sleep 0.2
 }
 watch_until() { local tries=0
@@ -59,6 +73,18 @@ watch_board working
 "$CREW" -s watch-test status > "$CREW_HOME/watch-status"
 check 'status flags idle with active work' grep -q 'IDLE with queued/working task' "$CREW_HOME/watch-status"
 check 'status includes resource percentages' grep -q 'context 38% used; 5h 62% left' "$CREW_HOME/watch-status"
+
+# A lead whose screen carries a provider-limit banner gets the recovery
+# command in status and in watch output, so a dead lead needs no lookup.
+watch_type_lead '■ You’ve hit your usage limit. Upgrade to Pro.'
+watch_board_lead working
+"$CREW" -s watch-test status > "$CREW_HOME/watch-status-lead"
+check 'status flags a lead provider limit' grep -q 'ERROR: provider limit' "$CREW_HOME/watch-status-lead"
+check 'status prints the lead recovery command' grep -q 'crew -s watch-test override lead worker' "$CREW_HOME/watch-status-lead"
+"$CREW" -s watch-test watch --every 1 --quiet-after 0 > "$CREW_HOME/watch-lead" 2>&1 & watch_pid=$!
+check 'watch prints the lead recovery command' watch_until "$CREW_HOME/watch-lead" 'override lead worker'
+watch_stop
+watch_board working
 
 watch_log="$CREW_HOME/watch-events"
 "$CREW" -s watch-test watch --every 1 --quiet-after 2s > "$watch_log" 2>&1 & watch_pid=$!
@@ -107,6 +133,8 @@ watch_before=$(tmux capture-pane -p -t "$watch_lead" | cksum)
 check 'watch refuses a reused lead doorbell' watch_until "$CREW_HOME/watch-stale" 'gone or now belongs to something else'
 watch_stop
 check 'watch never types into a reused lead' test "$(tmux capture-pane -p -t "$watch_lead" | cksum)" = "$watch_before"
+"$CREW" -s watch-test status > "$CREW_HOME/watch-status-stale-lead"
+check 'status hints a stale lead pane' grep -q 'if lead is dead' "$CREW_HOME/watch-status-stale-lead"
 tmux set-option -p -t "$watch_lead" @crew_session watch-test
 # A normal crew shutdown exits without an EXIT trap losing its local cache.
 TMPDIR="$watch_tmp" "$CREW" -s watch-test watch --every 1 --quiet-after 0 > "$CREW_HOME/watch-ended" 2>&1 & watch_pid=$!

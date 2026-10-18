@@ -4,8 +4,10 @@
 table (`pane_patterns`) for `crew status` and `crew watch`. `pane_observation`
 reads a capture and returns `state|resources|reason`. Error patterns cover
 retry/connection failures, timeouts, context exhaustion/limits, rate limits
-and quota exhaustion. Errors match UI forms from the start of a row after
-common UI gutters / `Error:` prefixes; crew doorbell echoes are excluded.
+and quota exhaustion, plus provider-limit banners (`You’ve hit your limit`,
+`You’ve hit your usage limit`, `429 rate limit …`). Errors match UI forms from
+the start of a row after common UI gutters (including Codex's `■`) / `Error:`
+prefixes; crew doorbell echoes are excluded.
 Healthy quota descriptions and completed prose beginning with Working or
 Thinking do not change an idle observation. Busy requires a stop/interrupt
 affordance or a pi activity border. The last 30 nonblank rows supply errors;
@@ -26,7 +28,12 @@ queued/working tasks: a pane whose editor holds a draft gets
 own capture and the roster CLI through the shared `pane_editor_text`
 dispatcher — no second capture and no `detect_cli` per pane — and keeps
 `pane_hold`'s precedence: a captured dialog or a pane in copy/choose mode is
-never read as a draft. `watch` emits one
+never read as a draft. When the flagged role is `lead`, status and watch also
+append the ready recovery command: it names the first non-lead role,
+preferring one with no open tasks, and offers the spawn form as the
+alternative (`if lead is dead: crew -s <name> override lead <role> (or
+lead=<cli> to spawn one)`); with no other role it prints only `lead=<cli>`
+(see [succession.md](succession.md)). `watch` emits one
 timestamped stdout line per new event, or uses the lead
 inbox and existing guarded doorbell with `--ring`:
 

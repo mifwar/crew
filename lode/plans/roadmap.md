@@ -4,7 +4,8 @@ Nothing from the first field report (pr357 lead) or the design discussion is
 pending: rebind, whoami hint, `crew say` + sender labels, `task add --out`,
 `--evidence`, `note`, `restyle`, agent-name detection, the shared crew skill,
 opt-in web sending, manual mid-work role overrides, adding agents to a running
-crew, UTF-8-safe status truncation, liveness/project listing and opt-in stale
+crew, one-command and `--request` succession, `rm` of a dead role, UTF-8-safe
+status truncation, liveness/project listing and opt-in stale
 cleanup and guarded identity fallback for missing/foreign tool-shell panes
 and heuristic stuck/error status with a foreground watcher
 (see [watch.md](../cli/watch.md)), detached timed doorbells (`at`/`every`,
@@ -41,6 +42,11 @@ flowchart TD
   but many rings to a busy agent still become many queued prompts. Consider
   coalescing ("3 new messages, read inbox/x.md") when a ring for that pane is
   already waiting on the lock.
+- **Spawning vs role changes**: `crew add` (and `override --request`) has no
+  gate, while `override`/`rm` need `you` or the lead. Any crew member can
+  spawn panes and spend quota, but cannot move roles. Keep the asymmetry
+  (spawning is the cheap, reversible step and help now documents it), gate
+  `add` too, or route spawning through the request flow — a user decision.
 - **pi startup dialogs**: none seen so far; if one appears, add its footer to
   `dialog_capture` ([../cli/lifecycle.md](../cli/lifecycle.md#readiness-heuristic)).
 

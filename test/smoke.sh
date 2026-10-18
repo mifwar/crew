@@ -919,6 +919,54 @@ check "ls handles empty active and ended row arrays" env CREW_HOME="$CREW_HOME/e
 check "install works with scratch bin and skill destinations" env CREW_BIN_DIR="$CREW_HOME/install-bin" CLAUDE_SKILLS_DIR="$CREW_HOME/install-skills" "$ROOT/install.sh"
 check "installed symlink finds the sourced listing module" env CREW_HOME="$CREW_HOME/empty-root" "$CREW_HOME/install-bin/crew" ls
 
+# Succession and removal. A dedicated crew keeps the main lifecycle untouched.
+"$CREW" up swap --in "$TS" lead=cat impl=cat rev=cat >/dev/null 2>&1
+SW="$CREW_HOME/swap"
+swap_lead=$(awk -F'\t' '$1=="lead"{print $2}' "$SW/panes")
+swap_impl=$(awk -F'\t' '$1=="impl"{print $2}' "$SW/panes")
+cp "$SW/panes" "$CREW_HOME/swap-panes-before"
+err=$(CREW_SESSION=swap CREW_AGENT=rev "$CREW" -s swap override lead impl 2>&1 >/dev/null) || true
+check "worker refusal names the recovery command" bash -c "printf '%s' \"\$1\" | grep -q 'crew -s swap override lead impl'" _ "$err"
+check "worker refusal points at --request" bash -c "printf '%s' \"\$1\" | grep -q -- '--request'" _ "$err"
+check "refused override changes nothing" cmp "$CREW_HOME/swap-panes-before" "$SW/panes"
+err=$(CREW_SESSION=swap CREW_AGENT=rev "$CREW" -s swap override lead=cat 2>&1 >/dev/null) || true
+check "refusal echoes the role=spec form" bash -c "printf '%s' \"\$1\" | grep -q 'crew -s swap override lead=cat'" _ "$err"
+check "refused spec spawns no pane" test "$(awk -F'\t' '$1=="lead"{print $2}' "$SW/panes")" = "$swap_lead"
+swap_win=$(awk -F'=' '$1=="window"{print $2}' "$SW/meta")
+swap_win_panes=$(tmux list-panes -t "$swap_win" -F '#{pane_id}' | wc -l | tr -d ' ')
+cp "$SW/panes" "$CREW_HOME/swap-panes-before-bad-spec"
+check "override role=spec rolls back a failed command" bash -c "! CREW_VIA=web '$CREW' -s swap override impl=no-such-cli-xyz"
+check "  and leaves the roster unchanged" cmp "$CREW_HOME/swap-panes-before-bad-spec" "$SW/panes"
+check "  and closes the failed pane" test "$(tmux list-panes -t "$swap_win" -F '#{pane_id}' | wc -l | tr -d ' ')" = "$swap_win_panes"
+
+# a worker-written out/handover-<role>.md is named for the successor
+printf 'state: finished A, next B\n' > "$SW/out/handover-impl.md"
+check "override role=spec succeeds" human "$CREW" -s swap override impl=cat
+swap_impl2=$(awk -F'\t' '$1=="impl"{print $2}' "$SW/panes")
+check "override role=spec spawns the successor" awk -F'\t' -v p="$swap_impl2" '$1=="impl" && $2==p && $4=="spawned"{f=1} END{exit !f}' "$SW/panes"
+check "override role=spec detaches the old pane unlabelled" test -z "$(tmux display -p -t "$swap_impl" '#{@crew_role}')"
+check "override role=spec keeps the old pane open" tmux display -p -t "$swap_impl" '#{pane_id}'
+check "override names an existing handover file" grep -qF 'handover-impl.md' "$SW/inbox/impl.md"
+check "override context names the handover file" grep -qF 'handover-impl.md' "$SW"/out/override-impl-*.md
+check "override starts the successor before notifying" screen_has "$swap_impl2" "You are agent 'impl'"
+
+# --request: any crew member readies a successor; the human approves it
+check "outside cannot request an override" bash -c "! '$CREW' -s swap override --request lead=cat </dev/null"
+check "worker can request a succession" env CREW_SESSION=swap CREW_AGENT=rev "$CREW" -s swap override --request lead=cat
+req_pane=$(sed -n 's/.*Approve: crew -s swap override lead \(%[0-9]*\).*/\1/p' "$SW/inbox/you.md" | tail -n 1)
+check "request rings you with the approval command" test -n "$req_pane"
+check "request leaves the roster untouched" test "$(awk -F'\t' '$1=="lead"{print $2}' "$SW/panes")" = "$swap_lead"
+check "request records the pending pane" grep -q "$req_pane" "$SW/pending.tsv"
+check "request writes the handover file" test -f "$SW/out/handover-lead.md"
+check "status shows the pending successor" bash -c "'$CREW' -s swap status | grep -q \"pending: lead → $req_pane\""
+check "request types nothing into the successor" bash -c "! tmux capture-pane -p -J -t $req_pane | grep -q 'recover the ongoing work'"
+check "human approves the request" human "$CREW" -s swap override lead "$req_pane"
+check "approval rebinds lead to the requested pane" test "$(awk -F'\t' '$1=="lead"{print $2}' "$SW/panes")" = "$req_pane"
+check "approval clears the pending row" bash -c "! grep -q '$req_pane' '$SW/pending.tsv'"
+check "approval keeps the spawned origin" awk -F'\t' -v p="$req_pane" '$1=="lead" && $2==p && $4=="spawned"{f=1} END{exit !f}' "$SW/panes"
+check "approval delivers the takeover message" grep -q 'recover the ongoing work' "$SW/inbox/lead.md"
+"$CREW" -s swap down >/dev/null 2>&1
+
 . "$ROOT/test/watch.sh"
 . "$ROOT/test/timers.sh"
 . "$ROOT/test/semaphore.sh"

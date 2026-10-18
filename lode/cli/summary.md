@@ -17,7 +17,7 @@ after a command prints the full usage (exit 0); unknown commands exit 1.
 | `up <name> [--self R] [--here] [--in S] role=cli …` | create panes, start CLIs, send intros | [lifecycle.md](lifecycle.md) |
 | `adopt <name> role=<pane> …` | label existing panes, send intros | [lifecycle.md](lifecycle.md) |
 | `add role=<cli spec\|%pane> …` | spawn or adopt new roles in a running crew | [lifecycle.md](lifecycle.md) |
-| `override <role> <replacement-role\|pane>` | hand ongoing work to another agent | [lifecycle.md](lifecycle.md) |
+| `override [--request] <role> <role\|%pane>` / `<role>=<cli spec>` | hand ongoing work over, or ready a successor for approval | [succession.md](succession.md) |
 | `remove <role> [--keep-pane]` | drop a role: block its open tasks, close/unlabel its pane (lead/you only) | [lifecycle.md](lifecycle.md) |
 | `rebind <role> [pane] [--intro]` | move a role to another pane (default: caller's) | [lifecycle.md](lifecycle.md) |
 | `send <role[,role…]\|@all\|you> <msg>` | log + inbox + doorbell (unrung doorbells are logged) | [messaging.md](messaging.md) |
@@ -43,7 +43,7 @@ after a command prints the full usage (exit 0); unknown commands exit 1.
 
 ```mermaid
 flowchart TD
-  main["main: -s flag, --help check, case $cmd"] --> up[cmd_up] & adopt[cmd_adopt] & send[cmd_send] & task[cmd_task] & view["cmd_status / board / log / peek / ls"] & web[cmd_web] & down[cmd_down]
+  main["main: -s flag, --help check, case $cmd"] --> up[cmd_up] & adopt[cmd_adopt] & send[cmd_send] & task[cmd_task] & view["cmd_status / board / log / peek / ls"] & web[cmd_web] & down[cmd_down] & over["cmd_override / cmd_remove"]
   send & task --> resolve["resolve_session + resolve_me"]
   send --> deliver --> owns[owns_pane] --> ringw["ring: pane_hold, then send-keys"]
   up & adopt --> label[label_pane + style_window] --> roles[write_role_files] --> intro

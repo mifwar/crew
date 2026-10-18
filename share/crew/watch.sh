@@ -19,6 +19,9 @@ context	context left until auto-compact:[[:space:]]*[0-9]+%
 context	[0-9]+%[[:space:]]+(of )?context (used|left)
 quota	5h[[:space:]]+[0-9]+%[[:space:]]+(used|left)
 quota	5[ -]hour[^%]*[0-9]+%[[:space:]]+(used|left)
+error	^(you'?ve|you’ve|you have) (hit|reached) your .*limit	provider limit
+error	^usage limit (exceeded|reached|hit)	provider limit
+error	^[0-9]+[[:space:]]+rate[ -]+limit	rate limit
 EOF
 }
 
@@ -37,7 +40,7 @@ pane_observation() { # cli; capture on stdin -> state|resources|reason
         # Match error UI forms from their start, allowing common UI gutters.
         if (kind[i]=="error") {
           sub(/^[[:space:]]*/, "", s)
-          while (sub(/^│|^›|^❯|^•|^●|^!|^⚠|^️|^✗/, "", s)) sub(/^[[:space:]]*/, "", s)
+          while (sub(/^│|^›|^❯|^•|^●|^■|^!|^⚠|^️|^✗/, "", s)) sub(/^[[:space:]]*/, "", s)
           sub(/^error:[[:space:]]*/, "", s)
         }
         if (s !~ re[i]) continue
@@ -78,6 +81,22 @@ draft_note() { # pane cli — the caller's capture on stdin
   case "$cli" in pi) dims=$(tmux display-message -p -t "$1" '#{pane_width} #{pane_height} #{cursor_y}' 2>/dev/null) ;; esac
   text=$(printf '%s\n' "$cap" | pane_editor_text "$cli" "$dims") || return 0
   [ -z "$text" ] || printf 'draft pending: doorbells are held'
+}
+
+# One paste-ready recovery line for a lead that looks dead, printed by status
+# and watch. Prefer a role with no open tasks, so the suggestion is cheap.
+lead_recovery_hint() {
+  local r next=""
+  for r in $(roles); do
+    [ "$r" = lead ] && continue
+    [ -n "$next" ] || next="$r"
+    [ "$(role_tasks "$r")" -eq 0 ] && { next="$r"; break; }
+  done
+  if [ -n "$next" ]; then
+    printf 'if lead is dead: crew -s %s override lead %s (or lead=<cli> to spawn one)' "$S" "$next"
+  else
+    printf 'if lead is dead: crew -s %s override lead=<cli>' "$S"
+  fi
 }
 
 watch_duration() { # digits + optional s/m/h; bounded to avoid shell overflow
@@ -127,8 +146,15 @@ watch_scan() { # private cache quiet-seconds ring?; one observation per owned pa
     elif [ "$health" = idle ] && [ "$open" -eq 0 ]; then event="idle with no open task"; fi
     if [ -z "$event" ]; then sent=-
     elif [ "$event" != "$sent" ] && { [ "$health" = error ] || [ -n "$draft" ] || [ $((current_time-changed)) -ge "$quiet" ]; }; then
-      watch_event "$ring_events" "$role $event"
       sent=$event
+      # The command is the whole point of the notice: nobody has to look it up
+      # while the lead is dead. Cached without the hint, so roster edits do not
+      # re-announce one unchanged event.
+      if [ "$role" = lead ]; then
+        watch_event "$ring_events" "$role $event — $(lead_recovery_hint)"
+      else
+        watch_event "$ring_events" "$role $event"
+      fi
     fi
     printf '%s|%s|%s\n' "$fingerprint" "$changed" "$sent" > "$cache/$role"
   done < "$D/panes"

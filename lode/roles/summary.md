@@ -26,6 +26,11 @@ It is a live pointer, not a snapshot to update when agents join or move.
   reported to lead.
 - Send with `crew send <role> "<one line>"`; long content goes in `out/` and
   the message carries the path. Report to `lead`; only lead uses `@all`.
+- A lead that doesn't answer after one nudge, or whose pane shows a provider
+  limit, is escalated to the human: `crew send you "<question>"`. A stopping
+  agent writes `out/handover-<role>.md` (state, open tasks, decisions, next
+  steps); an `override` names that file to the successor
+  ([../cli/succession.md](../cli/succession.md)).
 - No acknowledgements. Message only on finish, block, or needing a decision.
 - Never type into other panes.
 - Results go to the path in the task message (under `{{DIR}}/out/`, never the

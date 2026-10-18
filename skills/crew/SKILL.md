@@ -96,8 +96,10 @@ crew lock --name checks --max 2 -- ./run-checks
   starts with `STATUS: DONE` or `FINAL:` (`STATUS: BLOCKED`/`PARTIAL` leave the
   task open and say so); `--force` closes it anyway and notes it in the log.
 - `status` flags a rendered input prompt while its role owns queued/working
-  work, and recent errors. Context and 5h quota appear only when printed in
-  the pane. These are text heuristics, not proof that an agent is stuck.
+  work, and recent errors, including provider-limit banners. A flagged lead
+  gets a ready recovery command (`crew override lead …`). Context and 5h
+  quota appear only when printed in the pane. These are text heuristics, not
+  proof that an agent is stuck.
 - `watch` scans every 120 seconds by default. Idle/stuck notices wait for
   10 minutes of unchanged pane text and task rows; errors with open work
   and an empty board report at the next scan. Each role/event is announced
@@ -149,22 +151,35 @@ crew lock --name checks --max 2 -- ./run-checks
 
 ## Mid-work takeover
 
-When a lead hits a usage limit, the human can run either command in a terminal:
+When a lead hits a usage limit, the human can run one of these in a terminal:
 
 ```sh
 crew -s <name> override lead impl   # existing crew agent takes leadership
 crew -s <name> override lead %12    # running agent in a new, unlabelled pane takes leadership
+crew -s <name> override lead=pi     # spawn a fresh pi pane and give it leadership
 ```
 
-The current lead may also invoke it. Do not start an agent with unchosen
-launch flags. Existing crew agents swap roles; the successor's unfinished
-tasks move to the overridden role. A new pane is adopted, while the old pane
-is unlabelled and kept open. The board, inboxes, outputs and evidence survive.
-The successor reads its refreshed role file and the handover under `out/`,
-then recovers the goal from the board, log, inboxes and results. The handover
-includes the previous role's pane output, not its private conversation.
-Run `crew whoami` after a takeover; pane bindings override stale `CREW_AGENT`.
-The previous agent must stop its old work and wait for a new assignment.
+Any crew member (including the current lead) may prepare the same swap for
+approval with `crew override --request lead=pi`: it spawns the successor,
+writes `out/handover-lead.md` when absent and rings the human with the exact
+approval command. It never changes bindings by itself.
+
+A worker whose lead has gone quiet must not sit idle: nudge lead once, then
+`crew send you "<question>"`; if the lead pane shows a provider limit, also
+consider `crew override --request lead=<cli spec|role|%pane>`. A role that is
+about to stop (limit, handover) writes `out/handover-<role>.md` — state, open
+tasks, decisions, next steps — which an override names to its successor first.
+
+Do not start an agent with unchosen launch flags. Existing crew agents swap
+roles; the successor's unfinished tasks move to the overridden role (the name
+the successor now holds). A new pane is adopted, while the old pane is
+unlabelled and kept open; a `lead=<cli spec>` pane is spawned and closes with
+`crew down`. The board, inboxes, outputs and evidence survive. The successor
+reads its refreshed role file and the handover under `out/`, then recovers the
+goal from the board, log, inboxes and results. The handover includes the
+previous role's pane output, not its private conversation. Run `crew whoami`
+after a takeover; pane bindings override stale `CREW_AGENT`. The previous
+agent must stop its old work and wait for a new assignment.
 
 ## Add agents mid-work
 

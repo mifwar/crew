@@ -39,7 +39,8 @@ crew — coding agents working together in tmux
   crew adopt <name> role=<pane> ...                   use panes you already have (%7, .2, 6.1)
   crew add role=<cli spec|%pane> ...                 add agents to a running crew (spawn or adopt)
   crew rebind <role> [pane]                           point a role at another pane (default: this one)
-  crew override <role> <replacement-role|pane>       hand a role's ongoing work to another crew agent
+  crew override [--request] <role> <replacement-role|pane>   hand a role's ongoing work to another crew agent
+  crew override [--request] <role>=<cli spec>                spawn a successor pane running <cli spec> for the role
   crew remove <role> [--keep-pane]                    drop a role: block open tasks, close/unlabel its pane
   crew send <role[,role…]|@all|you> <message>         message agents (@all: lead/you only)
   crew say <role[,role…]|@all> <message>              same, but only for the human at a terminal
@@ -73,6 +74,8 @@ crew — coding agents working together in tmux
     crew adopt pr1068 lead=%4 rev=%9 rev2=%11
     crew -s pr1068 add rev3=pi impl2=%12
     crew -s voucher override lead impl                impl takes over when lead hits a limit
+    crew -s voucher override lead=pi                  spawn a fresh lead in one step
+    crew -s voucher override --request lead=pi        worker asks you to approve the swap
 
   Agents run `crew send` from their shell tool, so each needs permission to:
     claude  pre-allow it: claude --allowedTools 'Bash(crew:*)'  (or use auto mode)
@@ -91,6 +94,9 @@ crew — coding agents working together in tmux
   label to stop accidental relays, not a security boundary. `crew whoami`
   prints why the caller resolved (a `why:` line); a send labelled outside also
   warns on stderr with that reason.
+  Spawning is open: any crew member may `crew add` or `crew override --request`.
+  Role changes (`override`, `remove`) need `you` or the lead; a worker whose
+  lead is unreachable escalates with `crew send you "<question>"`.
 
   Doorbells wait up to CREW_RING_WAIT seconds for a recognised draft to clear
   (default 30, capped at 3600); skipped rings warn and leave the message in the
@@ -383,14 +389,20 @@ intro_submit() { # role pane text
   echo "crew: $1 ($2) still holds an unsubmitted startup draft after a second Enter; doorbells to it will be held until it is submitted. Submit it yourself: tmux send-keys -t $2 Enter" >&2
 }
 
-start_agent() { # role pane spec — never amend the user's command
-  owns_pane "$2" "$1" || die "$1's pane is gone or reused; no command typed"
-  ring --now "$2" "$3"
-  case "$3" in
-    codex|codex\ *) case "$3" in *dangerously*|*network_access*) ;; *)
+# Codex's default sandbox blocks the tmux socket and ~/.crew, so its `crew send`
+# never rings. Warn once per start; the spec itself is never amended.
+warn_codex_sandbox() { # role spec
+  case "$2" in
+    codex|codex\ *) case "$2" in *dangerously*|*network_access*) ;; *)
       echo "crew: $1 (codex) is sandboxed, so its 'crew send' can't reach tmux and its messages won't ring. Start it with flags that allow that." >&2 ;;
     esac ;;
   esac
+}
+
+start_agent() { # role pane spec — never amend the user's command
+  owns_pane "$2" "$1" || die "$1's pane is gone or reused; no command typed"
+  ring --now "$2" "$3"
+  warn_codex_sandbox "$1" "$3"
 }
 
 settle_agent() { # role pane
@@ -777,35 +789,139 @@ cmd_board() {
 
 # ---------- repair ----------
 
+override_usage() {
+  die 'usage: crew override [--request] <role> <replacement-role|pane>
+       crew override [--request] <role>=<replacement-role|%pane|cli spec>'
+}
+
+# A pane --request started has no roster row yet; pending.tsv is its record.
+pending_forget() { # pane
+  [ -f "$D/pending.tsv" ] || return 0
+  awk -F'\t' -v p="$1" '$2!=p' "$D/pending.tsv" > "$D/pending.tsv.tmp"
+  mv "$D/pending.tsv.tmp" "$D/pending.tsv"
+}
+
 cmd_override() {
   resolve_session; resolve_me
-  [ $# -eq 2 ] || die 'usage: crew override <role> <replacement-role|pane>'
-  local role="$1" replacement="$2" old new caller="$ME" context msg r p cli origin swap=1 got
-  [ "$ME" = you ] || [ "$ME" = lead ] || die 'only lead or you can override a role'
+  local request=0 eq=0 arg1="" arg2="" role="" replacement="" old new cli origin=adopted swap=1 got
+  local context handover="" msg r p spawn_spec="" win cwd pending previous caller="" cmdline="" capture=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --request) request=1; shift ;;
+      -*) die "bad option: $1" ;;
+      *) if [ -z "$arg1" ]; then arg1="$1"
+         elif [ -z "$arg2" ]; then arg2="$1"
+         else override_usage; fi
+         shift ;;
+    esac
+  done
+  if [ -n "$arg2" ]; then role="$arg1"; replacement="$arg2"
+  elif [ -n "$arg1" ]; then
+    case "$arg1" in
+      *=*) eq=1; role="${arg1%%=*}"; replacement="${arg1#*=}" ;;
+      *) override_usage ;;
+    esac
+  else override_usage; fi
   [ "$role" != "$replacement" ] || die 'replacement must be a different role'
   [ ! -f "$D/ended" ] || die "crew '$S' has ended"
+  # Echo the form the caller used: a spec is only a spec in the role=value form.
+  if [ "$eq" = 1 ]; then cmdline="crew -s $S override $role=$replacement"
+  else cmdline="crew -s $S override $role $replacement"; fi
+  if [ "$request" = 1 ]; then
+    case "$ME" in
+      you) ;;
+      outside) die "--request is for crew members; run it from inside crew $S" ;;
+      *) [ -n "$(pane_of "$ME")" ] || die "--request needs a crew role; you are '$ME'" ;;
+    esac
+    override_request "$role" "$replacement"
+    return
+  fi
+  [ "$ME" = you ] || [ "$ME" = lead ] || die "only lead or you can override a role
+  run: $cmdline
+  or ask the human: crew -s $S override --request $role=$replacement"
   lock panes board
   resolve_me
   caller="$ME"
-  [ "$ME" = you ] || [ "$ME" = lead ] || die 'only lead or you can override a role'
+  [ "$ME" = you ] || [ "$ME" = lead ] || die "only lead or you can override a role
+  run: $cmdline
+  or ask the human: crew -s $S override --request $role=$replacement"
   old=$(pane_of "$role"); [ -n "$old" ] || die "no agent '$role' in crew $S"
+  owns_pane "$old" "$role" || die "$role's pane is stale; rebind it first"
   new=$(pane_of "$replacement")
   if [ -n "$new" ]; then
     owns_pane "$new" "$replacement" || die "$replacement's pane is stale; rebind it first"
   else
     swap=0
-    new=$(pane_id "$replacement") || die "no agent or tmux pane '$replacement'"
-    got=$(awk -F'\t' -v p="$new" '$2==p{print $1; exit}' "$D/panes")
-    [ -z "$got" ] || die "$new is already '$got' in this crew; use its role"
-    got=$(tmux display-message -p -t "$new" '#{@crew_session}/#{@crew_role}')
-    [ "$got" = "/" ] || die "$new is already labelled $got; use its role or an unlabelled pane"
-    cli=$(pane_cli "$new")
+    new=""
+    # In the role=value form only %id is a pane: a bare word is a CLI spec,
+    # so a window named like the spec cannot be grabbed by mistake.
+    case "$replacement" in
+      %*) new=$(pane_id "$replacement") || die "no tmux pane '$replacement'" ;;
+    esac
+    if [ -z "$new" ] && [ "$eq" = 0 ]; then
+      new=$(pane_id "$replacement") || die "no agent or tmux pane '$replacement'"
+    fi
+    if [ -n "$new" ]; then
+      got=$(awk -F'\t' -v p="$new" '$2==p{print $1; exit}' "$D/panes")
+      [ -z "$got" ] || die "$new is already '$got' in this crew; use its role"
+      got=$(tmux display-message -p -t "$new" '#{@crew_session}/#{@crew_role}')
+      [ "$got" = "/" ] || die "$new is already labelled $got; use its role or an unlabelled pane"
+      cli=$(pane_cli "$new")
+      pending=$(awk -F'\t' -v p="$new" '$2==p{print $1; exit}' "$D/pending.tsv" 2>/dev/null) || true
+      if [ -n "$pending" ]; then
+        [ "$pending" = "$role" ] || die "$new is the pending successor for '$pending', not '$role'"
+        origin=spawned
+        pending_forget "$new"
+      fi
+    else
+      spawn_spec="$replacement"
+      win=$(crew_window)
+      cwd=$(meta cwd); [ -d "$cwd" ] || die "crew working directory is missing: $cwd"
+      new=$(tmux split-window -d -P -F '#{pane_id}' -t "$win" -c "$cwd" \
+        -e "CREW_SESSION=$S" -e "CREW_AGENT=$role" -e "CREW_HOME=$CREW_HOME")
+      tmux select-layout -t "$win" tiled >/dev/null
+      origin=spawned
+      cli=$(short_cli "$spawn_spec")
+      warn_codex_sandbox "$role" "$spawn_spec"
+      # Start and verify the successor before binding anything: a spec that
+      # dies at the shell must not become the role or receive a typed message.
+      # The pane was created in this command, so --now has no stale id to skip.
+      unlock
+      ring --now "$new" "$spawn_spec" || true
+      wait_ready "$new" || true
+      if [ -z "$(detect_cli "$new")" ]; then
+        tmux kill-pane -t "$new" 2>/dev/null || true
+        die "successor '$spawn_spec' did not start in $new; nothing changed"
+      fi
+      lock panes board
+      resolve_me
+      if [ "$(pane_of "$role")" != "$old" ] || [ -n "$(pane_of "$replacement")" ] \
+        || [ -n "$(awk -F'\t' -v p="$new" '$2==p{print $1; exit}' "$D/panes")" ] \
+        || [ "$(tmux display-message -p -t "$new" '#{@crew_session}/#{@crew_role}')" != "/" ]; then
+        tmux kill-pane -t "$new" 2>/dev/null || true
+        die "crew changed while '$spawn_spec' started; retry the override"
+      fi
+    fi
   fi
-  owns_pane "$old" "$role" || die "$role's pane is stale; rebind it first"
 
+  handover=""
+  if [ -f "$D/out/handover-$role.md" ]; then handover="out/handover-$role.md"; fi
+  # Capture before writing: a pane dying mid-block must not abort the
+  # override halfway through (which would leave a truncated context file).
+  capture=""
+  if owns_pane "$old" "$role"; then
+    capture=$(tmux capture-pane -p -J -S -200 -t "$old" 2>/dev/null) || capture=""
+  fi
   context="out/override-$role-$(date +%Y%m%d-%H%M%S)-$$.md"
   {
-    printf '# Role handover: %s → %s\n\n' "$replacement" "$role"
+    if [ "$swap" = 1 ]; then
+      printf '# Role handover: %s → %s\n\n' "$replacement" "$role"
+    else
+      printf '# Role handover: %s, new pane\n\n' "$role"
+    fi
+    if [ -n "$handover" ]; then
+      printf 'The previous %s left a handover: %s — read it first.\n\n' "$role" "$D/$handover"
+    fi
     if [ "$swap" = 0 ]; then
       printf 'The previous role pane is detached from the crew and kept open.\n\n'
     fi
@@ -817,9 +933,7 @@ cmd_override() {
     else
       printf 'Existing tasks, result paths, evidence and history stay unchanged.\n\n'
     fi
-    printf '## Previous %s pane (visible output and up to 200 scrollback lines)\n\n```text\n' "$role"
-    tmux capture-pane -p -J -S -200 -t "$old"
-    printf '\n```\n'
+    printf '## Previous %s pane (visible output and up to 200 scrollback lines)\n\n```text\n%s\n```\n' "$role" "$capture"
   } > "$D/$context"
   if [ "$swap" = 1 ]; then
     # Swap occupants, keeping CLI and lifecycle origin attached to each pane.
@@ -830,8 +944,8 @@ cmd_override() {
     mv "$D/board.tsv.tmp" "$D/board.tsv"
     mv "$D/panes.tmp" "$D/panes"
   else
-    awk -F'\t' -v OFS='\t' -v r="$role" -v p="$new" -v c="$cli" \
-      '$1==r{$2=p; $3=c; $4="adopted"} {print}' "$D/panes" > "$D/panes.tmp"
+    awk -F'\t' -v OFS='\t' -v r="$role" -v p="$new" -v c="$cli" -v o="$origin" \
+      '$1==r{$2=p; $3=c; $4=o} {print}' "$D/panes" > "$D/panes.tmp"
     mv "$D/panes.tmp" "$D/panes"
     if owns_pane "$old" "$role"; then unlabel_pane "$old"; fi
   fi
@@ -842,12 +956,15 @@ cmd_override() {
   refresh_model "$new"
   write_role_files
   unlock
+  # The spawned successor already started and settled before the binding; give
+  # it the standard intro (dialog-safe) before the takeover notice.
+  if [ -n "$spawn_spec" ]; then intro "$role" "$new"; fi
   local previous="previous $role ($old) is now $replacement"
   [ "$swap" = 1 ] || previous="previous $role ($old) detached and kept open"
-  log_line sys "$caller" "$role" "$caller overrode $role: $replacement ($new) takes over; $previous; context: $D/$context"
+  log_line sys "$caller" "$role" "$caller overrode $role: $replacement ($new) takes over; $previous; context: $D/$context${handover:+; handover: $D/$handover}"
   for r in $(roles); do
     if [ "$r" = "$role" ]; then
-      msg="You are now '$role'. Read $D/roles/$role.md and $D/$context, recover the ongoing work from the board, inboxes and results, and continue."
+      msg="You are now '$role'. Read $D/roles/$role.md and $D/$context${handover:+, plus the handover $D/$handover}, recover the ongoing work from the board, inboxes and results, and continue."
     elif [ "$r" = "$replacement" ]; then
       msg="You are now '$replacement'; '$role' has taken over your unfinished tasks. Read $D/roles/$replacement.md. Stop your previous role's work; wait for a new assignment."
     else
@@ -857,6 +974,84 @@ cmd_override() {
     deliver "$r" "$msg" "$r"
   done
   echo "$role → $new ($previous). Handover: $D/$context"
+}
+
+# `crew override --request`: any crew member readies a successor and asks the
+# human to approve. The spawned pane is recorded in pending.tsv until the
+# approval (or a decline) so status shows it and override knows crew made it.
+override_request() { # role replacement
+  local role="$1" replacement="$2" old new cli="" kind="" spawn_spec="" win cwd
+  local handover approve text dialog="" capture=""
+  old=$(pane_of "$role"); [ -n "$old" ] || die "no agent '$role' in crew $S"
+  new=$(pane_of "$replacement")
+  if [ -n "$new" ]; then kind=role
+  else
+    case "$replacement" in
+      %*) new=$(pane_id "$replacement") || die "no tmux pane '$replacement'"; kind=pane ;;
+    esac
+  fi
+  if [ -z "$kind" ]; then kind=spawn; spawn_spec="$replacement"; fi
+  cli=$(short_cli "$replacement")
+
+  handover="out/handover-$role.md"
+  if [ ! -f "$D/$handover" ]; then
+    capture=""
+    if owns_pane "$old" "$role"; then
+      capture=$(tmux capture-pane -p -J -S -200 -t "$old" 2>/dev/null) || capture=""
+    fi
+    {
+      printf '# Handover: %s (override requested by %s)\n\n' "$role" "$ME"
+      printf 'A successor for %s in crew %s was requested by %s. Read roles/%s.md, board.tsv, channel.log and inbox/%s.md in %s, plus relevant out/ results and evidence, then continue the existing goal and verify incomplete claims.\n\n' \
+        "$role" "$S" "$ME" "$role" "$role" "$D"
+      if [ -n "$capture" ]; then
+        printf '## Current %s pane (%s): visible output and up to 200 scrollback lines\n\n```text\n%s\n```\n' "$role" "$old" "$capture"
+      fi
+    } > "$D/$handover"
+  fi
+
+  if [ "$kind" = spawn ]; then
+    lock panes
+    win=$(crew_window)
+    cwd=$(meta cwd); [ -d "$cwd" ] || die "crew working directory is missing: $cwd"
+    new=$(tmux split-window -d -P -F '#{pane_id}' -t "$win" -c "$cwd" \
+      -e "CREW_SESSION=$S" -e "CREW_HOME=$CREW_HOME")
+    printf '%s\t%s\t%s\t%s\n' "$role" "$new" "$cli" "$(now)" >> "$D/pending.tsv"
+    tmux select-layout -t "$win" tiled >/dev/null
+    unlock
+    # The pane was created in this command, so there is no stale id to guard
+    # against; it stays unlabelled and unrostered until the approval.
+    ring --now "$new" "$spawn_spec" || true
+    wait_ready "$new" || true
+    if [ -z "$(detect_cli "$new")" ]; then
+      lock panes
+      pending_forget "$new"
+      unlock
+      echo "crew: successor '$spawn_spec' failed to start in $new; no approval sent" >&2
+      echo "crew: last line: $(tmux capture-pane -p -t "$new" | sed '/^[[:space:]]*$/d' | tail -n 1)" >&2
+      return
+    fi
+    if in_dialog "$new"; then dialog=" (answer the startup dialog in $new first)"; fi
+  fi
+
+  case "$kind" in
+    role) approve="crew -s $S override $role $replacement" ;;
+    *) approve="crew -s $S override $role $new" ;;
+  esac
+  text="override requested: $ME asked for a successor to $role."
+  case "$kind" in
+    spawn) text="$text Started $new${cli:+ ($cli)}; handover: $handover.$dialog Approve: $approve" ;;
+    role)  text="$text $replacement ($new) can take over; handover: $handover. Approve: $approve" ;;
+    pane)  text="$text Unlabelled pane $new is ready; handover: $handover. Approve: $approve" ;;
+  esac
+  if [ "$ME" = you ]; then
+    printf '%s\n' "$text"
+  else
+    cmd_send you "$text"
+    printf '%s\n' "request sent to you — $text"
+  fi
+  if [ "$kind" = spawn ]; then
+    printf 'decline: tmux kill-pane -t %s\n' "$new"
+  fi
 }
 
 cmd_rebind() {
@@ -969,9 +1164,28 @@ cmd_log() {
   else tail -n "$n" "$D/channel.log" | fmt_log; fi
 }
 
+# The lead's status note recomputed outside cmd_status' table pipeline (a
+# pipeline subshell cannot set a variable), or nothing when lead looks fine.
+status_lead_note() {
+  local pane cli cap observation health resources reason
+  pane=$(pane_of lead); [ -n "$pane" ] || return 0
+  # A gone or reused lead pane is exactly the dead-lead case; note it without
+  # reading a pane that no longer belongs to this crew.
+  if ! owns_pane "$pane" lead; then printf 'pane gone or reused'; return 0; fi
+  cli=$(awk -F'\t' -v p="$pane" '$2==p{print $3; exit}' "$D/panes")
+  cap=$(tmux capture-pane -p -J -t "$pane" 2>/dev/null) || cap=""
+  observation=$(printf '%s\n' "$cap" | pane_observation "$(short_cli "$cli")")
+  IFS='|' read -r health resources reason <<< "$observation"
+  if [ "$health" = error ]; then
+    printf 'ERROR: %s' "$reason"
+  elif [ "$health" = idle ] && [ "$(role_tasks lead active)" -gt 0 ]; then
+    printf 'IDLE with queued/working task'
+  fi
+}
+
 cmd_status() {
   resolve_session
-  local role pane cli origin cmd last model cap observation health resources reason note draft
+  local role pane cli origin cmd last model cap observation health resources reason note note_lead draft
   printf 'crew %s  (%s)  %s\n\n' "$S" "$(meta mode)$([ -f "$D/ended" ] && echo ', ended')" "$D"
   { printf 'ROLE\tCLI\tMODEL\tPANE\tRUNNING\tLAST MESSAGE\tNOTE\tCONTEXT / QUOTA\n'
     while IFS="$(printf '\t')" read -r role pane cli origin; do
@@ -1001,6 +1215,18 @@ cmd_status() {
   } | column -t -s "$(printf '\t')"
   semaphore_status
   echo; cmd_board
+  note_lead=$(status_lead_note)
+  if [ -n "$note_lead" ]; then
+    echo
+    printf 'lead: %s\n  %s\n' "$note_lead" "$(lead_recovery_hint)"
+  fi
+  if [ -s "$D/pending.tsv" ]; then
+    while IFS="$(printf '\t')" read -r role pane cli origin; do
+      [ -n "$role" ] || continue
+      printf 'pending: %s → %s (%s) — approve: crew -s %s override %s %s\n' \
+        "$role" "$pane" "$cli" "$S" "$role" "$pane"
+    done < "$D/pending.tsv"
+  fi
 }
 
 cmd_peek() {
@@ -1090,6 +1316,14 @@ cmd_down() {
     tmux set-option -w -u -t "$win" pane-border-format 2>/dev/null || true
   done < "$D/panes"
   [ -z "$last" ] || tmux kill-pane -t "$last" 2>/dev/null || true
+  # Pending successors are unlabelled: they cannot be ownership-checked, so
+  # down must not close them, but it can say which panes it left behind.
+  if [ -s "$D/pending.tsv" ]; then
+    while IFS="$(printf '\t')" read -r role pane cli origin; do
+      [ -n "$role" ] || continue
+      echo "crew: unapproved successor $role ($pane) left open; close it: tmux kill-pane -t $pane" >&2
+    done < "$D/pending.tsv"
+  fi
 }
 
 # Listing and stale cleanup share the CLI helpers above.

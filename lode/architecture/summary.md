@@ -58,7 +58,8 @@ See [state-files.md](state-files.md) for the exact formats.
 - Every message is logged in `channel.log` and saved to the recipient's inbox
   **before** the doorbell rings; a failed ring loses nothing.
 - Each file has one writer pattern: append-only (`channel.log`, `inbox/*`),
-  or rewrite under a lock (`board.tsv`), or written once (`panes`, `meta`, `roles/*`).
+  or rewrite under a lock (`board.tsv`, `panes`, `pending.tsv`), or written
+  once (`meta`, `roles/*`).
 - `crew` never types into or closes a pane that fails `owns_pane`.
 - The web viewer never writes anything.
 

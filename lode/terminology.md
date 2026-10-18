@@ -19,6 +19,8 @@ flowchart LR
 - evidence - a file (command + output) attached to a task with `--evidence` to back a "ran/verified" claim.
 - detect_cli - naming a pane's agent from its tty process list (fixes `2.1.284` / `node`).
 - role spec - `role=cli` argument to `crew up` or `crew add`; everything after `=` is typed verbatim into the new pane (flags included).
+- handover file - `out/handover-<role>.md`, written by a stopping agent (state, open tasks, next steps); an override names it first to the successor.
+- pending successor - a pane `override --request <role>=<cli spec>` spawned that `you` has not approved; tracked in `pending.tsv` with no roster row or label until the approving override.
 - spawned pane - a pane `crew up` or `crew add` created; `crew down` closes it.
 - adopted pane - a pane that already existed (`crew adopt`, `crew up --self`, `crew add role=%pane`); `crew down` only removes its labels.
 - doorbell / ring - typing one line + Enter into a pane with `tmux send-keys` so the agent sees a new message.

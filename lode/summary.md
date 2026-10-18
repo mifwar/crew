@@ -34,7 +34,11 @@ semaphores; `status` shows their active holders.
 without touching panes.
 `crew override lead impl` promotes
 an existing agent mid-work; `crew override lead %12` adopts a new successor
-pane. Overrides preserve history and results and save recovery context. The web viewer (`crew web`,
+pane, and `crew override lead=pi` spawns one and hands it the role in one
+step. A worker can prepare the same swap with `crew override --request
+lead=pi`, which needs the human's approval. Overrides preserve history and results
+and save recovery context, naming a worker-written `out/handover-<role>.md`
+when present. The web viewer (`crew web`,
 127.0.0.1:7777) polls a small JSON API and shows roster (detected agent and
 model names), timeline, board, files and pane captures; it is read-only unless
 started with `--allow-send`. A shared skill (`skills/crew`, linked by
