@@ -5,8 +5,10 @@ One Bash entrypoint, one `cmd_*` function per command, dispatched at the bottom.
 via `CREW_SHARE`; the pane readers, `pane_hold`, the `ring` doorbell and its
 draft hold come from `share/crew/pane.sh` the same way. Status observations
 and the foreground watcher come from `share/crew/watch.sh`; detached timer
-workers live in `share/crew/timers.sh`. See [listing.md](listing.md),
-[messaging.md](messaging.md), [watch.md](watch.md) and [timers.md](timers.md).
+workers live in `share/crew/timers.sh`; command semaphores and holder listing
+live in `share/crew/semaphore.sh`. See [listing.md](listing.md),
+[messaging.md](messaging.md), [watch.md](watch.md), [timers.md](timers.md)
+and [semaphore.md](semaphore.md).
 `-s <name>` before the command selects a crew; `-h`/`--help` anywhere right
 after a command prints the full usage (exit 0); unknown commands exit 1.
 
@@ -24,7 +26,8 @@ after a command prints the full usage (exit 0); unknown commands exit 1.
 | `task add --to R [--dep T] [--out out/x.md] [--msg M] <title>` | new board row + notify owner; `{id}` → the new id | [tasks.md](tasks.md) |
 | `task set <id> <status> [--out F] [--evidence F] [--force]` | update row, pane label, log; `done` gate-checks F | [tasks.md](tasks.md) |
 | `task next-id` | id the next `add` will take | [tasks.md](tasks.md) |
-| `board` / `status` | board table / agents, model, stuck/error notes, context/quota + board | [tasks.md](tasks.md), [watch.md](watch.md) |
+| `lock [--name build] [--max N] -- <cmd...>` | crew-wide counting semaphore | [semaphore.md](semaphore.md) |
+| `board` / `status` | board table / agents, model, stuck/error notes, context/quota + lock holders + board | [tasks.md](tasks.md), [watch.md](watch.md), [semaphore.md](semaphore.md) |
 | `watch [--every 120] [--quiet-after 10m] [--ring]` | debounced state-change notices, optionally ring lead | [watch.md](watch.md) |
 | `at <HH:MM\|+30m> <role> <message>` / `every <30m> <role> <message>` | detached guarded doorbells | [timers.md](timers.md) |
 | `timers [cancel <id>]` | list timers or stop one | [timers.md](timers.md) |

@@ -27,6 +27,8 @@ live roster; existing role files stay untouched.
 the normal guarded delivery path.
 `crew at` and `crew every` run detached timer workers for guarded doorbells,
 recorded under the crew; `crew timers` lists/cancels them and `down` stops them.
+`crew lock` bounds concurrent heavy commands with named, crew-scoped
+semaphores; `status` shows their active holders.
 `crew ls` shows projects, actual pane ownership, tasks and activity;
 `crew sweep` previews stale-crew cleanup and `--apply` marks stale crews ended
 without touching panes.

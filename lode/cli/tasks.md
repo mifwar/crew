@@ -100,7 +100,9 @@ message names the directory to remove.
 `board` prints `ID OWNER STATUS NEEDS OUTPUT EVIDENCE TITLE` via `column -t`
 (title last so long titles don't push columns). `status` prints
 `ROLE CLI MODEL PANE RUNNING LAST-MESSAGE NOTE CONTEXT/QUOTA` for every role
-(RUNNING is the short cli, `gone`, or `STALE (pane reused)`), then the board.
+(RUNNING is the short cli, `gone`, or `STALE (pane reused)`), then any active
+command semaphore holders (wrapper/command pids, role and argv) and the board.
+See [semaphore.md](semaphore.md).
 The last message is capped at 70 Unicode characters via `truncate_text`
 (Bash substring with `en_US.UTF-8`), rather than BSD awk's byte-based
 `substr`: cutting a UTF-8 sequence makes BSD `column` drop the roster rows.

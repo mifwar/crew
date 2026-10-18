@@ -68,7 +68,7 @@ crew send rev2 "Round 2: verdict per item on out/accepted.md"
 crew send impl,rev "API contract changed: see out/api.md"   # several at once
 crew note "Rejected R3: out of scope per the user"
 crew send you "Summary: … (out/summary.md)"
-crew status                     # roles, models, panes, stuck/error notes, context/quota, board
+crew status                     # roles, models, panes, stuck/error notes, context/quota, active lock holders, board
 crew remove rev                 # drop a role: blocks its open tasks, closes its spawned pane
 crew remove rev --keep-pane     # same, but unlabel the pane and leave it open
 crew watch --every 120 --quiet-after 10m   # foreground state-change notices
@@ -78,6 +78,8 @@ crew at 03:00 lead "start checks" # next local 03:00
 crew every 30m lead "review the board"
 crew timers                     # ids, schedules and process state
 crew timers cancel timer-...
+crew lock -- ./gradlew build     # default build semaphore, max 1
+crew lock --name checks --max 2 -- ./run-checks
 ```
 
 - Task ids (`T1`, `T2`, …) follow the order of `add` calls, and each owner is
@@ -113,6 +115,13 @@ crew timers cancel timer-...
   checking drafts once and refusing a contended doorbell immediately. A skipped
   ring stays in the inbox without retry.
   Timer senders are labelled `timer`, not the scheduling human or agent.
+- `lock` runs a command under a crew-wide named counting semaphore. Defaults
+  are name `build`, capacity 1; every caller of the same name must use the
+  same `--max` value (the first use fixes it for that crew). Put the command
+  after `--`; arguments, streams and exit status are preserved. Waiting prints
+  one line to stderr. Dead/reused-pid reservations are recovered automatically,
+  and `status` shows wrapper/command pids. A command that survives a killed
+  wrapper keeps its capacity until it exits. Names are independent and crew-scoped.
 - Wait for doorbells instead of polling; they arrive as your next prompt.
 - "not ringing <role>: … approval prompt" means the message is in its inbox
   but the agent wasn't told. Ask the user to answer that prompt, then send a

@@ -47,6 +47,7 @@ crew — coding agents working together in tmux
   crew task add --to <role> [--dep T1] [--out out/x.md] [--msg ..] <title>   ({id} → new id; warns on review-only roles)
   crew task set <id> <queued|working|done|blocked|needs-input> [--out <file>] [--evidence <file>] [--force]
   crew task next-id                                   id the next task add will use
+  crew lock [--name build] [--max N] -- <cmd...>     crew-wide command semaphore (default max 1)
   crew board                                          task board
   crew status                                         agents + board, stuck/error notes and context/quota
   crew watch [--every 120] [--quiet-after 10m] [--ring]  foreground state-change notices (or doorbells to lead)
@@ -106,6 +107,12 @@ crew — coding agents working together in tmux
   Repeats first fire after one interval; crew down cancels all timers. Rings
   inspect drafts once and skip contended doorbells; skipped rings remain in
   the inbox without retry.
+
+  Lock slots live under the crew locks/<name>/ directory. Each name keeps
+  its first --max capacity; later callers must use the same value. Waiting
+  prints to stderr; command arguments, streams and exit status are preserved.
+  A surviving command keeps its slot if the wrapper dies. Dead/reused-pid
+  slots are recovered automatically. Status lists wrapper and command pids.
 
   Files: ~/.crew/<name>/ (panes, board.tsv, channel.log, inbox/, out/, roles/)
   Role templates: share/crew/ next to this script (protocol.md, roles/<role>.md)
@@ -198,6 +205,7 @@ log_line() { # kind from to text
 . "$CREW_SHARE/pane.sh"
 . "$CREW_SHARE/watch.sh"
 . "$CREW_SHARE/timers.sh"
+. "$CREW_SHARE/semaphore.sh"
 
 # Program name for labels: "codex --sandbox …" → codex. Claude's process is
 # named after its version (e.g. 2.1.284), so a bare version means claude.
@@ -957,6 +965,7 @@ cmd_status() {
       printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$role" "$(short_cli "$cli")" "${model:--}" "$pane" "$cmd" "${last:--}" "${note:--}" "${resources:--}"
     done < "$D/panes"
   } | column -t -s "$(printf '\t')"
+  semaphore_status
   echo; cmd_board
 }
 
@@ -1083,6 +1092,7 @@ case "$cmd" in
   override) cmd_override "$@" ;;
   restyle) cmd_restyle ;;
   task) cmd_task "$@" ;;
+  lock) cmd_lock "$@" ;;
   board) cmd_board ;;
   status) cmd_status ;;
   watch) cmd_watch "$@" ;;
