@@ -78,9 +78,66 @@ check 'cancel rejects an unrelated pid identity' "$CREW" -s timer-test timers ca
 check 'unrelated process survives timer cancellation' kill -0 "$$"
 # Restore the original owner so down can terminate that sleeping worker.
 printf '%s\t%s\n' "$timer_actual_pid" "$timer_started" > "$timer_dir/timers/$timer_foreign/owner"
+# A normal sender may own the pane ring lock for longer than lifecycle waits.
+# Timer dispatch must skip it, retaining inbox delivery without blocking cancel.
+timer_ring_lock="$timer_dir/.ring${timer_lead#%}.lock"; mkdir "$timer_ring_lock"
+timer_contended=$("$CREW" -s timer-test every 1s lead ring-contended-cancel)
+check 'contended ring retains timer inbox delivery' timer_until grep -q ring-contended-cancel "$timer_dir/inbox/lead.md"
+check 'contended ring is refused rather than waited out' timer_until grep -q 'doorbell is already ringing' "$timer_dir/channel.log"
+timer_cancel_start=$(date +%s)
+check 'contended timer can be cancelled' "$CREW" -s timer-test timers cancel "$timer_contended"
+check 'ring contention does not delay cancellation' test "$(( $(date +%s)-timer_cancel_start ))" -lt 3
+rmdir "$timer_ring_lock"
+timer_cancel_count=$(grep -cF ring-contended-cancel "$timer_dir/inbox/lead.md")
+sleep 1.2
+check 'cancelled contended timer never delivers later' test "$(grep -cF ring-contended-cancel "$timer_dir/inbox/lead.md")" = "$timer_cancel_count"
+check 'contended cancellation never rings after lock release' bash -c '! tmux capture-pane -p -J -t "$1" | grep -q ring-contended-cancel' _ "$timer_lead"
+mkdir "$timer_ring_lock"
+timer_contended_down=$("$CREW" -s timer-test every 1s lead ring-contended-down)
+check 'shutdown fixture reaches the contended ring' timer_until grep -q ring-contended-down "$timer_dir/inbox/lead.md"
 timer_shutdown=$("$CREW" -s timer-test every 30m worker after-shutdown)
-"$CREW" -s timer-test down >/dev/null 2>&1
+timer_down_start=$(date +%s)
+check 'down succeeds with a contended timer ring' "$CREW" -s timer-test down
+check 'ring contention does not delay shutdown' test "$(( $(date +%s)-timer_down_start ))" -lt 3
+check 'contended shutdown timer terminates' timer_until timer_gone "$timer_contended_down"
+rmdir "$timer_ring_lock"
 check 'down marks recurring timers cancelled' timer_marked "$timer_shutdown" cancelled
 check 'down terminates the timer worker' timer_until timer_gone "$timer_shutdown"
 check 'ended crews reject new timers' bash -c '! "$1" -s timer-test at +1s worker after-end' _ "$CREW"
 check 'shutdown timer never delivers' bash -c '! grep -q after-shutdown "$1"' _ "$timer_dir/inbox/worker.md"
+
+# Interrupt the real launcher after nohup, before owner/ready publication.
+"$CREW" up timer-start-test --in "$TS" lead=cat >/dev/null 2>&1
+timer_start_root="$CREW_HOME/timer-start-test"
+timer_ps_dir="$CREW_HOME/timer-ps"; mkdir "$timer_ps_dir"
+cat > "$timer_ps_dir/ps" <<'SH'
+#!/bin/sh
+if [ -n "${TIMER_START_PROBE:-}" ] && [ "$1" = -p ] && [ "$3" = -o ] && [ "$4" = lstart= ]; then
+  printf '%s\n' "$2" > "$TIMER_START_PROBE"
+  sleep 2
+fi
+exec /bin/ps "$@"
+SH
+chmod +x "$timer_ps_dir/ps"
+timer_dead_pid() { ! kill -0 "$1" 2>/dev/null; }
+for timer_signal in TERM KILL; do
+  timer_probe="$CREW_HOME/timer-probe-$timer_signal"
+  TIMER_START_PROBE="$timer_probe" PATH="$timer_ps_dir:$PATH" "$CREW" -s timer-start-test at +1s lead interrupted-publication > "$CREW_HOME/timer-start-$timer_signal" 2>&1 & timer_launcher=$!
+  check "startup $timer_signal fixture pauses before ready" timer_until test -s "$timer_probe"
+  timer_unready_pid=$(cat "$timer_probe")
+  timer_start_record=""
+  for timer_record in "$timer_start_root"/timers/*; do
+    [ -f "$timer_record/ready" ] || [ -f "$timer_record/cancelled" ] || timer_start_record="$timer_record"
+  done
+  check "startup $timer_signal has no ready marker" test ! -f "$timer_start_record/ready"
+  kill -"$timer_signal" "$timer_launcher"
+  wait "$timer_launcher" 2>/dev/null || true
+  check "startup $timer_signal leaves no polling worker" timer_until timer_dead_pid "$timer_unready_pid"
+  check "startup $timer_signal records cancellation" test -f "$timer_start_record/cancelled"
+  if [ "$timer_signal" = KILL ]; then
+    # SIGKILL cannot run launcher traps; remove only this scratch stale lock.
+    rmdir "$timer_start_root/.timers.lock" 2>/dev/null || true
+  else check 'interrupted launcher releases timer lock' test ! -d "$timer_start_root/.timers.lock"; fi
+done
+check 'interrupted startup never delivers' bash -c '[ ! -f "$1" ] || ! grep -q interrupted-publication "$1"' _ "$timer_start_root/inbox/lead.md"
+"$CREW" -s timer-start-test down >/dev/null 2>&1

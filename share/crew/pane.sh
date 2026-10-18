@@ -171,7 +171,11 @@ ring() { # [--now] pane text — hold for a draft, then type one line into the p
     if [ -n "$why" ]; then printf '%s' "$why"; return 1; fi
   fi
   l="$D/.ring${pane#%}.lock"
-  take_lock "$l" 100 || true
+  # Timers skip contention instead of waiting beyond lifecycle lock budgets.
+  # This mode refuses a busy doorbell; it never bypasses a lock or a hold.
+  if [ "${RING_TRY_LOCK:-0}" = 1 ]; then
+    if ! mkdir "$l" 2>/dev/null; then printf 'pane %s doorbell is already ringing' "$pane"; return 1; fi
+  else take_lock "$l" 100 || true; fi
   if tmux send-keys -t "$pane" -l -- "$text" && sleep 0.3 && tmux send-keys -t "$pane" Enter; then rc=0
   else rc=1; printf 'could not reach pane %s' "$pane"; fi
   rmdir "$l" 2>/dev/null || true

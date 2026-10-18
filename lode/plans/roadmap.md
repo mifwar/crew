@@ -8,8 +8,8 @@ crew, UTF-8-safe status truncation, liveness/project listing and opt-in stale
 cleanup and guarded identity fallback for missing/foreign tool-shell panes
 and heuristic stuck/error status with a foreground watcher
 (see [watch.md](../cli/watch.md)) and detached timed doorbells (`at`/`every`,
-with cancellation; see [timers.md](../cli/timers.md)) are all in place. Roles
-link to the live roster; pane-spec resolution is
+with bounded dispatch and cancellation; see [timers.md](../cli/timers.md)) are
+all in place. Roles link to the live roster; pane-spec resolution is
 shared, and listing/cleanup lives in a sourced module (see [../lode-map.md](../lode-map.md)).
 What remains are open questions and candidate improvements. When one ships,
 describe it in the matching lode file and delete it here.

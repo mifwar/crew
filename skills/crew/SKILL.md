@@ -105,7 +105,8 @@ crew timers cancel timer-...
   next local occurrence. Repeats first fire after one interval and do not
   replay missed intervals. `timers cancel <id>` stops a timer; `down` cancels
   the crew's timers. Messages use the normal inbox and guarded doorbell,
-  checking drafts once. A skipped ring stays in the inbox without retry.
+  checking drafts once and refusing a contended doorbell immediately. A skipped
+  ring stays in the inbox without retry.
   Timer senders are labelled `timer`, not the scheduling human or agent.
 - Wait for doorbells instead of polling; they arrive as your next prompt.
 - "not ringing <role>: … approval prompt" means the message is in its inbox

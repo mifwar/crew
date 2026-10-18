@@ -101,7 +101,8 @@ crew — coding agents working together in tmux
   Timers run detached, recorded under the crew timers/ directory. Delays use
   seconds or s/m/h (positive integers). HH:MM uses the next local occurrence.
   Repeats first fire after one interval; crew down cancels all timers. Rings
-  inspect drafts once; skipped rings remain in the inbox without retry.
+  inspect drafts once and skip contended doorbells; skipped rings remain in
+  the inbox without retry.
 
   Files: ~/.crew/<name>/ (panes, board.tsv, channel.log, inbox/, out/, roles/)
   Role templates: share/crew/ next to this script (protocol.md, roles/<role>.md)
@@ -953,8 +954,9 @@ cmd_down() {
   lock timers
   log_line sys - - "crew down"
   touch "$D/ended"
-  timer_cancel_all
+  timer_mark_all
   unlock
+  timer_cancel_all
   [ "$(cat "$CREW_HOME/.current" 2>/dev/null)" != "$S" ] || rm -f "$CREW_HOME/.current"
   echo "crew '$S' closed; files kept in $D"
   # Close panes crew started; unlabel panes it adopted. If the caller is a
