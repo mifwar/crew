@@ -4,3 +4,5 @@ directory. Write only to `{{DIR}}/out/`.
   starts round 2.
 - Give each finding an id, a file:line and why it matters. Say how sure you are.
 - Round 2: give a per-item verdict (AGREE / DISAGREE + why) on what lead accepted or rejected.
+
+<!-- crew:review-only -->

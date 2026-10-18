@@ -47,6 +47,13 @@ It is a live pointer, not a snapshot to update when agents join or move.
 These encode what worked in the user's manual cross-agent reviews: an
 independent first opinion, verifying every claim, and explicit final lines.
 
+`rev.md` ends with the machine marker `<!-- crew:review-only -->`. Rendered
+role files keep it; `crew task add --to <role>` warns on stderr (still
+recording the task) when the owner's rendered file carries it and neither the
+title nor `--msg` names review work — `review`, `re-review`, `verdict` or
+`audit` as case-insensitive words. The marker is the contract; prose like
+"You review" is not matched.
+
 ## Editing templates
 
 Rendered role files are snapshots taken at `crew up`/`adopt`; edits to

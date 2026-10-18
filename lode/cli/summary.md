@@ -16,6 +16,7 @@ after a command prints the full usage (exit 0); unknown commands exit 1.
 | `adopt <name> role=<pane> …` | label existing panes, send intros | [lifecycle.md](lifecycle.md) |
 | `add role=<cli spec\|%pane> …` | spawn or adopt new roles in a running crew | [lifecycle.md](lifecycle.md) |
 | `override <role> <replacement-role\|pane>` | hand ongoing work to another agent | [lifecycle.md](lifecycle.md) |
+| `remove <role> [--keep-pane]` | drop a role: block its open tasks, close/unlabel its pane (lead/you only) | [lifecycle.md](lifecycle.md) |
 | `rebind <role> [pane] [--intro]` | move a role to another pane (default: caller's) | [lifecycle.md](lifecycle.md) |
 | `send <role[,role…]\|@all\|you> <msg>` | log + inbox + doorbell (unrung doorbells are logged) | [messaging.md](messaging.md) |
 | `say <role[,role…]\|@all> <msg>` | `send`, but refuses unless the caller is the human | [messaging.md](messaging.md) |

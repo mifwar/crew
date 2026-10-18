@@ -40,10 +40,11 @@ crew — coding agents working together in tmux
   crew add role=<cli spec|%pane> ...                 add agents to a running crew (spawn or adopt)
   crew rebind <role> [pane]                           point a role at another pane (default: this one)
   crew override <role> <replacement-role|pane>       hand a role's ongoing work to another crew agent
+  crew remove <role> [--keep-pane]                    drop a role: block open tasks, close/unlabel its pane
   crew send <role[,role…]|@all|you> <message>         message agents (@all: lead/you only)
   crew say <role[,role…]|@all> <message>              same, but only for the human at a terminal
   crew note <text>                                    add a note to the timeline
-  crew task add --to <role> [--dep T1] [--out out/x.md] [--msg ..] <title>   ({id} → new id)
+  crew task add --to <role> [--dep T1] [--out out/x.md] [--msg ..] <title>   ({id} → new id; warns on review-only roles)
   crew task set <id> <queued|working|done|blocked|needs-input> [--out <file>] [--evidence <file>] [--force]
   crew task next-id                                   id the next task add will use
   crew board                                          task board
@@ -244,6 +245,12 @@ label_pane() { # pane role cli
   tmux set-option -p -t "$1" @crew_role "$2"
   tmux set-option -p -t "$1" @crew_cli "$(short_cli "$3")"
   tmux set-option -p -t "$1" @crew_status ""
+}
+unlabel_pane() { # pane — detach it from the crew without closing it
+  local opt
+  for opt in @crew_session @crew_role @crew_cli @crew_status @crew_model; do
+    tmux set-option -p -u -t "$1" "$opt" 2>/dev/null || true
+  done
 }
 
 style_window() { # window
@@ -629,6 +636,15 @@ cmd_task() {
       done
       [ -n "$to" ] && [ -n "$title" ] || die 'usage: crew task add --to <role> [--dep T1] [--msg ..] <title>'
       [ -n "$(pane_of "$to")" ] || die "no agent '$to'"
+      # A rendered role file can carry the explicit review-only marker. A task
+      # whose title or --msg names review work is what that role is for; warn
+      # only on the rest, so the guard doesn't become noise that gets tuned out.
+      if grep -q 'crew:review-only' "$D/roles/$to.md" 2>/dev/null; then
+        case " $(printf '%s %s' "$title" "$msg" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' ' ') " in
+          *" review "*|*" verdict "*|*" audit "*) ;;
+          *) echo "crew: $to is marked review-only; the task was added anyway" >&2 ;;
+        esac
+      fi
       lock board
       local id="T$(( $(wc -l < "$D/board.tsv") + 1 ))"
       # {id} lets a brief name its own result file before the id exists.
@@ -760,11 +776,7 @@ cmd_override() {
     awk -F'\t' -v OFS='\t' -v r="$role" -v p="$new" -v c="$cli" \
       '$1==r{$2=p; $3=c; $4="adopted"} {print}' "$D/panes" > "$D/panes.tmp"
     mv "$D/panes.tmp" "$D/panes"
-    if owns_pane "$old" "$role"; then
-      for got in @crew_session @crew_role @crew_cli @crew_status @crew_model; do
-        tmux set-option -p -u -t "$old" "$got" 2>/dev/null || true
-      done
-    fi
+    if owns_pane "$old" "$role"; then unlabel_pane "$old"; fi
   fi
   while IFS="$(printf '\t')" read -r r p cli origin; do
     case "$r" in "$role"|"$replacement") label_pane "$p" "$r" "$cli" ;; esac
@@ -807,9 +819,7 @@ cmd_rebind() {
   got=$(tmux display-message -p -t "$new" '#{@crew_session}/#{@crew_role}')
   [ "$got" = "/" ] || die "$new is labelled as ${got#*/} in crew ${got%%/*}; close that crew first"
 
-  if owns_pane "$old" "$role"; then
-    for opt in @crew_session @crew_role @crew_cli @crew_status @crew_model; do tmux set-option -p -u -t "$old" "$opt" 2>/dev/null || true; done
-  fi
+  if owns_pane "$old" "$role"; then unlabel_pane "$old"; fi
   cli=$(pane_cli "$new")
   awk -F'\t' -v OFS='\t' -v r="$role" -v p="$new" -v c="$cli" '$1==r{$2=p; $3=c; $4="adopted"} {print}' "$D/panes" > "$D/panes.tmp"
   mv "$D/panes.tmp" "$D/panes"
@@ -823,6 +833,50 @@ cmd_rebind() {
   elif [ "$new" = "${TMUX_PANE:-}" ]; then
     echo "You are agent '$role' in crew '$S'. Read $D/roles/$role.md if you haven't."
   fi
+}
+
+cmd_remove() {
+  resolve_session; resolve_me
+  local role="" keep=0 pane origin how open_ids kill_later=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --keep-pane) keep=1; shift ;;
+      -*) die "bad option: $1" ;;
+      *) [ -z "$role" ] || die "unexpected argument: $1"; role="$1"; shift ;;
+    esac
+  done
+  [ -n "$role" ] || die 'usage: crew remove <role> [--keep-pane]'
+  [ "$role" != lead ] || die 'cannot remove lead (override it instead)'
+  [ "$ME" = you ] || [ "$ME" = lead ] || die 'only lead or you can remove a role'
+  [ ! -f "$D/ended" ] || die "crew '$S' has ended"
+  lock panes board
+  resolve_me
+  [ "$ME" = you ] || [ "$ME" = lead ] || die 'only lead or you can remove a role'
+  pane=$(pane_of "$role"); [ -n "$pane" ] || die "no agent '$role' in crew $S"
+  origin=$(awk -F'\t' -v r="$role" '$1==r{print $4; exit}' "$D/panes")
+  how="pane $pane already gone"
+  if owns_pane "$pane" "$role"; then
+    if [ "${origin:-spawned}" = spawned ] && [ "$keep" = 0 ]; then
+      kill_later=1; how="pane $pane closed"
+    else
+      unlabel_pane "$pane"; how="pane $pane kept, unlabelled"
+    fi
+  elif pane_id "$pane" >/dev/null; then
+    how="pane $pane reused; left alone"
+    echo "crew: leaving $pane open: it no longer carries $role's labels" >&2
+  fi
+  # Nobody can finish its queued/working tasks any more: block them and name
+  # them in the log line, so the board stays explainable. Both new files are
+  # prepared before either is published, then moved back to back.
+  open_ids=$(awk -F'\t' -v r="$role" '$2==r && ($3=="queued" || $3=="working"){print $1}' "$D/board.tsv" | tr '\n' ' ')
+  awk -F'\t' -v OFS='\t' -v r="$role" '$2==r && ($3=="queued" || $3=="working"){$3="blocked"} {print}' "$D/board.tsv" > "$D/board.tsv.tmp"
+  awk -F'\t' -v r="$role" '$1!=r' "$D/panes" > "$D/panes.tmp"
+  mv "$D/panes.tmp" "$D/panes"
+  mv "$D/board.tsv.tmp" "$D/board.tsv"
+  unlock
+  log_line sys "$ME" "$role" "$ME removed $role ($how); tasks blocked: ${open_ids:-none}; inbox and out/ kept"
+  [ -z "$kill_later" ] || tmux kill-pane -t "$pane" 2>/dev/null || true
+  echo "$role removed from $S ($how${open_ids:+; blocked: $open_ids})"
 }
 
 cmd_restyle() {
@@ -864,7 +918,10 @@ cmd_status() {
   printf 'crew %s  (%s)  %s\n\n' "$S" "$(meta mode)$([ -f "$D/ended" ] && echo ', ended')" "$D"
   { printf 'ROLE\tCLI\tMODEL\tPANE\tRUNNING\tLAST MESSAGE\tNOTE\tCONTEXT / QUOTA\n'
     while IFS="$(printf '\t')" read -r role pane cli origin; do
-      if ! cmd=$(tmux display-message -p -t "$pane" '#{pane_current_command}' 2>/dev/null); then cmd="(gone)"
+      # A dead pane id: display-message exits 0 with empty output (tmux 3.5),
+      # so emptiness, not the exit code, is what makes a role "gone".
+      cmd=$(tmux display-message -p -t "$pane" '#{pane_current_command}' 2>/dev/null || true)
+      if [ -z "$cmd" ]; then cmd="gone"
       elif ! owns_pane "$pane" "$role"; then cmd="STALE (pane reused)"
       else cmd=$(short_cli "$cmd"); fi
       last=$(awk -F'\t' -v r="$role" '$3==r && $2!="sys"{l=substr($1,12,5) " → " $4 ": " $5} END{print l}' "$D/channel.log")
@@ -967,7 +1024,7 @@ cmd_down() {
       if [ "$pane" = "${TMUX_PANE:-}" ]; then last="$pane"; else tmux kill-pane -t "$pane" 2>/dev/null || true; fi
       continue
     fi
-    for opt in @crew_session @crew_role @crew_cli @crew_status @crew_model; do tmux set-option -p -u -t "$pane" "$opt" 2>/dev/null || true; done
+    unlabel_pane "$pane"
     win=$(tmux display-message -p -t "$pane" '#{window_id}' 2>/dev/null) || continue
     tmux set-option -w -u -t "$win" pane-border-status 2>/dev/null || true
     tmux set-option -w -u -t "$win" pane-border-format 2>/dev/null || true
@@ -1005,6 +1062,7 @@ case "$cmd" in
   say) cmd_say "$@" ;;
   note) cmd_note "$@" ;;
   rebind) cmd_rebind "$@" ;;
+  remove) cmd_remove "$@" ;;
   override) cmd_override "$@" ;;
   restyle) cmd_restyle ;;
   task) cmd_task "$@" ;;
