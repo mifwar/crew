@@ -15,6 +15,7 @@ flowchart TD
   d --> out["out/  result files"]
   d --> roles["roles/role.md  rendered instructions"]
   d --> timers["timers/id/ config, owner, next/claimed, message, dispatch lock"]
+  d --> slots["locks/name/ max, slot.pid.random/owner + held"]
   d --> ended["ended  (exists after crew down)"]
   d --> lock[".board.lock/ .panes.lock/  (dirs, held during rewrites)"]
   d --> rlock[".ring<pane>.lock/  (dir, held while typing a doorbell)"]
@@ -84,6 +85,17 @@ publication, schedule claims and shutdown markers. Each timer's
 `.dispatch.lock` serializes pane dispatch with cancellation; pane I/O never
 holds the crew-wide lock. See
 [../cli/timers.md](../cli/timers.md).
+
+## Command semaphore slots
+
+`locks/<name>/max` records the capacity fixed on first use. Each temporary
+`slot.<pid>.<random>/` directory reserves one slot before admission;
+`owner` stores `pid⇥process-start-time⇥role⇥command`, and `held` marks a
+running command. Empty/unpublished slots still identify their owner through
+the directory name. Dead/reused-pid reservations are removed during
+acquisition; completed/interrupted commands remove their own slot. This
+state is separate from the board/pane rewrite locks. See
+[../cli/semaphore.md](../cli/semaphore.md).
 
 ## Lifecycle
 
