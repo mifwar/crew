@@ -60,17 +60,21 @@ pane-id lookup.
 crew -s voucher add "rev2=pi" impl2=%12
 ```
 
-- Requires a running crew; holds `.panes.lock` through validation, pane
-  creation, labels, role-file updates and command launch. Validate all roles
-  and adopted panes before changing anything: no duplicates, missing panes,
-  panes already bound here, or panes labelled by another crew.
+- Requires a running crew. Holds `.panes.lock` for initial validation, releases
+  it while spawned CLIs start, then re-locks and checks the roster before any
+  binding changes. If the crew changed, newly spawned panes are closed.
+  Validate all roles and adopted panes: no duplicates, missing panes, panes
+  already bound here, or panes labelled by another crew.
 - CLI specs split the recorded `meta window` (including `--here`). The window
   must contain an owned crew pane; if agents moved, use the first owned pane's
   window instead. With no owned pane, rebind or adopt a pane before spawning.
   Use `meta cwd` and propagate `CREW_HOME`, `CREW_SESSION`, `CREW_AGENT`.
-- Type each CLI spec verbatim after `owns_pane`; never add flags. Record it
-  as `spawned`. `%pane` adopts an unlabelled existing pane, keeps its window,
-  detects its CLI, and records it as `adopted`.
+- Spawn each CLI spec through the shared pane helper, which sets the crew
+  environment and working directory, types the command verbatim, waits for a
+  stable screen, and checks `detect_cli`. A failed command closes its pane and
+  leaves the roster unchanged. Record a successful start as `spawned`.
+  `%pane` adopts an unlabelled existing pane, keeps its window, detects its
+  CLI, and records it as `adopted`.
 - `resolve_pane_specs` is shared with `adopt`: resolve pane refs, refuse the
   same pane twice, and normalize each spec into `role|pane|origin|cli`.
   Spawning specs start with an empty pane; creation fills it. CLI is last,
@@ -83,9 +87,8 @@ crew -s voucher add "rev2=pi" impl2=%12
 - Render only new role files with `write_role_file`. Existing files stay
   untouched. All role files point to the live `panes` file and `crew status`
   rather than embedding a roster snapshot.
-- Log a `sys` line, release the lock, then wait for spawned agents in parallel
-  and send intros using the same readiness/dialog checks as `up`. Adoption
-  sends an intro without waiting. An intro to the caller prints on stdout.
+- Log a `sys` line, release the lock, and send intros using the same
+  dialog checks as `up`. An intro to the caller prints on stdout.
 - `owns_pane` is checked again before intros. Failed commands get no intro;
   startup dialogs get no input and print a manual follow-up command.
   Existing agents are not restarted or rung. `down` follows each addition's
@@ -139,23 +142,31 @@ crew rebind rev %201        # from anywhere
 ```sh
 crew -s voucher override lead impl   # promote the running implementation agent
 crew -s voucher override lead %12    # take over from an agent in a new pane
+crew -s voucher override lead=pi     # spawn and verify a fresh successor
 ```
 
 Manual mid-work recovery when a role hits a usage limit. Only `you` or the
 current `lead` may invoke it; sender identity remains advisory. Both existing
 crew panes must pass `owns_pane`; a new pane must be unlabelled. Validation
-runs under `.panes.lock` and `.board.lock`, before changing bindings. Caller
-identity is checked again after acquiring the locks; `task set` also refreshes
-identity under its board lock. The shared lock helper cleans up all locks
-acquired by a command, including on validation failure. Both TSV rewrites
-are prepared before publishing; updates are not crash-atomic across files.
+runs under `.panes.lock` and `.board.lock`, before changing bindings. For
+`<role>=<cli spec>`, a bare value is a CLI command; only `%pane` adopts a pane
+in that form. The shared spawn helper launches and verifies the CLI without a
+roster lock. It closes a failed pane; after relocking, a changed roster also
+closes the new pane and leaves the old binding in place. Caller identity is
+checked again after acquiring the locks; the shared lock helper cleans up all
+locks acquired by a command, including on validation failure. `task set` also
+refreshes identity under its board lock. Both TSV
+rewrites are prepared before publishing; updates are not crash-atomic across
+files.
 
 - An existing replacement swaps occupants with the overridden role. CLI and
   spawned/adopted origin follow the pane. Its unfinished board rows move to
   the overridden role; existing tasks for that role remain there. Completed
   rows, result paths, dependencies and evidence stay unchanged.
-- A new pane replaces the binding with `origin=adopted`; the previous pane is
-  unlabelled and kept open, as with `rebind`. Board ownership is unchanged.
+- A new pane replaces the binding with `origin=adopted`; a CLI started by
+  `role=spec` uses `origin=spawned`. In both cases the previous pane is
+  unlabelled and kept open. A spawned successor receives its standard intro,
+  then the takeover notice. Board ownership is unchanged.
 - Save the old pane's visible output and up to 200 scrollback lines to
   `out/override-<role>-<timestamp>-<pid>.md`, with recovery instructions.
   Private conversation history is unavailable: the successor must read the
