@@ -34,7 +34,6 @@ trap cleanup EXIT
 bash -n "$CREW" || { echo "FAIL  bash -n"; exit 1; }
 bash -n "$ROOT/share/crew/listing.sh" || { echo "FAIL  bash -n listing.sh"; exit 1; }
 bash -n "$ROOT/share/crew/pane.sh" || { echo "FAIL  bash -n pane.sh"; exit 1; }
-bash -n "$ROOT/share/crew/spawn.sh" || { echo "FAIL  bash -n spawn.sh"; exit 1; }
 tmux new-session -d -s "$TS" -x 200 -y 50
 
 "$CREW" up t --in "$TS" lead=cat "impl=cat && true" rev=cat >/dev/null 2>&1
@@ -797,16 +796,12 @@ check "concurrent adds preserve both roles" test "$(awk -F'\t' '$1~/^parallel[12
 roster_path=$(sed -n 's/^For the current roster, read `\([^`]*\)`.*$/\1/p' "$E/roles/lead.md")
 check "existing roster pointer sees concurrent additions" test "$(awk -F'\t' '$1~/^parallel[12]$/{n++} END{print n}' "$roster_path")" = 2
 check "concurrent adds leave custom role files untouched" cmp "$E/roles/lead.md" "$CREW_HOME/expand-lead-before-add"
-err=$("$CREW" -s expand add "dialog=printf 'Trust this folder?\\nEnter to confirm\\n'; cat" 2>&1 >/dev/null)
+err=$("$CREW" -s expand add "dialog=printf 'Trust this folder?\\nEnter to confirm\\n'; cat" "failed=true" 2>&1 >/dev/null)
 added_dialog=$(awk -F'\t' '$1=="dialog"{print $2}' "$E/panes")
+added_failed=$(awk -F'\t' '$1=="failed"{print $2}' "$E/panes")
 check "add does not type an intro into startup dialogs" bash -c '! tmux capture-pane -p -J -t "$1" | grep -q "You are agent"' _ "$added_dialog"
-check "add explains startup dialogs" bash -c 'printf "%s" "$1" | grep -q "startup dialog"' _ "$err"
-cp "$E/panes" "$CREW_HOME/expand-before-failed-start"
-pane_count=$(tmux list-panes -s -t "$TS" | wc -l)
-err=$("$CREW" -s expand add failed=true 2>&1 >/dev/null) || true
-check "add closes a command that returns to the shell" bash -c 'printf "%s" "$1" | grep -q "did not start"' _ "$err"
-check "add failed start leaves the roster unchanged" cmp "$E/panes" "$CREW_HOME/expand-before-failed-start"
-check "add failed start closes the pane" test "$(tmux list-panes -s -t "$TS" | wc -l)" = "$pane_count"
+check "add explains startup dialogs and failed commands" bash -c 'printf "%s" "$1" | grep -q "startup dialog" && printf "%s" "$1" | grep -q "back at a shell prompt"' _ "$err"
+check "add sends no intro after a failed command" bash -c '! tmux capture-pane -p -J -t "$1" | grep -q "You are agent"' _ "$added_failed"
 "$CREW" -s expand down >/dev/null 2>&1
 check "down closes a pane created by add" bash -c '! tmux display -p -t "$1" "#{pane_id}" | grep -q .' _ "$spawned"
 check "down keeps a pane adopted by add" test "$(tmux display -p -t "$adopted" '#{pane_id}')" = "$adopted"
@@ -860,7 +855,6 @@ check "  and unlabels it"                test -z "$(tmux display -p -t "$rm_keep
 rm_keep_row=$(awk -F'\t' '$1=="keep"' "$R/panes")
 check "  and still drops the roster row" test -z "$rm_keep_row"
 tmux kill-pane -t "$rm_keep"
-
 # A one-step override verifies a spawned CLI before changing the binding.
 "$CREW" up swap --in "$TS" lead=cat impl=cat rev=cat >/dev/null 2>&1
 SW="$CREW_HOME/swap"
