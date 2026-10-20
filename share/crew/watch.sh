@@ -8,6 +8,9 @@ error	^request timed out([[:space:]:.!]|$)	Request timed out
 error	^context.*(exhausted|too long|limit([[:space:]]+(reached|exceeded)|$)|length[[:space:]]+exceeded)	context exhausted/limit
 error	^rate[ -]+limit([[:space:]]+(exceeded|reached|hit)|$)	rate limit
 error	^quota[[:space:]]+(exhausted|exceeded|reached|depleted)|^(you have )?(exhausted|exceeded|reached).*quota|^insufficient[_ ]quota	quota
+error	^(you'?ve|you’ve|you have) (hit|reached) your .*limit	provider limit
+error	^usage limit (exceeded|reached|hit)	provider limit
+error	^[0-9]+[[:space:]]+rate[ -]+limit	rate limit
 busy	(esc|ctrl-c|ctrl[+]c)[[:space:]]+to[[:space:]]+(interrupt|stop)[[:space:])]*$
 busy	^[[:space:]]*─.*(working|thinking).*─[[:space:]]*$
 idle	^[[:space:]]*(›|❯|>)([[:space:]]|$)
@@ -41,7 +44,7 @@ pane_observation() { # cli; capture on stdin -> state|resources|reason
         # Match error UI forms from their start, allowing common UI gutters.
         if (kind[i]=="error") {
           sub(/^[[:space:]]*/, "", s)
-          while (sub(/^│|^›|^❯|^•|^●|^!|^⚠|^️|^✗/, "", s)) sub(/^[[:space:]]*/, "", s)
+          while (sub(/^│|^›|^❯|^•|^●|^■|^!|^⚠|^️|^✗/, "", s)) sub(/^[[:space:]]*/, "", s)
           sub(/^error:[[:space:]]*/, "", s)
         }
         if (s !~ re[i]) continue
@@ -64,6 +67,21 @@ role_tasks() { # role [active]; open includes blocked/needs-input
   awk -F'\t' -v r="$1" -v active="${2:-}" '
     $2==r && $3!="done" && (active=="" || $3=="working" || $3=="queued") {n++}
     END {print n+0}' "$D/board.tsv"
+}
+
+# Keep the recovery instruction copy-ready when the lead's pane is unavailable.
+lead_recovery_hint() {
+  local r next=""
+  for r in $(roles); do
+    [ "$r" = lead ] && continue
+    [ -n "$next" ] || next="$r"
+    [ "$(role_tasks "$r")" -eq 0 ] && { next="$r"; break; }
+  done
+  if [ -n "$next" ]; then
+    printf 'if lead is dead: crew -s %s override lead %s (or lead=<cli> to spawn one)' "$S" "$next"
+  else
+    printf 'if lead is dead: crew -s %s override lead=<cli>' "$S"
+  fi
 }
 
 # One observation for `crew status` and `crew watch`: the caller's capture
@@ -131,8 +149,15 @@ watch_scan() { # private cache quiet-seconds ring?; one observation per owned pa
     elif [ "$health" = idle ] && [ "$open" -eq 0 ]; then event="idle with no open task"; fi
     if [ -z "$event" ]; then sent=-
     elif [ "$event" != "$sent" ] && { [ "$health" = error ] || [ -n "$draft" ] || [ $((current_time-changed)) -ge "$quiet" ]; }; then
-      watch_event "$ring_events" "$role $event"
       sent=$event
+      # A lead event should include the exact recovery command, not require
+      # someone to find it while the lead is unavailable. Keep it out of the
+      # cache key so roster edits do not re-announce an unchanged event.
+      if [ "$role" = lead ]; then
+        watch_event "$ring_events" "$role $event — $(lead_recovery_hint)"
+      else
+        watch_event "$ring_events" "$role $event"
+      fi
     fi
     printf '%s|%s|%s\n' "$fingerprint" "$changed" "$sent" > "$cache/$role"
   done < "$D/panes"

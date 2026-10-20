@@ -55,6 +55,7 @@ check "status survives a mid-UTF-8 byte boundary" bash -c '"$1" -s t status > "$
 check "status retains every agent row" test "$(awk '$1=="lead" || $1=="impl" || $1=="rev"{n++} END{print n}' "$status_file")" = 3
 check "status output is valid UTF-8" iconv -f UTF-8 -t UTF-8 "$status_file"
 check "status truncates by characters" grep -qF "${utf8_message:0:55}" "$status_file"
+check "healthy lead has no recovery hint" bash -c '"$1" -s t status > "$2" && ! grep -q "if lead is dead" "$2"' _ "$CREW" "$CREW_HOME/status-healthy-lead"
 
 as impl send lead "T1 done" >/dev/null; sleep 0.5
 check "dm rings recipient pane"         screen_has "$lead" "[crew] impl → lead: T1 done"

@@ -3,9 +3,10 @@
 `share/crew/watch.sh`, sourced by `bin/crew`, keeps one rendered-text pattern
 table (`pane_patterns`) for `crew status` and `crew watch`. `pane_observation`
 reads a capture and returns `state|resources|reason`. Error patterns cover
-retry/connection failures, timeouts, context exhaustion/limits, rate limits
-and quota exhaustion. Errors match UI forms from the start of a row after
-common UI gutters / `Error:` prefixes; crew doorbell echoes are excluded.
+retry/connection failures, timeouts, context exhaustion/limits, provider limits,
+429 rate limits, and quota exhaustion. Errors match UI forms from the start
+of a row after common UI gutters / `Error:` prefixes; crew doorbell echoes
+are excluded.
 Healthy quota descriptions and completed prose beginning with Working or
 Thinking do not change an idle observation. Busy requires a stop/interrupt
 affordance or a pi activity border. The last 30 nonblank rows supply errors;
@@ -28,8 +29,11 @@ dispatcher — no second capture and no `detect_cli` per pane — and keeps
 `pane_hold`'s precedence: a captured dialog or a pane in copy/choose mode is
 never read as a draft. Claude captures retain SGR so its standalone dim ghost
 span can be removed; observation and dialog matching strip it before checking
-their UI rows. `watch` emits one
-timestamped stdout line per new event, or uses the lead
+their UI rows. If the lead is errored, idle with active work, or its pane is
+gone/reused, `status` prints a copy-ready recovery hint from the same row
+observation. `watch` appends that hint to each lead event. The hint prefers a
+crew role with no open tasks and falls back to the `lead=<cli>` spawn form.
+`watch` emits one timestamped stdout line per new event, or uses the lead
 inbox and existing guarded doorbell with `--ring`:
 
 - errored with an open task (next scan, no quiet wait);
@@ -53,8 +57,11 @@ flowchart LR
   table[pane_patterns] --> observe
   owned --> hold[pane_hold draft_note]
   observe --> status[status notes and resource column]
+  observe --> leadHint[lead recovery hint]
+  leadHint --> status
   hold --> status
   observe --> quiet[watch quiet timer and state cache]
+  leadHint --> quiet
   hold --> quiet
   board[board.tsv] --> quiet
   quiet --> stdout[timestamped event]

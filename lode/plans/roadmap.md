@@ -6,7 +6,8 @@ pending: rebind, whoami hint, `crew say` + sender labels, `task add --out`,
 opt-in web sending, manual mid-work role overrides, adding agents to a running
 crew, UTF-8-safe status truncation, liveness/project listing and opt-in stale
 cleanup and guarded identity fallback for missing/foreign tool-shell panes
-and heuristic stuck/error status with a foreground watcher
+and heuristic stuck/error status with a foreground watcher, provider-limit
+detection and lead recovery hints for status/watch
 (see [watch.md](../cli/watch.md)), detached timed doorbells (`at`/`every`,
 with bounded dispatch and cancellation; see [timers.md](../cli/timers.md)) and
 named command semaphores with workload lifetime tracking and holder listing
