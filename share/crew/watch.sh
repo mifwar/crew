@@ -28,7 +28,11 @@ pane_observation() { # cli; capture on stdin -> state|resources|reason
     BEGIN { n = split(ENVIRON["CREW_PANE_PATTERNS"], lines, "\n"); for (i=1; i<=n; i++) {
       split(lines[i], fields, "\t"); kind[i]=fields[1]; re[i]=fields[2]; label[i]=fields[3]
     } }
-    NF { row[++count] = tolower($0) }
+    {
+      s=$0
+      gsub(/\033\[[0-9;]*m/, "", s)
+      if (s ~ /[^[:space:]]/) row[++count] = tolower(s)
+    }
     END {
       for (j=1; j<=count; j++) for (i=1; i<=n; i++) {
         s=row[j]
@@ -108,7 +112,7 @@ watch_scan() { # private cache quiet-seconds ring?; one observation per owned pa
       rm -f "$cache/$role"
       continue
     fi
-    cap=$(tmux capture-pane -p -J -t "$pane" 2>/dev/null) || continue
+    cap=$(pane_capture "$pane" "$cli" -J 2>/dev/null) || continue
     observation=$(printf '%s\n' "$cap" | pane_observation "$(short_cli "$cli")")
     IFS='|' read -r health resources reason <<< "$observation"
     draft=$(printf '%s\n' "$cap" | draft_note "$pane" "$cli")

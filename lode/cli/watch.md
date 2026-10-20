@@ -26,7 +26,9 @@ queued/working tasks: a pane whose editor holds a draft gets
 own capture and the roster CLI through the shared `pane_editor_text`
 dispatcher — no second capture and no `detect_cli` per pane — and keeps
 `pane_hold`'s precedence: a captured dialog or a pane in copy/choose mode is
-never read as a draft. `watch` emits one
+never read as a draft. Claude captures retain SGR so its standalone dim ghost
+span can be removed; observation and dialog matching strip it before checking
+their UI rows. `watch` emits one
 timestamped stdout line per new event, or uses the lead
 inbox and existing guarded doorbell with `--ring`:
 

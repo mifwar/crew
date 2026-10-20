@@ -333,6 +333,28 @@ ptext() { # want dims row...
 check "pi text: wrapped draft rows join"  ptext "one two" "120 5 4" "$(ndashes 118)" "one" "two" "$(ndashes 118)" ""
 check "pi text: an idle box is empty"     ptext "" "120 4 2" "$(ndashes 118)" "" "$(ndashes 118)" ""
 check "claude text: after the prompt mark" test "$(printf '❯ write the answer\n' | prompt_row_text '❯' '')" = "write the answer"
+claude_suggestion_text='Try "create a util logging.py that..."'
+claude_suggestion=$(printf '\033[39m❯\302\240\033[2m%s\033[0m' "$claude_suggestion_text")
+claude_typed_try=$(printf '\033[39m❯\302\240%s\033[0m' "$claude_suggestion_text")
+claude_color_two=$(printf '\033[39m❯\302\240\033[38;5;2m%s\033[0m' "$claude_suggestion_text")
+claude_dim_color=$(printf '\033[39m❯\302\240\033[2;90m%s\033[0m' "$claude_suggestion_text")
+claude_mixed=$(printf '\033[39m❯\302\240\033[2m%s\033[0m typed text' "$claude_suggestion_text")
+claude_reset22=$(printf '\033[39m❯\302\240\033[2m%s\033[22m typed text' "$claude_suggestion_text")
+claude_generated_ghost=$(printf '\033[39m❯\302\240\033[2minclude alias memory, apply to any unmatched transfer\033[0m')
+claude_context_suggestion=$(printf '\033[39m❯\302\240\033[2myes, keep unmatched moves as pending transfers\033[0m')
+claude_text_is() { # expected text, ANSI prompt row...
+  local want="$1" got; shift
+  got=$(printf '%s\n' "$@" | pane_editor_text claude "")
+  [ "$got" = "$want" ]
+}
+check "Claude's dim suggestion is an idle editor" claude_text_is "" "$claude_suggestion"
+check "Claude's contextual yes suggestion is idle" claude_text_is "" "$claude_context_suggestion"
+check "a typed Try suggestion remains a draft" claude_text_is "$claude_suggestion_text" "$claude_typed_try"
+check "color index 2 is not mistaken for dim text" claude_text_is "$claude_suggestion_text" "$claude_color_two"
+check "combined dim/color style stays a draft" claude_text_is "$claude_suggestion_text" "$claude_dim_color"
+check "mixed dim and normal text remains a draft" claude_text_is "typed text" "$claude_mixed"
+check "SGR intensity reset 22 restores draft protection" claude_text_is "typed text" "$claude_reset22"
+check "Claude's generated ghost suggestion is idle" claude_text_is "" "$claude_generated_ghost"
 
 # G2: pi's braille Working spinner in the top border used to kill the parser
 # ("awk: towc: multibyte conversion failure", empty output read as free) and a
@@ -373,6 +395,17 @@ check "dialogs: a claude card question above a tall option list holds" dialog_sa
   "Do you want to proceed?" "❯ 1. Yes" "2. Always allow" "3. No" "   Esc to cancel"
 check "dialogs: the claude trust wording holds" dialog_says yes \
   "│ Do you trust the files in this folder?" "│ ❯ 1. Yes, I trust this folder" "│   2. No, exit"
+ansi_dialog=$(printf '\033[31mDo you want to proceed?\033[0m')
+check "dialogs: SGR styling does not hide a Claude approval" dialog_says yes "$ansi_dialog"
+check "pane hold: ANSI approval takes precedence over dim suggestions" bash -c '
+  tmux() { case "$1" in
+    capture-pane) printf "\\033[31mDo you want to proceed?\\033[0m\\n\\033[39m❯\\302\\240\\033[2myes, keep unmatched moves as pending transfers\\033[0m\\n" ;;
+    display-message) printf "0\\n" ;;
+  esac; }
+  short_cli() { printf claude; }
+  pane_cli() { printf claude; }
+  . "$1/share/crew/pane.sh"
+  case "$(pane_hold %1)" in dialog*) exit 0 ;; *) exit 1 ;; esac' _ "$ROOT"
 check "dialogs: a startup footer on the last row holds" dialog_says yes "Trust this folder?" "Enter to confirm · Esc to cancel"
 check "dialogs: a don't-ask-again option row holds" dialog_says yes \
   "❯ 2. Yes, and don't ask again for this project"
@@ -416,14 +449,33 @@ check "  the draft is still exactly one copy"      bash -c "test \$(tmux capture
 check "  the message is in the inbox"              grep -q held-cx "$D/inbox/cx.md"
 check "  and the log names the draft"               grep -q 'cx not rung: .*unsubmitted draft' "$D/channel.log"
 
-# claude: an empty editor is idle, a draft holds the doorbell, the human's
-# own Enter clears it during the hold, copy mode waits
+# claude: dim prompt suggestions are idle, typed drafts hold the doorbell,
+# the human's Enter clears a draft during the hold, and dialogs/modes hold.
+claude_suggestion_script="$CREW_HOME/claude-suggestion.sh"
+cat > "$claude_suggestion_script" <<'CLAUDE'
+#!/bin/sh
+prompt() {
+  printf '❯ \302\240\033[2mTry "create a util logging.py that..."\033[0m\n'
+}
+prompt
+while IFS= read -r line; do
+  printf 'received:%s\n' "$line"
+  prompt
+done
+CLAUDE
+"$CREW" -s t add "clg=$CREW_HOME/bin/claude $claude_suggestion_script" >/dev/null 2>&1
+clg=$(awk -F'\t' '$1=="clg"{print $2}' "$D/panes")
+check "Claude dim suggestion does not block startup intro" screen_has "$clg" "received:[crew] You are agent 'clg'"
+"$CREW" -s t status > "$CREW_HOME/status-claude-suggestion"
+check "status does not flag a dim suggestion as a draft" bash -c "! awk '\$1==\"clg\" && /draft pending/' '$CREW_HOME/status-claude-suggestion' | grep -q clg"
+as lead send clg "claude-suggestion-idle" >/dev/null 2>&1
+check "a Claude dim suggestion accepts a doorbell" screen_has "$clg" "received:[crew] lead → clg: claude-suggestion-idle"
 as lead send cl "claude-idle" >/dev/null 2>&1
 check "an empty claude editor gets its doorbell" screen_has "$cl" "[crew] lead → cl: claude-idle"
-tmux send-keys -t "$cl" -l 'my unsubmitted draft'; sleep 0.3
-check "claude draft: exits 0 and types nothing" bash -c "CREW_SESSION=t CREW_AGENT=lead CREW_RING_WAIT=1 '$CREW' send cl held-cl && ! tmux capture-pane -p -J -t $cl | grep -qF 'held-cl'"
-check "  the draft is still exactly one copy"    bash -c "test \$(tmux capture-pane -p -J -t $cl | grep -oF 'my unsubmitted draft' | wc -l) -eq 1"
-check "  its row carries no [crew] doorbell"     bash -c "! tmux capture-pane -p -J -t $cl | grep -F 'my unsubmitted draft' | grep -qF '[crew]'"
+tmux send-keys -t "$cl" -l 'Try "create a util logging.py that..."'; sleep 0.3
+check "Claude draft beginning with Try stays protected" bash -c "CREW_SESSION=t CREW_AGENT=lead CREW_RING_WAIT=1 '$CREW' send cl held-cl && ! tmux capture-pane -p -J -t $cl | grep -qF 'held-cl'"
+check "  the Try draft is still exactly one copy"      bash -c "test \$(tmux capture-pane -p -J -t $cl | grep -oF 'Try' | wc -l) -eq 1"
+check "  its row carries no [crew] doorbell"           bash -c "! tmux capture-pane -p -J -t $cl | grep -F 'Try' | grep -qF '[crew]'"
 check "  the message is in the inbox"           grep -q held-cl "$D/inbox/cl.md"
 check "  and the log names the draft"            grep -q 'cl not rung: .*unsubmitted draft' "$D/channel.log"
 check "a draft that clears during the hold rings once" bash -c "CREW_SESSION=t CREW_AGENT=lead CREW_RING_WAIT=5 '$CREW' send cl clear-cl >/dev/null 2>&1 & sleep 0.4; tmux send-keys -t $cl Enter; wait; sleep 0.5; test \$(tmux capture-pane -p -J -t $cl | grep -cF '[crew] lead → cl: clear-cl') = 1"

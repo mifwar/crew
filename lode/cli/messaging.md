@@ -106,9 +106,14 @@ flowchart LR
 
 | CLI | editor is | idle | draft |
 |---|---|---|---|
-| claude | the bottom-most `❯` row | nothing after `❯` | any other text |
+| claude | the bottom-most `❯` row | blank text or a standalone dim span | any other text |
 | codex | the bottom-most `›` row | nothing, or `Ask Codex to do anything…` (prefix match) | any other text |
 | pi | a box drawn with `─` | its two border rows are found and the rows between them are empty | any non-empty row between them |
+
+Claude captures retain SGR styling so its standalone dim ghost span can be
+removed whatever wording Claude generates. Text outside that span, including
+text after an SGR reset, remains a draft. Dialog and status observation
+matching strip SGR before checking their UI rows.
 
 A pi border is either a dashes-only row of `#{pane_width} - 3` dashes or more,
 or a row below that threshold with at least 55 % dashes and a label
