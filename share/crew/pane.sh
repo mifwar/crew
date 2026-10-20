@@ -21,7 +21,9 @@ TAB=$(printf '\t')
 dialog_capture() { # capture rows on stdin
   LC_ALL=C awk '
     {
-      s = tolower($0)
+      s = $0
+      gsub(/\033\[[0-9;]*m/, "", s)
+      s = tolower(s)
       sub(/^[[:space:]]*/, "", s)
       while (sub(/^│|^›|^❯/, "", s)) sub(/^[[:space:]]*/, "", s)
       sub(/[[:space:]]*$/, "", s)
@@ -42,6 +44,17 @@ in_dialog() { # pane
   tmux capture-pane -p -t "$1" 2>/dev/null | dialog_capture
 }
 
+# Claude Code renders its rotating prompt suggestion in dim SGR styling.
+# Keep that styling in the capture so it can be distinguished from typed text;
+# other editor parsers continue to receive the plain capture format they use.
+pane_capture() { # pane cli [capture-pane options...]
+  local pane="$1" cli="$2"; shift 2
+  case "$(short_cli "$cli")" in
+    claude) tmux capture-pane -e -p "$@" -t "$pane" ;;
+    *)      tmux capture-pane -p "$@" -t "$pane" ;;
+  esac
+}
+
 # Why crew must not type into this pane: a `class<TAB>reason` record, nothing
 # (and exit 0) when it is free. A dialog or a mode swallows keys before the
 # editor sees them, so they are checked first (claude reuses its ❯ marker
@@ -52,7 +65,8 @@ in_dialog() { # pane
 # recogniser is not evidence of an empty editor.
 pane_hold() { # pane
   local cli cap why="" dims=""
-  cap=$(tmux capture-pane -p -t "$1" 2>/dev/null) || return 0
+  cli=$(short_cli "$(pane_cli "$1")")
+  cap=$(pane_capture "$1" "$cli" 2>/dev/null) || return 0
   if printf '%s\n' "$cap" | dialog_capture; then
     printf 'dialog\tpane %s is showing a dialog or approval prompt' "$1"; return 0
   fi
@@ -60,7 +74,6 @@ pane_hold() { # pane
     0|'') ;;
     *) printf 'mode\tpane %s is in copy/choose mode' "$1"; return 0 ;;
   esac
-  cli=$(short_cli "$(pane_cli "$1")")
   case "$cli" in pi) dims=$(tmux display-message -p -t "$1" '#{pane_width} #{pane_height} #{cursor_y}' 2>/dev/null) ;; esac
   if ! why=$(printf '%s\n' "$cap" | pane_editor_text "$cli" "$dims"); then
     printf 'unreadable\tcould not read the %s editor' "$cli"; return 0
@@ -69,16 +82,29 @@ pane_hold() { # pane
 }
 
 # The one CLI→parser dispatch for the editor's pending text. Capture rows on
-# stdin; `dims` is pi's "pane_width pane_height cursor_y". Prints the text the
-# editor would submit, nothing when it is idle or the CLI's editor is one crew
-# cannot read; a nonzero rc means a known CLI's parser failed, and a crashed
-# recogniser is never evidence of a free editor (see pane_hold).
+# stdin; Claude receives ANSI styling, `dims` is pi's "pane_width pane_height
+# cursor_y". Prints the text the editor would submit, nothing when it is idle
+# or the CLI's editor is one crew cannot read; a nonzero rc means a known
+# CLI's parser failed, and a crashed recogniser is never evidence of a free
+# editor (see pane_hold).
 pane_editor_text() { # cli dims
   case "$1" in
-    claude) prompt_row_text '❯' '' ;;
+    claude) claude_prompt_text ;;
     codex)  prompt_row_text '›' 'Ask Codex to do anything' ;;
     pi)     pi_box_text "$2" ;;
   esac
+}
+
+# Claude's ghost text is a standalone SGR dim span. Remove only that exact
+# style, then use the shared prompt parser; unrecognized styles remain drafts.
+claude_prompt_text() { # ANSI capture rows on stdin
+  LC_ALL=C awk '
+    {
+      if (index($0, "❯")) gsub(/\033\[2m[^\033]*/, "")
+      gsub(/\033\[[0-9;]*m/, "")
+      gsub(/\302\240/, " ")
+      print
+    }' | prompt_row_text '❯' ''
 }
 
 # The bottom-most prompt row, minus a known placeholder: blank (or the
@@ -142,7 +168,7 @@ draft_text() { # pane
   local cli cap dims=""
   cli=$(short_cli "$(pane_cli "$1")")
   case "$cli" in
-    claude|codex) cap=$(tmux capture-pane -p -J -t "$1" 2>/dev/null) || return 0 ;;
+    claude|codex) cap=$(pane_capture "$1" "$cli" -J 2>/dev/null) || return 0 ;;
     pi)
       cap=$(tmux capture-pane -p -t "$1" 2>/dev/null) || return 0
       dims=$(tmux display-message -p -t "$1" '#{pane_width} #{pane_height} #{cursor_y}' 2>/dev/null) ;;

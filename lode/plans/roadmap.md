@@ -32,11 +32,12 @@ flowchart TD
   detached app-server daemon and inherit its stale `CREW_*`/`TMUX_PANE`
   ([../agents/codex.md](../agents/codex.md)). Candidate: detect the stale
   daemon and explain how to restart it from the right crew pane.
-- **Draft detection coverage**: the ring hold reads rendered text. Pi border-like
-  draft rows can look empty with the cursor elsewhere, and hidden editors or
-  typing after inspection can escape detection. Stronger guarantees need an
-  editor-buffer integration, not more guessed border rules; see
-  [messaging.md](../cli/messaging.md#ring-hold-never-type-into-a-draft).
+- **Draft detection coverage**: the ring hold reads rendered text. Claude Code's
+  standalone dim ghost spans are empty; other prompt text remains a draft.
+  Pi border-like draft rows can look empty with the cursor elsewhere, and
+  hidden editors or typing after inspection can escape detection. Stronger
+  guarantees need an editor-buffer integration, not more guessed border
+  rules; see [messaging.md](../cli/messaging.md#ring-hold-never-type-into-a-draft).
 - **Doorbell floods**: rings to one pane are serialized (`.ring<pane>.lock`),
   but many rings to a busy agent still become many queued prompts. Consider
   coalescing ("3 new messages, read inbox/x.md") when a ring for that pane is

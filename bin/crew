@@ -988,7 +988,7 @@ cmd_status() {
       if owns_pane "$pane" "$role"; then
         refresh_model "$pane"
         model=$(tmux display-message -p -t "$pane" '#{@crew_model}' 2>/dev/null) || model=""
-        cap=$(tmux capture-pane -p -J -t "$pane" 2>/dev/null) || cap=""
+        cap=$(pane_capture "$pane" "$cli" -J 2>/dev/null) || cap=""
         observation=$(printf '%s\n' "$cap" | pane_observation "$(short_cli "$cli")")
         IFS='|' read -r health resources reason <<< "$observation"
         draft=$(printf '%s\n' "$cap" | draft_note "$pane" "$cli")

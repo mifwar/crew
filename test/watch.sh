@@ -9,6 +9,8 @@ check 'observer reads Codex context and quota' observe_is 'idle|context 38% used
 check 'observer reads pi context' observe_is 'idle|42%/1.0m|' pi '──────────────────' '' '──────────────────' '42%/1.0M'
 check 'observer reads Claude context' observe_is 'idle|context left until auto-compact: 21%|' claude '❯ ' 'Context left until auto-compact: 21%'
 check 'observer reads percentage-first context' observe_is 'idle|13% context left|' claude '❯ ' '13% context left'
+styled_blanks=$(awk 'BEGIN { for (i=0; i<30; i++) printf "\033[2m  \033[0m\n" }')
+check 'observer ignores styled whitespace-only rows' observe_is 'error||Connection error' codex 'Connection error' "$styled_blanks"
 check 'observer does not call a working editor idle' observe_is 'busy||' codex 'Working… esc to interrupt' '› '
 check 'transcript working text does not suppress an idle prompt' observe_is 'idle||' codex 'I am working on the assigned task.' '› '
 for prose in 'Working tree is clean.' 'Thinking through the result is complete.'; do
