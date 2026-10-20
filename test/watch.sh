@@ -141,9 +141,9 @@ watch_before=$(tmux capture-pane -p -t "$watch_lead" | cksum)
 check 'watch refuses a reused lead doorbell' watch_until "$CREW_HOME/watch-stale" 'gone or now belongs to something else'
 watch_stop
 check 'watch never types into a reused lead' test "$(tmux capture-pane -p -t "$watch_lead" | cksum)" = "$watch_before"
-tmux set-option -p -t "$watch_lead" @crew_session watch-test
 "$CREW" -s watch-test status > "$CREW_HOME/watch-status-stale-lead"
 check 'status hints a reused lead pane' grep -q 'if lead is dead' "$CREW_HOME/watch-status-stale-lead"
+tmux set-option -p -t "$watch_lead" @crew_session watch-test
 cp "$watch_dir/panes" "$CREW_HOME/watch-panes-before-missing-lead"
 awk -F'\t' -v OFS='\t' '$1=="lead"{$2="%999999"} {print}' "$watch_dir/panes" > "$watch_dir/panes.next"
 mv "$watch_dir/panes.next" "$watch_dir/panes"

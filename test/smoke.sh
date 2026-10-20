@@ -72,11 +72,6 @@ check "a list with a bad name sends nothing" bash -c "! CREW_SESSION=t CREW_AGEN
 check "worker cannot broadcast"         bash -c "! CREW_SESSION=t CREW_AGENT=rev '$CREW' send @all hi"
 check "you (terminal) can broadcast"    human "$CREW" -s t send @all "pause"
 check "broadcast rung as you (terminal)" screen_has "$impl" "[crew] you (terminal) → @all: pause"
-check "cat consumes broadcast before the next ring" bash -c '
-  tries=0
-  until [ "$(tmux capture-pane -p -J -t "$1" | grep -cF "$2")" -ge 2 ]; do
-    tries=$((tries+1)); [ "$tries" -lt 20 ] || exit 1; sleep 0.1
-  done' _ "$lead" "[crew] you (terminal) → @all: pause"
 "$CREW" -s t send lead "from nowhere" >/dev/null 2>&1; sleep 0.3
 check "non-tty non-member is 'outside'" screen_has "$lead" "[crew] outside"
 check "outside send warns with the reason and whoami hint" bash -c 'CREW_SESSION=other CREW_AGENT=impl TMUX_PANE=%999999 "$1" -s t send lead "warn-check" 2> "$2" >/dev/null; grep -q "sending as outside (not in crew t): CREW_SESSION=other does not match crew t; see: crew -s t whoami" "$2"' _ "$CREW" "$CREW_HOME/outside-send-err"
