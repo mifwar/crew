@@ -34,6 +34,7 @@ trap cleanup EXIT
 bash -n "$CREW" || { echo "FAIL  bash -n"; exit 1; }
 bash -n "$ROOT/share/crew/listing.sh" || { echo "FAIL  bash -n listing.sh"; exit 1; }
 bash -n "$ROOT/share/crew/pane.sh" || { echo "FAIL  bash -n pane.sh"; exit 1; }
+bash -n "$ROOT/share/crew/spawn.sh" || { echo "FAIL  bash -n spawn.sh"; exit 1; }
 tmux new-session -d -s "$TS" -x 200 -y 50
 
 "$CREW" up t --in "$TS" lead=cat "impl=cat && true" rev=cat >/dev/null 2>&1
@@ -796,12 +797,16 @@ check "concurrent adds preserve both roles" test "$(awk -F'\t' '$1~/^parallel[12
 roster_path=$(sed -n 's/^For the current roster, read `\([^`]*\)`.*$/\1/p' "$E/roles/lead.md")
 check "existing roster pointer sees concurrent additions" test "$(awk -F'\t' '$1~/^parallel[12]$/{n++} END{print n}' "$roster_path")" = 2
 check "concurrent adds leave custom role files untouched" cmp "$E/roles/lead.md" "$CREW_HOME/expand-lead-before-add"
-err=$("$CREW" -s expand add "dialog=printf 'Trust this folder?\\nEnter to confirm\\n'; cat" "failed=true" 2>&1 >/dev/null)
+err=$("$CREW" -s expand add "dialog=printf 'Trust this folder?\\nEnter to confirm\\n'; cat" 2>&1 >/dev/null)
 added_dialog=$(awk -F'\t' '$1=="dialog"{print $2}' "$E/panes")
-added_failed=$(awk -F'\t' '$1=="failed"{print $2}' "$E/panes")
 check "add does not type an intro into startup dialogs" bash -c '! tmux capture-pane -p -J -t "$1" | grep -q "You are agent"' _ "$added_dialog"
-check "add explains startup dialogs and failed commands" bash -c 'printf "%s" "$1" | grep -q "startup dialog" && printf "%s" "$1" | grep -q "back at a shell prompt"' _ "$err"
-check "add sends no intro after a failed command" bash -c '! tmux capture-pane -p -J -t "$1" | grep -q "You are agent"' _ "$added_failed"
+check "add explains startup dialogs" bash -c 'printf "%s" "$1" | grep -q "startup dialog"' _ "$err"
+cp "$E/panes" "$CREW_HOME/expand-before-failed-start"
+pane_count=$(tmux list-panes -s -t "$TS" | wc -l)
+err=$("$CREW" -s expand add failed=true 2>&1 >/dev/null) || true
+check "add closes a command that returns to the shell" bash -c 'printf "%s" "$1" | grep -q "did not start"' _ "$err"
+check "add failed start leaves the roster unchanged" cmp "$E/panes" "$CREW_HOME/expand-before-failed-start"
+check "add failed start closes the pane" test "$(tmux list-panes -s -t "$TS" | wc -l)" = "$pane_count"
 "$CREW" -s expand down >/dev/null 2>&1
 check "down closes a pane created by add" bash -c '! tmux display -p -t "$1" "#{pane_id}" | grep -q .' _ "$spawned"
 check "down keeps a pane adopted by add" test "$(tmux display -p -t "$adopted" '#{pane_id}')" = "$adopted"
@@ -855,6 +860,37 @@ check "  and unlabels it"                test -z "$(tmux display -p -t "$rm_keep
 rm_keep_row=$(awk -F'\t' '$1=="keep"' "$R/panes")
 check "  and still drops the roster row" test -z "$rm_keep_row"
 tmux kill-pane -t "$rm_keep"
+
+# A one-step override verifies a spawned CLI before changing the binding.
+"$CREW" up swap --in "$TS" lead=cat impl=cat rev=cat >/dev/null 2>&1
+SW="$CREW_HOME/swap"
+swap_lead=$(awk -F'\t' '$1=="lead"{print $2}' "$SW/panes")
+swap_impl=$(awk -F'\t' '$1=="impl"{print $2}' "$SW/panes")
+cp "$SW/panes" "$CREW_HOME/swap-before-refusal"
+swap_count=$(tmux list-panes -t "$(tmux display-message -p -t "$swap_lead" '#{window_id}')" -F '#{pane_id}' | wc -l | tr -d ' ')
+err=$(CREW_SESSION=swap CREW_AGENT=rev "$CREW" -s swap override lead impl 2>&1 >/dev/null) || true
+check "override refusal echoes the two-argument command" bash -c 'printf "%s" "$1" | grep -q "crew -s swap override lead impl"' _ "$err"
+err=$(CREW_SESSION=swap CREW_AGENT=rev "$CREW" -s swap override lead=cat 2>&1 >/dev/null) || true
+check "override refusal echoes the role=spec command" bash -c 'printf "%s" "$1" | grep -q "crew -s swap override lead=cat"' _ "$err"
+check "refused overrides do not spawn panes" test "$(tmux list-panes -t "$(tmux display-message -p -t "$swap_lead" '#{window_id}')" -F '#{pane_id}' | wc -l | tr -d ' ')" = "$swap_count"
+check "refused overrides preserve bindings" cmp "$SW/panes" "$CREW_HOME/swap-before-refusal"
+cp "$SW/panes" "$CREW_HOME/swap-before-failed-start"
+err=$(CREW_VIA=web "$CREW" -s swap override impl=no-such-cli-xyz 2>&1 >/dev/null) || true
+check "override closes a command that returns to the shell" bash -c 'printf "%s" "$1" | grep -q "did not start"' _ "$err"
+check "failed override preserves bindings" cmp "$SW/panes" "$CREW_HOME/swap-before-failed-start"
+check "failed override closes the pane" test "$(tmux list-panes -t "$(tmux display-message -p -t "$swap_lead" '#{window_id}')" -F '#{pane_id}' | wc -l | tr -d ' ')" = "$swap_count"
+printf 'handover\n' > "$SW/out/handover-impl.md"
+human "$CREW" -s swap override impl=cat
+swap_impl2=$(awk -F'\t' '$1=="impl"{print $2}' "$SW/panes")
+check "override role=spec binds a spawned successor" awk -F'\t' -v p="$swap_impl2" '$1=="impl" && $2==p && $4=="spawned"{f=1} END{exit !f}' "$SW/panes"
+check "override role=spec labels the successor" test "$(tmux display-message -p -t "$swap_impl2" '#{@crew_role}')" = impl
+check "override role=spec detaches the old pane" test -z "$(tmux display-message -p -t "$swap_impl" '#{@crew_role}')"
+check "override role=spec keeps the old pane open" test "$(tmux display-message -p -t "$swap_impl" '#{pane_id}')" = "$swap_impl"
+check "override context names an existing handover file" grep -qF 'out/handover-impl.md' "$SW"/out/override-impl-*.md
+check "override starts the successor before notifying" screen_has "$swap_impl2" "You are agent 'impl'"
+"$CREW" -s swap down >/dev/null 2>&1
+tmux kill-pane -t "$swap_impl" 2>/dev/null || true
+
 # a pane that exists but no longer carries the role's labels: leave it alone
 asr lead add reused=cat >/dev/null 2>&1
 rm_reused=$(awk -F'\t' '$1=="reused"{print $2}' "$R/panes")
