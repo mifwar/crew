@@ -971,36 +971,48 @@ cmd_log() {
 
 cmd_status() {
   resolve_session
-  local role pane cli origin cmd last model cap observation health resources reason note draft
+  local role pane cli origin cmd last model cap observation health resources reason note draft table row note_lead=""
   printf 'crew %s  (%s)  %s\n\n' "$S" "$(meta mode)$([ -f "$D/ended" ] && echo ', ended')" "$D"
-  { printf 'ROLE\tCLI\tMODEL\tPANE\tRUNNING\tLAST MESSAGE\tNOTE\tCONTEXT / QUOTA\n'
-    while IFS="$(printf '\t')" read -r role pane cli origin; do
-      # A dead pane id: display-message exits 0 with empty output (tmux 3.5),
-      # so emptiness, not the exit code, is what makes a role "gone".
-      cmd=$(tmux display-message -p -t "$pane" '#{pane_current_command}' 2>/dev/null || true)
-      if [ -z "$cmd" ]; then cmd="gone"
-      elif ! owns_pane "$pane" "$role"; then cmd="STALE (pane reused)"
-      else cmd=$(short_cli "$cmd"); fi
-      last=$(awk -F'\t' -v r="$role" '$3==r && $2!="sys"{l=substr($1,12,5) " → " $4 ": " $5} END{print l}' "$D/channel.log")
-      last=$(truncate_text "$last" 70)
-      model=""
-      note=""; resources=""
-      if owns_pane "$pane" "$role"; then
-        refresh_model "$pane"
-        model=$(tmux display-message -p -t "$pane" '#{@crew_model}' 2>/dev/null) || model=""
-        cap=$(pane_capture "$pane" "$cli" -J 2>/dev/null) || cap=""
-        observation=$(printf '%s\n' "$cap" | pane_observation "$(short_cli "$cli")")
-        IFS='|' read -r health resources reason <<< "$observation"
-        draft=$(printf '%s\n' "$cap" | draft_note "$pane" "$cli")
-        if [ "$health" = error ]; then note="ERROR: $reason"
-        elif [ -n "$draft" ]; then note="$draft"
-        elif [ "$health" = idle ] && [ "$(role_tasks "$role" active)" -gt 0 ]; then note='IDLE with queued/working task'; fi
-      fi
-      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$role" "$(short_cli "$cli")" "${model:--}" "$pane" "$cmd" "${last:--}" "${note:--}" "${resources:--}"
-    done < "$D/panes"
-  } | column -t -s "$(printf '\t')"
+  # Keep this loop in the current shell so the lead hint reuses its row data.
+  table=$(printf 'ROLE\tCLI\tMODEL\tPANE\tRUNNING\tLAST MESSAGE\tNOTE\tCONTEXT / QUOTA')
+  while IFS="$(printf '\t')" read -r role pane cli origin; do
+    # A dead pane id: display-message exits 0 with empty output (tmux 3.5),
+    # so emptiness, not the exit code, is what makes a role "gone".
+    cmd=$(tmux display-message -p -t "$pane" '#{pane_current_command}' 2>/dev/null || true)
+    if [ -z "$cmd" ]; then cmd="gone"
+    elif ! owns_pane "$pane" "$role"; then cmd="STALE (pane reused)"
+    else cmd=$(short_cli "$cmd"); fi
+    last=$(awk -F'\t' -v r="$role" '$3==r && $2!="sys"{l=substr($1,12,5) " → " $4 ": " $5} END{print l}' "$D/channel.log")
+    last=$(truncate_text "$last" 70)
+    model=""; note=""; resources=""; health=""; reason=""; draft=""
+    if owns_pane "$pane" "$role"; then
+      refresh_model "$pane"
+      model=$(tmux display-message -p -t "$pane" '#{@crew_model}' 2>/dev/null) || model=""
+      cap=$(pane_capture "$pane" "$cli" -J 2>/dev/null) || cap=""
+      observation=$(printf '%s\n' "$cap" | pane_observation "$(short_cli "$cli")")
+      IFS='|' read -r health resources reason <<< "$observation"
+      draft=$(printf '%s\n' "$cap" | draft_note "$pane" "$cli")
+      if [ "$health" = error ]; then note="ERROR: $reason"
+      elif [ -n "$draft" ]; then note="$draft"
+      elif [ "$health" = idle ] && [ "$(role_tasks "$role" active)" -gt 0 ]; then note='IDLE with queued/working task'; fi
+    fi
+    if [ "$role" = lead ]; then
+      case "$cmd" in
+        gone|STALE*) note_lead='pane gone or reused' ;;
+        *)
+          case "$note" in ERROR:*|'IDLE with queued/working task') note_lead="$note" ;; esac ;;
+      esac
+    fi
+    row=$(printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s' "$role" "$(short_cli "$cli")" "${model:--}" "$pane" "$cmd" "${last:--}" "${note:--}" "${resources:--}")
+    table="${table}"$'\n'"${row}"
+  done < "$D/panes"
+  printf '%s\n' "$table" | column -t -s "$(printf '\t')"
   semaphore_status
   echo; cmd_board
+  if [ -n "$note_lead" ]; then
+    echo
+    printf 'lead: %s\n  %s\n' "$note_lead" "$(lead_recovery_hint)"
+  fi
 }
 
 cmd_peek() {
