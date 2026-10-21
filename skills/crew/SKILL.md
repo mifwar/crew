@@ -170,6 +170,7 @@ The previous agent must stop its old work and wait for a new assignment.
 
 ```sh
 crew -s <name> add "rev2=pi" impl2=%12
+crew -s <name> add rev2=fork:lead
 ```
 
 `role=<cli spec>` splits the crew's window and types the user's command
@@ -179,6 +180,14 @@ must be new. Added agents get an intro and a role file pointing to the live
 roster (`panes` or `crew status`); existing role files stay untouched.
 Startup dialogs receive no input: answer them yourself, then use the printed
 `crew send` command. `down` closes spawned additions and keeps adopted ones.
+`role=fork:<source-role>` starts the source role's native conversation as a
+new role using its recorded or unambiguous session ID. Pin the source first
+with `crew session <role> <id>` when same-CLI roles share a project folder.
+Fork launch options are native to Claude Code, Codex or pi; the new role keeps
+the source CLI spec for later resume. Crew records its launch epoch with a
+blank ID before starting it, then lazily captures the new session ID after the
+CLI creates its native file. Pin it with `crew session <new-role> <id>` if
+capture is ambiguous.
 
 ## Repair
 
@@ -191,6 +200,20 @@ Startup dialogs receive no input: answer them yourself, then use the printed
   current-crew pointer. It never types into, unlabels or closes panes; files
   stay. Partial crews are reported and kept. Other commands never auto-sweep.
 - An agent moved to another pane: `crew rebind <role> <pane>` (or run it inside the new pane).
+- To restore a role's native conversation after its pane is gone, run
+  `crew resume <role>` inside a new unbound tmux pane. If multiple same-CLI
+  roles share the project folder, pin the intended ID first with
+  `crew session <role> <session-id>`; `crew session <role>` prints or discovers
+  the role's ID. Spawned roles store a launch epoch before starting; crew
+  captures the ID lazily after the CLI creates its first session file. A role
+  command, `session`, or `resume` triggers that capture when exactly one new
+  unassigned session matches. Ambiguous or missing IDs need an explicit pin.
+  Only transcripts containing the role's intro line count. Fallback discovery
+  ignores sessions older than the crew. `rebind`/`remove`/adopting a pane drops
+  the role's recorded ID. `session <role> <id>` refuses an ID held by another
+  role. `rebind` alone keeps the pane mapping but does not resume context.
+  Resume appends flags to the role's CLI spec, so compound specs (`a; b`)
+  don't work.
 - If a tool shell inherits a missing/foreign `TMUX_PANE`, matching
   `CREW_SESSION` / `CREW_AGENT` hints identify its role only while that role's
   recorded pane still belongs to the crew. Actual crew-pane bindings take

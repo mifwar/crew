@@ -34,6 +34,7 @@ trap cleanup EXIT
 bash -n "$CREW" || { echo "FAIL  bash -n"; exit 1; }
 bash -n "$ROOT/share/crew/listing.sh" || { echo "FAIL  bash -n listing.sh"; exit 1; }
 bash -n "$ROOT/share/crew/pane.sh" || { echo "FAIL  bash -n pane.sh"; exit 1; }
+bash -n "$ROOT/share/crew/sessions.sh" || { echo "FAIL  bash -n sessions.sh"; exit 1; }
 tmux new-session -d -s "$TS" -x 200 -y 50
 
 "$CREW" up t --in "$TS" lead=cat "impl=cat && true" rev=cat >/dev/null 2>&1
@@ -1013,5 +1014,6 @@ check "installed symlink finds the sourced listing module" env CREW_HOME="$CREW_
 . "$ROOT/test/watch.sh"
 . "$ROOT/test/timers.sh"
 . "$ROOT/test/semaphore.sh"
+. "$ROOT/test/sessions.sh"
 
 [ "$fail" = 0 ] && echo "all passed" || { echo "some checks failed"; exit 1; }

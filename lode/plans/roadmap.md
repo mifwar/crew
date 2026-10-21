@@ -14,6 +14,10 @@ named command semaphores with workload lifetime tracking and holder listing
 (see [semaphore.md](../cli/semaphore.md)) are all in place. Roles link to the live
 roster; pane-spec resolution is
 shared, and listing/cleanup lives in a sourced module (see [../lode-map.md](../lode-map.md)).
+Native session discovery, launch-time epoch recording, lazy ID capture,
+role resume, and forking a role's conversation are implemented; fallback
+lookup is limited to sessions from the crew's start and refuses same-CLI
+ambiguity. See [../cli/sessions.md](../cli/sessions.md).
 What remains are open questions and candidate improvements. When one ships,
 describe it in the matching lode file and delete it here.
 

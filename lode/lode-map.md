@@ -15,6 +15,7 @@ flowchart TD
 - cli/
   - [summary.md](cli/summary.md) — command table, env knobs, pane labels/border, model detection
   - [lifecycle.md](cli/lifecycle.md) — `up` / `add` / `adopt` / `rebind` / `override` / `down`, `--self` / `--here`, pane ids, readiness
+  - [sessions.md](cli/sessions.md) — native session discovery, exact per-role IDs and resume
   - [messaging.md](cli/messaging.md) — `send`/`say`/`note`, doorbell, `owns_pane`, sender identity, `log`
   - [timers.md](cli/timers.md) — detached timed doorbells, state, cancellation and shutdown
   - [tasks.md](cli/tasks.md) — board, `task add --out` / `set --evidence`, `done` gate + `--force`, `{id}`/`next-id`, locking, result-file contract

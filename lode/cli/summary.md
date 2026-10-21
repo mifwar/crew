@@ -16,10 +16,12 @@ after a command prints the full usage (exit 0); unknown commands exit 1.
 |---|---|---|
 | `up <name> [--self R] [--here] [--in S] role=cli …` | create panes, start CLIs, send intros | [lifecycle.md](lifecycle.md) |
 | `adopt <name> role=<pane> …` | label existing panes, send intros | [lifecycle.md](lifecycle.md) |
-| `add role=<cli spec\|%pane> …` | spawn or adopt new roles in a running crew | [lifecycle.md](lifecycle.md) |
+| `add role=<cli spec\|%pane\|fork:role> …` | spawn, adopt or fork a role in a running crew | [lifecycle.md](lifecycle.md), [sessions.md](sessions.md) |
 | `override <role> <replacement-role\|pane>` / `<role>=<cli spec>` | hand ongoing work to another agent or spawn a successor | [lifecycle.md](lifecycle.md) |
 | `remove <role> [--keep-pane]` | drop a role: block its open tasks, close/unlabel its pane (lead/you only) | [lifecycle.md](lifecycle.md) |
 | `rebind <role> [pane] [--intro]` | move a role to another pane (default: caller's) | [lifecycle.md](lifecycle.md) |
+| `session <role> [id]` | show or pin the exact native session ID for a role | [sessions.md](sessions.md) |
+| `resume <role>` | restart that role's native conversation in a new, unbound tmux pane | [sessions.md](sessions.md) |
 | `send <role[,role…]\|@all\|you> <msg>` | log + inbox + doorbell (unrung doorbells are logged) | [messaging.md](messaging.md) |
 | `say <role[,role…]\|@all> <msg>` | `send`, but refuses unless the caller is the human | [messaging.md](messaging.md) |
 | `note <text>` | `sys` line in the timeline | [messaging.md](messaging.md) |
@@ -43,7 +45,8 @@ after a command prints the full usage (exit 0); unknown commands exit 1.
 
 ```mermaid
 flowchart TD
-  main["main: -s flag, --help check, case $cmd"] --> up[cmd_up] & adopt[cmd_adopt] & send[cmd_send] & task[cmd_task] & view["cmd_status / board / log / peek / ls"] & web[cmd_web] & down[cmd_down]
+  main["main: -s flag, --help check, case $cmd"] --> up[cmd_up] & adopt[cmd_adopt] & add[cmd_add] & send[cmd_send] & task[cmd_task] & view["cmd_status / board / log / peek / ls"] & web[cmd_web] & down[cmd_down] & resume[cmd_resume]
+  add & resume --> session[session ID resolver]
   send & task --> resolve["resolve_session + resolve_me"]
   send --> deliver --> owns[owns_pane] --> ringw["ring: pane_hold, then send-keys"]
   up & adopt --> label[label_pane + style_window] --> roles[write_role_files] --> intro

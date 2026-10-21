@@ -37,8 +37,10 @@ crew — coding agents working together in tmux
       --here           split the calling window instead of opening a new one
       --in <session>   tmux session for the new window (default: the caller's)
   crew adopt <name> role=<pane> ...                   use panes you already have (%7, .2, 6.1)
-  crew add role=<cli spec|%pane> ...                 add agents to a running crew (spawn or adopt)
+  crew add role=<cli spec|%pane|fork:role> ...       add agents to a running crew (spawn, adopt, or fork)
   crew rebind <role> [pane]                           point a role at another pane (default: this one)
+  crew session <role> [id]                            show or pin a role's native session ID
+  crew resume <role>                                  resume that role in this unbound tmux pane
   crew override <role> <replacement-role|pane>       hand a role's ongoing work to another crew agent
   crew override <role>=<cli spec|%pane>              spawn or adopt a successor, then hand over
   crew remove <role> [--keep-pane]                    drop a role: block open tasks, close/unlabel its pane
@@ -143,6 +145,7 @@ resolve_session() {
   else die "no crew here (run inside a crew pane, or pass -s <name>)"; fi
   D="$CREW_HOME/$S"
   [ -d "$D" ] || die "unknown crew: $S"
+  session_capture_current
 }
 
 # Caller identity: a crew role; else "you" when typed at a terminal (agents'
@@ -216,6 +219,8 @@ short_cli() {
   case "$w" in [0-9]*.[0-9]*) w=claude ;; esac
   printf '%s' "$w"
 }
+
+. "$CREW_SHARE/sessions.sh"
 
 # The agent program running in a pane, from its tty's process list (the first
 # non-shell process). Better than #{pane_current_command}, which shows claude
@@ -432,7 +437,7 @@ settle_agent() { # role pane
 }
 
 cmd_up() {
-  local name="" target="" self="" here=0 specs=() spec role cli pane win="" origin
+  local name="" target="" self="" here=0 specs=() spec role cli pane win="" origin created_at created_epoch launch_time
   while [ $# -gt 0 ]; do
     case "$1" in
       --in) target="$2"; shift 2 ;;
@@ -477,13 +482,19 @@ cmd_up() {
     printf '%s\t%s\t%s\t%s\n' "$role" "$pane" "$cli" spawned >> "$D/panes"
   done
   style_window "$win"
-  printf 'mode=up\nwindow=%s\nhere=%s\ntmux_session=%s\ncreated=%s\ncwd=%s\n' "$win" "$here" "$target" "$(now)" "$PWD" > "$D/meta"
+  created_epoch=$(date +%s); created_at=$(now)
+  printf 'mode=up\nwindow=%s\nhere=%s\ntmux_session=%s\ncreated=%s\ncreated_epoch=%s\ncwd=%s\n' \
+    "$win" "$here" "$target" "$created_at" "$created_epoch" "$PWD" > "$D/meta"
   printf '%s\n' "$S" > "$CREW_HOME/.current"
   write_role_files
   log_line sys - - "crew up $S in $target · $(roles | tr '\n' ' ')"
 
   while IFS="$(printf '\t')" read -r role pane cli origin; do
     [ "$origin" = spawned ] || continue
+    launch_time=$(date +%s)
+    lock panes
+    session_record_launch "$role" "$launch_time" || true
+    unlock
     start_agent "$role" "$pane" "$cli"
   done < "$D/panes"
   echo "crew '$S': started ${#specs[@]} agents in $target:$win; waiting for them to settle..."
@@ -532,6 +543,7 @@ crew_window() { # stored window when still owned, else the first owned pane's wi
 
 cmd_adopt() {
   local name="" specs=() spec role pane cli origin
+  local created_at created_epoch
   while [ $# -gt 0 ]; do
     case "$1" in
       *=*) specs+=("$1"); shift ;;
@@ -550,7 +562,8 @@ cmd_adopt() {
     style_window "$(tmux display-message -p -t "$pane" '#{window_id}')"
     printf '%s\t%s\t%s\t%s\n' "$role" "$pane" "$cli" adopted >> "$D/panes"
   done
-  printf 'mode=adopt\ncreated=%s\ncwd=%s\n' "$(now)" "$PWD" > "$D/meta"
+  created_epoch=$(date +%s); created_at=$(now)
+  printf 'mode=adopt\ncreated=%s\ncreated_epoch=%s\ncwd=%s\n' "$created_at" "$created_epoch" "$PWD" > "$D/meta"
   printf '%s\n' "$S" > "$CREW_HOME/.current"
   write_role_files
   log_line sys - - "crew adopt $S · $(roles | tr '\n' ' ')"
@@ -560,15 +573,32 @@ cmd_adopt() {
 
 cmd_add() {
   resolve_session; resolve_me
-  [ $# -gt 0 ] || die 'usage: crew add role=<cli spec|%pane> ...'
-  local specs=() spec role cli pane origin got i new_roles="" win="" cwd needs_spawn=0
+  [ $# -gt 0 ] || die 'usage: crew add role=<cli spec|%pane|fork:role> ...'
+  local specs=() launch_specs=() spec role cli launch_cli source_role source_cli id pane origin got i new_roles="" win="" cwd needs_spawn=0 launch_time
   for spec in "$@"; do
-    case "$spec" in *=*) ;; *) die "expected role=<cli spec|%pane>: $spec" ;; esac
+    case "$spec" in *=*) ;; *) die "expected role=<cli spec|%pane|fork:role>: $spec" ;; esac
   done
   check_roles "$@"
   lock panes
   [ ! -f "$D/ended" ] || die "crew '$S' has ended"
-  resolve_pane_specs add "$@"
+  # A fork uses the source role's exact native session while retaining its CLI
+  # spec in the roster for future resume and status operations.
+  for spec in "$@"; do
+    role="${spec%%=*}"; cli="${spec#*=}"; launch_cli="$cli"
+    case "$cli" in
+      fork:*)
+        source_role="${cli#fork:}"
+        check_name "$source_role"
+        source_cli=$(session_role_cli "$source_role")
+        [ -n "$source_cli" ] || die "no source agent '$source_role' in crew $S"
+        id=$(session_id_for_role "$source_role")
+        launch_cli=$(session_fork_command "$source_cli" "$id")
+        cli="$source_cli" ;;
+    esac
+    specs+=("$role=$cli")
+    launch_specs+=("$launch_cli")
+  done
+  resolve_pane_specs add "${specs[@]}"
   # Validate the entire batch under the same lock as rebind and override.
   for spec in "${specs[@]}"; do
     IFS='|' read -r role pane origin cli <<< "$spec"
@@ -578,7 +608,9 @@ cmd_add() {
       [ -z "$got" ] || die "$pane is already '$got' in this crew"
       got=$(tmux display-message -p -t "$pane" '#{@crew_session}/#{@crew_role}')
       [ "$got" = / ] || die "$pane is already labelled $got; use an unlabelled pane"
-    else needs_spawn=1; fi
+    else
+      needs_spawn=1
+    fi
     new_roles="${new_roles:+$new_roles }$role"
   done
   if [ "$needs_spawn" = 1 ]; then
@@ -594,13 +626,16 @@ cmd_add() {
     label_pane "$pane" "$role" "$cli"
     style_window "$(tmux display-message -p -t "$pane" '#{window_id}')"
     printf '%s\t%s\t%s\t%s\n' "$role" "$pane" "$cli" "$origin" >> "$D/panes"
+    [ "$origin" = spawned ] || session_forget "$role"
     write_role_file "$role"
   done
   log_line sys "$ME" - "$ME added agents to $S: $new_roles"
-  for spec in "${specs[@]}"; do
-    IFS='|' read -r role pane origin cli <<< "$spec"
+  for i in "${!specs[@]}"; do
+    IFS='|' read -r role pane origin cli <<< "${specs[$i]}"
     [ "$origin" = spawned ] || continue
-    start_agent "$role" "$pane" "$cli"
+    launch_time=$(date +%s)
+    session_record_launch "$role" "$launch_time" || true
+    start_agent "$role" "$pane" "${launch_specs[$i]}"
   done
   unlock
   for spec in "${specs[@]}"; do
@@ -816,7 +851,7 @@ cmd_override() {
     esac
   else die 'usage: crew override <role> <replacement-role|pane> | <role>=<cli spec>'
   fi
-  local old new caller="$ME" context handover="" msg r p cli origin=adopted swap=1 win="" cwd="" previous refusal got
+  local old new caller="$ME" context handover="" msg r p cli origin=adopted swap=1 win="" cwd="" previous refusal got launch_time=""
   refusal="only lead or you can override a role
   run: $cmdline"
   check_name "$role"
@@ -843,6 +878,7 @@ cmd_override() {
       die "could not split a pane for '$role'"
     fi
     warn_codex_sandbox "$role" "$replacement"
+    launch_time=$(date +%s)
     if ! ring --now "$new" "$replacement"; then
       tmux kill-pane -t "$new" 2>/dev/null || true
       die "could not start '$replacement'; successor pane closed"
@@ -906,20 +942,29 @@ cmd_override() {
       '$2==s && $3!="done"{$2=r} {print}' "$D/board.tsv" > "$D/board.tsv.tmp"
     mv "$D/board.tsv.tmp" "$D/board.tsv"
     mv "$D/panes.tmp" "$D/panes"
+    if [ -f "$D/sessions.tsv" ]; then
+      awk -F'\t' -v OFS='\t' -v r="$role" -v s="$replacement" \
+        '$1==r{$1=s; print; next} $1==s{$1=r} {print}' "$D/sessions.tsv" > "$D/sessions.tsv.tmp"
+      mv "$D/sessions.tsv.tmp" "$D/sessions.tsv"
+    fi
   else
     awk -F'\t' -v OFS='\t' -v r="$role" -v p="$new" -v c="$cli" \
       -v o="$origin" '$1==r{$2=p; $3=c; $4=o} {print}' "$D/panes" > "$D/panes.tmp"
     mv "$D/panes.tmp" "$D/panes"
+    [ "$origin" = spawned ] || session_forget "$role"
     if owns_pane "$old" "$role"; then unlabel_pane "$old"; fi
   fi
   while IFS="$(printf '\t')" read -r r p cli row_origin; do
     case "$r" in "$role"|"$replacement") label_pane "$p" "$r" "$cli" ;; esac
   done < "$D/panes"
+  if [ "$origin" = spawned ]; then session_record_launch "$role" "$launch_time" || true; fi
   style_window "$(tmux display-message -p -t "$new" '#{window_id}')"
   refresh_model "$new"
   write_role_files
   unlock
-  if [ "$origin" = spawned ]; then intro "$role" "$new"; fi
+  if [ "$origin" = spawned ]; then
+    intro "$role" "$new"
+  fi
   previous="previous $role ($old) is now $replacement"
   [ "$swap" = 1 ] || previous="previous $role ($old) detached and kept open"
   log_line sys "$caller" "$role" "$caller overrode $role: $replacement ($new) takes over; $previous; context: $D/$context"
@@ -958,6 +1003,7 @@ cmd_rebind() {
   cli=$(pane_cli "$new")
   awk -F'\t' -v OFS='\t' -v r="$role" -v p="$new" -v c="$cli" '$1==r{$2=p; $3=c; $4="adopted"} {print}' "$D/panes" > "$D/panes.tmp"
   mv "$D/panes.tmp" "$D/panes"
+  session_forget "$role"
   label_pane "$new" "$role" "$cli"
   refresh_model "$new"
   style_window "$(tmux display-message -p -t "$new" '#{window_id}')"
@@ -968,6 +1014,69 @@ cmd_rebind() {
   elif [ "$new" = "${TMUX_PANE:-}" ]; then
     echo "You are agent '$role' in crew '$S'. Read $D/roles/$role.md if you haven't."
   fi
+}
+
+cmd_session() {
+  resolve_session; resolve_me
+  [ $# -ge 1 ] && [ $# -le 2 ] || die 'usage: crew session <role> [session-id]'
+  local role="$1" id="${2:-}"
+  [ -n "$(pane_of "$role")" ] || die "no agent '$role' in crew $S"
+  lock panes
+  if [ -n "$id" ]; then
+    record_session_id "$role" "$id"
+    echo "recorded $role session $id"
+  else
+    id=$(session_id_for_role "$role")
+    echo "$id"
+  fi
+  unlock
+}
+
+cmd_resume() {
+  resolve_session; resolve_me
+  [ $# -eq 1 ] || die 'usage: crew resume <role> (run inside a new, unbound tmux pane)'
+  local role="$1" old new got labels cli agent id cwd win
+  new="${TMUX_PANE:-}"
+  [ -n "$new" ] || die 'crew resume must run inside a tmux pane'
+  new=$(pane_id "$new") || die "no tmux pane '${TMUX_PANE:-}'"
+  lock panes
+  [ ! -f "$D/ended" ] || die "crew '$S' has ended"
+  old=$(pane_of "$role"); [ -n "$old" ] || die "no agent '$role' in crew $S"
+  # Reusing the role's own labelled pane is fine once its agent has exited.
+  if owns_pane "$old" "$role"; then
+    [ "$old" = "$new" ] || die "$role still has an owned pane; resume only after that pane is gone or unlabelled"
+    case "$(short_cli "$(detect_cli "$new")")" in
+      claude|codex|pi) die "$role's agent is still running in $new" ;;
+    esac
+  fi
+  got=$(awk -F '\t' -v p="$new" '$2==p {print $1; exit}' "$D/panes")
+  # After a tmux restart a new pane id may equal another role's dead one.
+  [ -z "$got" ] || [ "$got" = "$role" ] || ! owns_pane "$new" "$got" \
+    || die "$new is already '$got' in this crew"
+  labels=$(tmux display-message -p -t "$new" '#{@crew_session}/#{@crew_role}')
+  [ "$labels" = / ] || [ "$labels" = "$S/$role" ] || die "$new is labelled as ${labels#*/} in crew ${labels%%/*}; use an unlabelled pane"
+  cli=$(session_role_cli "$role"); [ -n "$cli" ] || die "no agent '$role' in crew $S"
+  agent=$(short_cli "$cli")
+  case "$agent" in claude|codex|pi) ;; *) die "session resume is not supported for $agent" ;; esac
+  id=$(session_id_for_role "$role")
+  cwd=$(meta cwd); [ -d "$cwd" ] || die "crew working directory is missing: $cwd"
+  # exec runs in this non-interactive bash, so aliases and functions don't resolve.
+  command -v "${cli%% *}" >/dev/null || die "can't run '${cli%% *}' from here (aliases and functions don't apply); nothing was changed"
+  awk -F '\t' -v OFS='\t' -v r="$role" -v p="$new" '$1==r {$2=p; $4="adopted"} $1!=r && $2==p {$2="%gone"} {print}' \
+    "$D/panes" > "$D/panes.tmp"
+  mv "$D/panes.tmp" "$D/panes"
+  label_pane "$new" "$role" "$cli"
+  win=$(tmux display-message -p -t "$new" '#{window_id}')
+  style_window "$win"
+  unlock
+  log_line sys "$ME" "$role" "$ME resumed $role from $agent session $id in $new (was $old)"
+  export CREW_SESSION="$S" CREW_AGENT="$role" CREW_HOME
+  cd "$cwd"
+  case "$agent" in
+    claude) eval "exec $cli --resume $id" ;;
+    codex) eval "exec $cli resume $id" ;;
+    pi) eval "exec $cli --session $id" ;;
+  esac
 }
 
 cmd_remove() {
@@ -1008,6 +1117,7 @@ cmd_remove() {
   awk -F'\t' -v r="$role" '$1!=r' "$D/panes" > "$D/panes.tmp"
   mv "$D/panes.tmp" "$D/panes"
   mv "$D/board.tsv.tmp" "$D/board.tsv"
+  session_forget "$role"
   unlock
   log_line sys "$ME" "$role" "$ME removed $role ($how); tasks blocked: ${open_ids:-none}; inbox and out/ kept"
   [ -z "$kill_later" ] || tmux kill-pane -t "$pane" 2>/dev/null || true
@@ -1212,6 +1322,8 @@ case "$cmd" in
   say) cmd_say "$@" ;;
   note) cmd_note "$@" ;;
   rebind) cmd_rebind "$@" ;;
+  session) cmd_session "$@" ;;
+  resume) cmd_resume "$@" ;;
   remove) cmd_remove "$@" ;;
   override) cmd_override "$@" ;;
   restyle) cmd_restyle ;;

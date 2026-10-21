@@ -24,12 +24,16 @@ stateDiagram-v2
    `select-layout tiled`. Each gets `-e CREW_SESSION -e CREW_AGENT -e CREW_HOME`
    and `-c "$PWD"`. Record as `spawned`.
 6. Write `meta`, `.current`, render role files, log a `sys` line.
-7. Type each spec into its pane (the CLI starts), warn if a codex spec is
+7. For supported CLIs, record each role's launch epoch with an empty session
+   ID before typing the spec into its pane. Then warn if a codex spec is
    sandboxed without network access ([../agents/codex.md](../agents/codex.md)).
 8. In parallel per pane: `wait_ready` (screen `cksum` unchanged twice, ≥3 s,
    max `CREW_BOOT_WAIT`). If `detect_cli` finds only a shell, the command
    failed (see Readiness): warn with the pane's last line and send no intro.
    Otherwise `intro` (which refuses dialogs, see Readiness), then `refresh_model`.
+   Session IDs are captured lazily on a later crew command, after the CLI has
+   received its first message and created its native session file (see
+   [sessions.md](sessions.md)).
 9. `select-window` to the new window unless `--self`, `--here` or `CREW_NO_SWITCH`.
 10. With `--self`, print the intro line on stdout: the calling agent reads it
     from its own command output instead of having it typed into its prompt.
@@ -54,10 +58,11 @@ renders role files, rings the intro into every pane. Nothing is started or
 moved. Adopted agents can't get `CREW_*` env vars, so identity comes from the
 pane-id lookup.
 
-## `crew add role=<cli spec|%pane> …`
+## `crew add role=<cli spec|%pane|fork:role> …`
 
 ```sh
 crew -s voucher add "rev2=pi" impl2=%12
+crew -s voucher add rev2=fork:lead
 ```
 
 - Requires a running crew. Holds `.panes.lock` for initial validation, releases
@@ -69,9 +74,19 @@ crew -s voucher add "rev2=pi" impl2=%12
   must contain an owned crew pane; if agents moved, use the first owned pane's
   window instead. With no owned pane, rebind or adopt a pane before spawning.
   Use `meta cwd` and propagate `CREW_HOME`, `CREW_SESSION`, `CREW_AGENT`.
-- Spawn each CLI spec through the shared pane helper, which sets the crew
-  environment and working directory, types the command verbatim, waits for a
-  stable screen, and checks `detect_cli`. A failed command closes its pane and
+- `role=fork:<source-role>` creates a spawned role by forking the source's
+  native conversation. It uses the source role's recorded or safely discovered
+  exact session ID and native CLI command; if another same-CLI role makes the
+  source ambiguous, pin its ID first with `crew session <source-role> <id>`.
+  The new role keeps the source CLI spec in `panes`; fork-specific native
+  options are used only for its launch. Crew records a launch epoch with a
+  blank ID before starting it. A later role command lazily captures the ID
+  after the CLI creates its native file; pin it explicitly if capture is
+  ambiguous.
+- Spawn each resolved command through the shared pane helper, which sets the
+  crew environment and working directory, waits for a stable screen, and checks
+  `detect_cli`. Plain CLI specs are typed verbatim; fork specs add only that
+  provider's native fork arguments. A failed command closes its pane and
   leaves the roster unchanged. Record a successful start as `spawned`.
   `%pane` adopts an unlabelled existing pane, keeps its window, detects its
   CLI, and records it as `adopted`.
@@ -89,6 +104,9 @@ crew -s voucher add "rev2=pi" impl2=%12
   rather than embedding a roster snapshot.
 - Log a `sys` line, release the lock, and send intros using the same
   dialog checks as `up`. An intro to the caller prints on stdout.
+- Before each spawned CLI starts, record its launch epoch with no session ID.
+  A later crew command captures one unique new session after the CLI creates
+  its native file; ambiguous launches stay unrecorded.
 - `owns_pane` is checked again before intros. Failed commands get no intro;
   startup dialogs get no input and print a manual follow-up command.
   Existing agents are not restarted or rung. `down` follows each addition's
@@ -116,8 +134,9 @@ Roles are bound to tmux pane ids (`%124`). Ids are stable for a pane's life
 them), so users can rearrange freely and add their own panes (e.g. nvim).
 Ids restart after a tmux **server** restart, so an old crew's `%144` can
 become an unrelated session — hence `owns_pane` ([messaging.md](messaging.md)).
-If an agent's pane is closed and the agent restarted elsewhere, fix it with
-`crew rebind`.
+If an agent's pane is closed and the agent restarted elsewhere, fix the pane
+mapping with `crew rebind`. To restore the native conversation too, run
+`crew resume <role>` inside a new unbound pane; see [sessions.md](sessions.md).
 
 ## `crew rebind <role> [pane] [--intro]`
 
@@ -162,11 +181,14 @@ files.
 - An existing replacement swaps occupants with the overridden role. CLI and
   spawned/adopted origin follow the pane. Its unfinished board rows move to
   the overridden role; existing tasks for that role remain there. Completed
-  rows, result paths, dependencies and evidence stay unchanged.
+  rows, result paths, dependencies and evidence stay unchanged. Any recorded
+  native session IDs move with the pane's role.
 - A new pane replaces the binding with `origin=adopted`; a CLI started by
   `role=spec` uses `origin=spawned`. In both cases the previous pane is
-  unlabelled and kept open. A spawned successor receives its standard intro,
-  then the takeover notice. Board ownership is unchanged.
+  unlabelled and kept open. Before a spawned successor starts, crew records
+  its launch epoch with no session ID. A later crew command lazily captures
+  one unique new session after the intro creates its file. Board ownership is
+  unchanged.
 - Save the old pane's visible output and up to 200 scrollback lines to
   `out/override-<role>-<timestamp>-<pid>.md`, with recovery instructions.
   Private conversation history is unavailable: the successor must read the
