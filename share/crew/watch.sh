@@ -11,7 +11,7 @@ error	^quota[[:space:]]+(exhausted|exceeded|reached|depleted)|^(you have )?(exha
 error	^(you'?ve|you’ve|you have) (hit|reached) your .*limit	provider limit
 error	^usage limit (exceeded|reached|hit)	provider limit
 error	^[0-9]+[[:space:]]+rate[ -]+limit	rate limit
-busy	(esc|ctrl-c|ctrl[+]c)[[:space:]]+to[[:space:]]+(interrupt|stop)[[:space:])]*$
+busy	(esc|ctrl-c|ctrl[+]c)[[:space:]]+to[[:space:]]+(interrupt|stop)([[:space:])]*$|\)[[:space:]]*·.*$)
 busy	^[[:space:]]*─.*(working|thinking).*─[[:space:]]*$
 idle	^[[:space:]]*(›|❯|>)([[:space:]]|$)
 idle	^[[:space:]]*(do you want to proceed|would you like to (run|make|grant))
