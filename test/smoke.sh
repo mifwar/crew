@@ -194,6 +194,20 @@ check "a FINAL: verdict passes the gate" awk -F'\t' -v id="$vgate" '$1==id && $3
 ph=$(as lead task add --to rev --out out/{id}-plan.md --msg "also write out/{id}-notes.md" "placeholder task")
 check "task add --out expands {id}"  awk -F'\t' -v id="$ph" '$1==id && $5=="out/" id "-plan.md"{f=1} END{exit !f}' "$D/board.tsv"
 check "task add --msg expands {id}"  grep -qF "out/$ph-notes.md" "$D/inbox/rev.md"
+# --gate: done runs the command in the crew's cwd, saves output as evidence, refuses on non-zero
+gd=$(mktemp -d "$CREW_HOME/gate.XXXXXX"); cp "$D/meta" "$D/meta.bak" 2>/dev/null || : > "$D/meta.bak"; { grep -v '^cwd=' "$D/meta.bak"; printf 'cwd=%s\n' "$gd"; } > "$D/meta"
+gt=$(as lead task add --to impl --out gt.md --gate 'pwd; test -f ok' "gate check")
+printf 'STATUS: DONE\n' > "$D/out/gt.md"
+check "only lead can add a --gate" bash -c "! CREW_SESSION=t CREW_AGENT=impl '$CREW' task add --to impl --gate true x"
+check "lead can't run a worker's gate" bash -c "! CREW_SESSION=t CREW_AGENT=lead '$CREW' task set $gt done"
+check "gate failure keeps the task open" bash -c "! CREW_SESSION=t CREW_AGENT=impl '$CREW' task set $gt done"
+check "  and saves the gate output"      grep -q '\[exit 1\]' "$D/out/$gt-gate.log"
+check "  and --force overrides it"       bash -c "CREW_SESSION=t CREW_AGENT=impl '$CREW' task set $gt done --force"
+gt=$(as lead task add --to impl --out gt.md --gate 'pwd; test -f ok' "gate check")
+: > "$gd/ok"; as impl task set "$gt" done >/dev/null
+check "gate pass closes, runs in cwd, stores evidence" awk -F'\t' -v id="$gt" '$1==id && $3=="done" && $7=="out/" id "-gate.log"{f=1} END{exit !f}' "$D/board.tsv"
+check "  and the log shows the project dir" grep -qF "$(cd "$gd" && pwd)" "$D/out/$gt-gate.log"
+mv "$D/meta.bak" "$D/meta"
 
 # rebind: impl moves to a new pane (running cat, like the others)
 newp=$(tmux split-window -d -P -F '#{pane_id}' -t "$impl" cat)

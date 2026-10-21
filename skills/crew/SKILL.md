@@ -60,6 +60,7 @@ printed.
 ```sh
 crew task add --to rev --out out/R1-rev.md --msg "diff: git diff main...HEAD in /path" "Round 1 review of PR #42"
 crew task add --to impl --out out/{id}-fix.md "…"   # {id} expands to the new id (also in --msg)
+crew task add --to impl --gate "make test" "…"   # done runs the gate in the project dir; non-zero exit keeps it open
 crew task next-id               # the id the next add will take
 crew task set T2 done           # refuses unless that file ends STATUS: DONE / FINAL:; --force overrides
 crew board                      # EVIDENCE column shows what backs each claim
@@ -95,6 +96,10 @@ crew lock --name checks --max 2 -- ./run-checks
   `task set … done` reads that file and refuses unless its last non-empty line
   starts with `STATUS: DONE` or `FINAL:` (`STATUS: BLOCKED`/`PARTIAL` leave the
   task open and say so); `--force` closes it anyway and notes it in the log.
+  A task added with `--gate "<cmd>"` also runs that command (in the crew's
+  project dir) when its owner sets `done` (lead/you add it, and are refused
+  `done` without `--force`); its output is saved as `out/<id>-gate.log` and used
+  as the evidence, and a non-zero exit keeps the task open.
 - `status` flags a rendered input prompt while its role owns queued/working
   work, and recent errors. Context and 5h quota appear only when printed in
   the pane. These are text heuristics, not proof that an agent is stuck.

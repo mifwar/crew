@@ -82,7 +82,8 @@ Ids are `T<line count + 1>`, allocated under `.board.lock` (mkdir lock, 5 s
 timeout, released by an EXIT trap even on `die`). `out` is set at add time
 (`--out` or `out/<id>-<owner>.md`); `dep` and `evidence` use `-` for none.
 Rows written before the evidence column have 6 fields; `board`, `task set`
-and the web viewer treat a missing 7th as `-`.
+and the web viewer treat a missing 7th as `-`. An optional 8th field is the
+task's `--gate` command (`-` for none; see [../cli/tasks.md](../cli/tasks.md)).
 
 ## `channel.log`
 
