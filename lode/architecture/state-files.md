@@ -8,7 +8,7 @@ flowchart TD
   home["~/.crew/"] --> cur[".current  (name of the default crew)"]
   home --> d["name/"]
   d --> panes["panes  role⇥pane⇥cli⇥origin"]
-  d --> sessions["sessions.tsv  role⇥cli⇥cwd⇥session-id"]
+  d --> sessions["sessions.tsv  role⇥cli⇥cwd⇥session-id⇥launch-epoch"]
   d --> meta["meta  key=value"]
   d --> board["board.tsv  id⇥owner⇥status⇥dep⇥out⇥title⇥evidence"]
   d --> log["channel.log  time⇥kind⇥from⇥to⇥text"]
@@ -42,12 +42,16 @@ rev2	%133	codex -c sandbox_workspace_write.network_access=true …	spawned
 ## `sessions.tsv`
 
 ```
-lead\tclaude\t/private/tmp/project\t8eaf…
+lead\tclaude\t/private/tmp/project\t8eaf…\t1790676001
 ```
 
-Optional exact session IDs are keyed by role, CLI and the crew's recorded cwd.
-`crew session <role> <id>` pins one explicitly; a unique newest native session
-is recorded automatically on first lookup. A different CLI or cwd makes the
+Session rows are keyed by role, CLI and the crew's recorded cwd. The fifth
+field is the launch epoch; spawn writes it with an empty ID before starting a
+supported CLI. A later crew command lazily records one unique native session
+created at or after that epoch, excluding IDs already assigned to other roles.
+Older four-field rows remain valid. `crew session <role> <id>` pins an ID
+explicitly; legacy fallback considers only sessions at or after crew start and
+refuses when same-CLI roles share the folder. A different CLI or cwd makes a
 record stale and ignored. Native store layouts and ambiguity handling are in
 [../cli/sessions.md](../cli/sessions.md).
 
@@ -59,8 +63,13 @@ window=@47         # window crew up created or split into
 here=0             # 1 when --here split the caller's window
 tmux_session=fsfe
 created=2026-09-29T17:00:01
+created_epoch=1790676001
 cwd=/private/tmp/tryout-pr358
 ```
+
+`created_epoch` is the numeric crew-start time used to exclude older native
+sessions during fallback discovery. It is absent in older crew directories,
+which use `created` or the `meta` file timestamp as a fallback.
 
 ## `board.tsv`
 

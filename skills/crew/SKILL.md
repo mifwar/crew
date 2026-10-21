@@ -195,7 +195,12 @@ Startup dialogs receive no input: answer them yourself, then use the printed
   `crew resume <role>` inside a new unbound tmux pane. If multiple same-CLI
   roles share the project folder, pin the intended ID first with
   `crew session <role> <session-id>`; `crew session <role>` prints or discovers
-  the role's ID. `rebind` alone keeps the pane mapping but does not resume context.
+  the role's ID. Spawned roles store a launch epoch before starting; crew
+  captures the ID lazily after the CLI creates its first session file. A role
+  command, `session`, or `resume` triggers that capture when exactly one new
+  unassigned session matches. Ambiguous or missing IDs need an explicit pin.
+  Fallback discovery ignores sessions older than the crew. `rebind` alone keeps
+  the pane mapping but does not resume context.
 - If a tool shell inherits a missing/foreign `TMUX_PANE`, matching
   `CREW_SESSION` / `CREW_AGENT` hints identify its role only while that role's
   recorded pane still belongs to the crew. Actual crew-pane bindings take

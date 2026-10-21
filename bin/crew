@@ -145,6 +145,7 @@ resolve_session() {
   else die "no crew here (run inside a crew pane, or pass -s <name>)"; fi
   D="$CREW_HOME/$S"
   [ -d "$D" ] || die "unknown crew: $S"
+  session_capture_current
 }
 
 # Caller identity: a crew role; else "you" when typed at a terminal (agents'
@@ -436,7 +437,7 @@ settle_agent() { # role pane
 }
 
 cmd_up() {
-  local name="" target="" self="" here=0 specs=() spec role cli pane win="" origin
+  local name="" target="" self="" here=0 specs=() spec role cli pane win="" origin created_at created_epoch launch_time
   while [ $# -gt 0 ]; do
     case "$1" in
       --in) target="$2"; shift 2 ;;
@@ -481,13 +482,19 @@ cmd_up() {
     printf '%s\t%s\t%s\t%s\n' "$role" "$pane" "$cli" spawned >> "$D/panes"
   done
   style_window "$win"
-  printf 'mode=up\nwindow=%s\nhere=%s\ntmux_session=%s\ncreated=%s\ncwd=%s\n' "$win" "$here" "$target" "$(now)" "$PWD" > "$D/meta"
+  created_epoch=$(date +%s); created_at=$(now)
+  printf 'mode=up\nwindow=%s\nhere=%s\ntmux_session=%s\ncreated=%s\ncreated_epoch=%s\ncwd=%s\n' \
+    "$win" "$here" "$target" "$created_at" "$created_epoch" "$PWD" > "$D/meta"
   printf '%s\n' "$S" > "$CREW_HOME/.current"
   write_role_files
   log_line sys - - "crew up $S in $target · $(roles | tr '\n' ' ')"
 
   while IFS="$(printf '\t')" read -r role pane cli origin; do
     [ "$origin" = spawned ] || continue
+    launch_time=$(date +%s)
+    lock panes
+    session_record_launch "$role" "$launch_time" || true
+    unlock
     start_agent "$role" "$pane" "$cli"
   done < "$D/panes"
   echo "crew '$S': started ${#specs[@]} agents in $target:$win; waiting for them to settle..."
@@ -536,6 +543,7 @@ crew_window() { # stored window when still owned, else the first owned pane's wi
 
 cmd_adopt() {
   local name="" specs=() spec role pane cli origin
+  local created_at created_epoch
   while [ $# -gt 0 ]; do
     case "$1" in
       *=*) specs+=("$1"); shift ;;
@@ -554,7 +562,8 @@ cmd_adopt() {
     style_window "$(tmux display-message -p -t "$pane" '#{window_id}')"
     printf '%s\t%s\t%s\t%s\n' "$role" "$pane" "$cli" adopted >> "$D/panes"
   done
-  printf 'mode=adopt\ncreated=%s\ncwd=%s\n' "$(now)" "$PWD" > "$D/meta"
+  created_epoch=$(date +%s); created_at=$(now)
+  printf 'mode=adopt\ncreated=%s\ncreated_epoch=%s\ncwd=%s\n' "$created_at" "$created_epoch" "$PWD" > "$D/meta"
   printf '%s\n' "$S" > "$CREW_HOME/.current"
   write_role_files
   log_line sys - - "crew adopt $S · $(roles | tr '\n' ' ')"
@@ -565,7 +574,7 @@ cmd_adopt() {
 cmd_add() {
   resolve_session; resolve_me
   [ $# -gt 0 ] || die 'usage: crew add role=<cli spec|%pane> ...'
-  local specs=() spec role cli pane origin got i new_roles="" win="" cwd needs_spawn=0
+  local specs=() spec role cli pane origin got i new_roles="" win="" cwd needs_spawn=0 launch_time
   for spec in "$@"; do
     case "$spec" in *=*) ;; *) die "expected role=<cli spec|%pane>: $spec" ;; esac
   done
@@ -582,7 +591,9 @@ cmd_add() {
       [ -z "$got" ] || die "$pane is already '$got' in this crew"
       got=$(tmux display-message -p -t "$pane" '#{@crew_session}/#{@crew_role}')
       [ "$got" = / ] || die "$pane is already labelled $got; use an unlabelled pane"
-    else needs_spawn=1; fi
+    else
+      needs_spawn=1
+    fi
     new_roles="${new_roles:+$new_roles }$role"
   done
   if [ "$needs_spawn" = 1 ]; then
@@ -601,9 +612,11 @@ cmd_add() {
     write_role_file "$role"
   done
   log_line sys "$ME" - "$ME added agents to $S: $new_roles"
-  for spec in "${specs[@]}"; do
-    IFS='|' read -r role pane origin cli <<< "$spec"
+  for i in "${!specs[@]}"; do
+    IFS='|' read -r role pane origin cli <<< "${specs[$i]}"
     [ "$origin" = spawned ] || continue
+    launch_time=$(date +%s)
+    session_record_launch "$role" "$launch_time" || true
     start_agent "$role" "$pane" "$cli"
   done
   unlock
@@ -820,7 +833,7 @@ cmd_override() {
     esac
   else die 'usage: crew override <role> <replacement-role|pane> | <role>=<cli spec>'
   fi
-  local old new caller="$ME" context handover="" msg r p cli origin=adopted swap=1 win="" cwd="" previous refusal got
+  local old new caller="$ME" context handover="" msg r p cli origin=adopted swap=1 win="" cwd="" previous refusal got launch_time=""
   refusal="only lead or you can override a role
   run: $cmdline"
   check_name "$role"
@@ -847,6 +860,7 @@ cmd_override() {
       die "could not split a pane for '$role'"
     fi
     warn_codex_sandbox "$role" "$replacement"
+    launch_time=$(date +%s)
     if ! ring --now "$new" "$replacement"; then
       tmux kill-pane -t "$new" 2>/dev/null || true
       die "could not start '$replacement'; successor pane closed"
@@ -910,6 +924,11 @@ cmd_override() {
       '$2==s && $3!="done"{$2=r} {print}' "$D/board.tsv" > "$D/board.tsv.tmp"
     mv "$D/board.tsv.tmp" "$D/board.tsv"
     mv "$D/panes.tmp" "$D/panes"
+    if [ -f "$D/sessions.tsv" ]; then
+      awk -F'\t' -v OFS='\t' -v r="$role" -v s="$replacement" \
+        '$1==r{$1=s; print; next} $1==s{$1=r} {print}' "$D/sessions.tsv" > "$D/sessions.tsv.tmp"
+      mv "$D/sessions.tsv.tmp" "$D/sessions.tsv"
+    fi
   else
     awk -F'\t' -v OFS='\t' -v r="$role" -v p="$new" -v c="$cli" \
       -v o="$origin" '$1==r{$2=p; $3=c; $4=o} {print}' "$D/panes" > "$D/panes.tmp"
@@ -919,11 +938,14 @@ cmd_override() {
   while IFS="$(printf '\t')" read -r r p cli row_origin; do
     case "$r" in "$role"|"$replacement") label_pane "$p" "$r" "$cli" ;; esac
   done < "$D/panes"
+  if [ "$origin" = spawned ]; then session_record_launch "$role" "$launch_time" || true; fi
   style_window "$(tmux display-message -p -t "$new" '#{window_id}')"
   refresh_model "$new"
   write_role_files
   unlock
-  if [ "$origin" = spawned ]; then intro "$role" "$new"; fi
+  if [ "$origin" = spawned ]; then
+    intro "$role" "$new"
+  fi
   previous="previous $role ($old) is now $replacement"
   [ "$swap" = 1 ] || previous="previous $role ($old) detached and kept open"
   log_line sys "$caller" "$role" "$caller overrode $role: $replacement ($new) takes over; $previous; context: $D/$context"

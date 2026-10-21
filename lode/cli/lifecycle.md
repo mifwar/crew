@@ -24,12 +24,16 @@ stateDiagram-v2
    `select-layout tiled`. Each gets `-e CREW_SESSION -e CREW_AGENT -e CREW_HOME`
    and `-c "$PWD"`. Record as `spawned`.
 6. Write `meta`, `.current`, render role files, log a `sys` line.
-7. Type each spec into its pane (the CLI starts), warn if a codex spec is
+7. For supported CLIs, record each role's launch epoch with an empty session
+   ID before typing the spec into its pane. Then warn if a codex spec is
    sandboxed without network access ([../agents/codex.md](../agents/codex.md)).
 8. In parallel per pane: `wait_ready` (screen `cksum` unchanged twice, ≥3 s,
    max `CREW_BOOT_WAIT`). If `detect_cli` finds only a shell, the command
    failed (see Readiness): warn with the pane's last line and send no intro.
    Otherwise `intro` (which refuses dialogs, see Readiness), then `refresh_model`.
+   Session IDs are captured lazily on a later crew command, after the CLI has
+   received its first message and created its native session file (see
+   [sessions.md](sessions.md)).
 9. `select-window` to the new window unless `--self`, `--here` or `CREW_NO_SWITCH`.
 10. With `--self`, print the intro line on stdout: the calling agent reads it
     from its own command output instead of having it typed into its prompt.
@@ -89,6 +93,9 @@ crew -s voucher add "rev2=pi" impl2=%12
   rather than embedding a roster snapshot.
 - Log a `sys` line, release the lock, and send intros using the same
   dialog checks as `up`. An intro to the caller prints on stdout.
+- Before each spawned CLI starts, record its launch epoch with no session ID.
+  A later crew command captures one unique new session after the CLI creates
+  its native file; ambiguous launches stay unrecorded.
 - `owns_pane` is checked again before intros. Failed commands get no intro;
   startup dialogs get no input and print a manual follow-up command.
   Existing agents are not restarted or rung. `down` follows each addition's
@@ -163,11 +170,14 @@ files.
 - An existing replacement swaps occupants with the overridden role. CLI and
   spawned/adopted origin follow the pane. Its unfinished board rows move to
   the overridden role; existing tasks for that role remain there. Completed
-  rows, result paths, dependencies and evidence stay unchanged.
+  rows, result paths, dependencies and evidence stay unchanged. Any recorded
+  native session IDs move with the pane's role.
 - A new pane replaces the binding with `origin=adopted`; a CLI started by
   `role=spec` uses `origin=spawned`. In both cases the previous pane is
-  unlabelled and kept open. A spawned successor receives its standard intro,
-  then the takeover notice. Board ownership is unchanged.
+  unlabelled and kept open. Before a spawned successor starts, crew records
+  its launch epoch with no session ID. A later crew command lazily captures
+  one unique new session after the intro creates its file. Board ownership is
+  unchanged.
 - Save the old pane's visible output and up to 200 scrollback lines to
   `out/override-<role>-<timestamp>-<pid>.md`, with recovery instructions.
   Private conversation history is unavailable: the successor must read the
