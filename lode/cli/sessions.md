@@ -11,6 +11,7 @@ already contains its context. `crew rebind` only changes the pane mapping.
 crew -s pr42 session lead                 # show/pin a safely discovered ID
 crew -s pr42 session rev 8eaf…            # pin a known ID when lookup is ambiguous
 crew -s pr42 resume lead                  # run inside a new unbound tmux pane
+crew -s pr42 add rev2=fork:lead           # start a new role from lead's context
 ```
 
 ## Discovery and ambiguity
@@ -53,6 +54,24 @@ mapping with `crew session <role>` or `crew session <role> <id>`; the latter
 serializes with pane roster writes. If a pending role has no unique new
 session, lookup refuses and tells the user to pin its ID explicitly.
 
+## Forking a role
+
+`crew add <new-role>=fork:<source-role>` uses the source role's exact session
+ID to start a new native conversation with its existing context:
+
+| CLI | Native fork command |
+|---|---|
+| Claude Code | `<source CLI spec> --resume <id> --fork-session` |
+| Codex | `<source CLI spec> fork <id>` |
+| pi | `<source CLI spec> --fork <id>` |
+
+The source ID uses the same recorded-ID and ambiguity rules as `crew resume`.
+The new role keeps the source CLI spec so later resume does not repeat the fork
+operation. Crew records its launch epoch with a blank session ID before
+starting the fork; a later role command lazily captures the new ID after the
+CLI creates its native file. If capture is ambiguous, pin it with
+`crew session <new-role> <id>` before resuming.
+
 ```mermaid
 flowchart TD
   command[session lookup] --> exact{recorded ID matches CLI and cwd?}
@@ -70,6 +89,7 @@ flowchart TD
   newest --> store
   use --> resume[exec native resume in new pane]
   store --> resume
+  use --> fork[crew add role=fork:source]
 ```
 
 Session discovery is best-effort and follows current CLI file layouts. A

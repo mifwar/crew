@@ -170,6 +170,7 @@ The previous agent must stop its old work and wait for a new assignment.
 
 ```sh
 crew -s <name> add "rev2=pi" impl2=%12
+crew -s <name> add rev2=fork:lead
 ```
 
 `role=<cli spec>` splits the crew's window and types the user's command
@@ -179,6 +180,14 @@ must be new. Added agents get an intro and a role file pointing to the live
 roster (`panes` or `crew status`); existing role files stay untouched.
 Startup dialogs receive no input: answer them yourself, then use the printed
 `crew send` command. `down` closes spawned additions and keeps adopted ones.
+`role=fork:<source-role>` starts the source role's native conversation as a
+new role using its recorded or unambiguous session ID. Pin the source first
+with `crew session <role> <id>` when same-CLI roles share a project folder.
+Fork launch options are native to Claude Code, Codex or pi; the new role keeps
+the source CLI spec for later resume. Crew records its launch epoch with a
+blank ID before starting it, then lazily captures the new session ID after the
+CLI creates its native file. Pin it with `crew session <new-role> <id>` if
+capture is ambiguous.
 
 ## Repair
 

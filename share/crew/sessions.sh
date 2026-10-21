@@ -259,3 +259,15 @@ session_id_for_role() { # role -> recorded ID, lazy launch ID, or safe legacy fa
   printf 'crew: using newest %s session %s for %s (only this %s role uses %s); recorded it for the role\n' "$agent" "$id" "$role" "$agent" "$cwd" >&2
   printf '%s' "$id"
 }
+
+session_fork_command() { # recorded CLI spec session-id -> launch command
+  local cli="$1" id="$2" agent
+  case "$id" in ''|*[!A-Za-z0-9_.-]*) die "bad session id: $id" ;; esac
+  agent=$(short_cli "$cli")
+  case "$agent" in
+    claude) printf '%s --resume %s --fork-session' "$cli" "$id" ;;
+    codex) printf '%s fork %s' "$cli" "$id" ;;
+    pi) printf '%s --fork %s' "$cli" "$id" ;;
+    *) die "session fork is not supported for $agent" ;;
+  esac
+}

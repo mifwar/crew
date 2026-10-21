@@ -185,3 +185,73 @@ check 'overlapping sessions stay unrecorded for both roles' \
 "$CREW" -s session-overlap down >/dev/null 2>&1
 unlink "$start_cli_dir/claude"
 rmdir "$start_cli_dir"
+
+fork_command() {
+  bash -c '
+    short_cli() { local w="${1%% *}"; w="${w##*/}"; printf "%s" "$w"; }
+    die() { echo "$*" >&2; exit 1; }
+    . "$1/sessions.sh"
+    session_fork_command "$2" "$3"
+  ' _ "$ROOT/share/crew" "$1" "$2"
+}
+check 'Claude fork uses resume and fork-session options' \
+  test "$(fork_command 'claude --source-flag' fork-source-id)" = 'claude --source-flag --resume fork-source-id --fork-session'
+check 'Codex fork uses the fork subcommand' \
+  test "$(fork_command 'codex --source-flag' fork-source-id)" = 'codex --source-flag fork fork-source-id'
+check 'pi fork uses the fork option' \
+  test "$(fork_command 'pi --source-flag' fork-source-id)" = 'pi --source-flag --fork fork-source-id'
+
+session_test_crew session-fork-ambiguous claude
+printf 'rev\t%%999994\tclaude\tspawned\n' >> "$CREW_HOME/session-fork-ambiguous/panes"
+check 'fork refuses an ambiguous source session' \
+  bash -c 'CLAUDE_CONFIG_DIR="$1" "$2" -s session-fork-ambiguous add forked=fork:lead 2>&1 | grep -q "another claude role shares"' _ "$claude_home" "$CREW"
+
+fork_dir="$CREW_HOME/session-fork"
+fork_bin="$CREW_HOME/fork-bin"
+fork_home="$CREW_HOME/fork-claude-config"
+mkdir -p "$fork_dir/inbox" "$fork_dir/out" "$fork_dir/roles" "$fork_bin" "$fork_home/projects/$claude_slug"
+fork_source_pane=$(tmux new-window -d -P -F '#{pane_id}' -t "$TS:" 'sleep 300')
+fork_source_window=$(tmux display-message -p -t "$fork_source_pane" '#{window_id}')
+fork_source_cli="$fork_bin/claude --source-flag"
+printf 'mode=up\nwindow=%s\ncwd=%s\n' "$fork_source_window" "$session_project" > "$fork_dir/meta"
+: > "$fork_dir/board.tsv"
+: > "$fork_dir/channel.log"
+printf 'lead\t%s\t%s\tadopted\n' "$fork_source_pane" "$fork_source_cli" > "$fork_dir/panes"
+printf 'lead\tclaude\t%s\tfork-source-id\n' "$session_project" > "$fork_dir/sessions.tsv"
+tmux set-option -p -t "$fork_source_pane" @crew_session session-fork
+tmux set-option -p -t "$fork_source_pane" @crew_role lead
+cat > "$fork_bin/claude" <<EOF
+#!/bin/bash
+printf '%s\n' "\$@" > "$CREW_HOME/fork-cli-args"
+exec -a claude /bin/bash -c '
+  IFS= read -r first_message
+  printf '{}\n' > "$fork_home/projects/$claude_slug/fork-created-id.jsonl"
+  exec -a claude /bin/sleep 300
+'
+EOF
+chmod +x "$fork_bin/claude"
+check 'fork has no native session file before its first input' \
+  test ! -f "$fork_home/projects/$claude_slug/fork-created-id.jsonl"
+check 'crew add accepts fork:source role syntax' \
+  env CREW_BOOT_WAIT=4 "$CREW" -s session-fork add forked=fork:lead ordinary=cat
+check 'fork CLI creates its native file only after its first input' \
+  test -f "$fork_home/projects/$claude_slug/fork-created-id.jsonl"
+check 'forked role keeps a pending ID and launch epoch after add' \
+  awk -F '\t' '$1=="forked" && $2=="claude" && $4=="" && $5 ~ /^[0-9]+$/{f=1} END{exit !f}' \
+    "$fork_dir/sessions.tsv"
+check 'forked role lazily captures its own ID on a later crew command' \
+  env CLAUDE_CONFIG_DIR="$fork_home" CREW_SESSION=session-fork CREW_AGENT=forked \
+    "$CREW" -s session-fork status
+check 'forked role records its own first-input session ID' \
+  awk -F '\t' '$1=="forked" && $2=="claude" && $4=="fork-created-id"{f=1} END{exit !f}' \
+    "$fork_dir/sessions.tsv"
+check 'source session ID remains pinned beside the fork ID' \
+  awk -F '\t' '$1=="lead" && $4=="fork-source-id"{f=1} END{exit !f}' \
+    "$fork_dir/sessions.tsv"
+check 'forked role keeps the source CLI spec for later resume' \
+  awk -F '\t' -v cli="$fork_source_cli" '$1=="forked" && $3==cli && $4=="spawned"{f=1} END{exit !f}' "$fork_dir/panes"
+check 'regular additions keep their own launch command beside a fork' \
+  awk -F '\t' '$1=="ordinary" && $3=="cat" && $4=="spawned"{f=1} END{exit !f}' "$fork_dir/panes"
+check 'fork command receives source flags and exact native session ID' \
+  awk 'NR==1&&$0=="--source-flag"{a=1} NR==2&&$0=="--resume"{b=1} NR==3&&$0=="fork-source-id"{c=1} NR==4&&$0=="--fork-session"{d=1} END{exit !(a&&b&&c&&d)}' "$CREW_HOME/fork-cli-args"
+"$CREW" -s session-fork down >/dev/null 2>&1

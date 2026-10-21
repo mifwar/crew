@@ -37,7 +37,7 @@ crew — coding agents working together in tmux
       --here           split the calling window instead of opening a new one
       --in <session>   tmux session for the new window (default: the caller's)
   crew adopt <name> role=<pane> ...                   use panes you already have (%7, .2, 6.1)
-  crew add role=<cli spec|%pane> ...                 add agents to a running crew (spawn or adopt)
+  crew add role=<cli spec|%pane|fork:role> ...       add agents to a running crew (spawn, adopt, or fork)
   crew rebind <role> [pane]                           point a role at another pane (default: this one)
   crew session <role> [id]                            show or pin a role's native session ID
   crew resume <role>                                  resume that role in this unbound tmux pane
@@ -573,15 +573,32 @@ cmd_adopt() {
 
 cmd_add() {
   resolve_session; resolve_me
-  [ $# -gt 0 ] || die 'usage: crew add role=<cli spec|%pane> ...'
-  local specs=() spec role cli pane origin got i new_roles="" win="" cwd needs_spawn=0 launch_time
+  [ $# -gt 0 ] || die 'usage: crew add role=<cli spec|%pane|fork:role> ...'
+  local specs=() launch_specs=() spec role cli launch_cli source_role source_cli id pane origin got i new_roles="" win="" cwd needs_spawn=0 launch_time
   for spec in "$@"; do
-    case "$spec" in *=*) ;; *) die "expected role=<cli spec|%pane>: $spec" ;; esac
+    case "$spec" in *=*) ;; *) die "expected role=<cli spec|%pane|fork:role>: $spec" ;; esac
   done
   check_roles "$@"
   lock panes
   [ ! -f "$D/ended" ] || die "crew '$S' has ended"
-  resolve_pane_specs add "$@"
+  # A fork uses the source role's exact native session while retaining its CLI
+  # spec in the roster for future resume and status operations.
+  for spec in "$@"; do
+    role="${spec%%=*}"; cli="${spec#*=}"; launch_cli="$cli"
+    case "$cli" in
+      fork:*)
+        source_role="${cli#fork:}"
+        check_name "$source_role"
+        source_cli=$(session_role_cli "$source_role")
+        [ -n "$source_cli" ] || die "no source agent '$source_role' in crew $S"
+        id=$(session_id_for_role "$source_role")
+        launch_cli=$(session_fork_command "$source_cli" "$id")
+        cli="$source_cli" ;;
+    esac
+    specs+=("$role=$cli")
+    launch_specs+=("$launch_cli")
+  done
+  resolve_pane_specs add "${specs[@]}"
   # Validate the entire batch under the same lock as rebind and override.
   for spec in "${specs[@]}"; do
     IFS='|' read -r role pane origin cli <<< "$spec"
@@ -617,7 +634,7 @@ cmd_add() {
     [ "$origin" = spawned ] || continue
     launch_time=$(date +%s)
     session_record_launch "$role" "$launch_time" || true
-    start_agent "$role" "$pane" "$cli"
+    start_agent "$role" "$pane" "${launch_specs[$i]}"
   done
   unlock
   for spec in "${specs[@]}"; do

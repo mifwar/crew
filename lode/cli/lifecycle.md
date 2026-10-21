@@ -58,10 +58,11 @@ renders role files, rings the intro into every pane. Nothing is started or
 moved. Adopted agents can't get `CREW_*` env vars, so identity comes from the
 pane-id lookup.
 
-## `crew add role=<cli spec|%pane> …`
+## `crew add role=<cli spec|%pane|fork:role> …`
 
 ```sh
 crew -s voucher add "rev2=pi" impl2=%12
+crew -s voucher add rev2=fork:lead
 ```
 
 - Requires a running crew. Holds `.panes.lock` for initial validation, releases
@@ -73,9 +74,19 @@ crew -s voucher add "rev2=pi" impl2=%12
   must contain an owned crew pane; if agents moved, use the first owned pane's
   window instead. With no owned pane, rebind or adopt a pane before spawning.
   Use `meta cwd` and propagate `CREW_HOME`, `CREW_SESSION`, `CREW_AGENT`.
-- Spawn each CLI spec through the shared pane helper, which sets the crew
-  environment and working directory, types the command verbatim, waits for a
-  stable screen, and checks `detect_cli`. A failed command closes its pane and
+- `role=fork:<source-role>` creates a spawned role by forking the source's
+  native conversation. It uses the source role's recorded or safely discovered
+  exact session ID and native CLI command; if another same-CLI role makes the
+  source ambiguous, pin its ID first with `crew session <source-role> <id>`.
+  The new role keeps the source CLI spec in `panes`; fork-specific native
+  options are used only for its launch. Crew records a launch epoch with a
+  blank ID before starting it. A later role command lazily captures the ID
+  after the CLI creates its native file; pin it explicitly if capture is
+  ambiguous.
+- Spawn each resolved command through the shared pane helper, which sets the
+  crew environment and working directory, waits for a stable screen, and checks
+  `detect_cli`. Plain CLI specs are typed verbatim; fork specs add only that
+  provider's native fork arguments. A failed command closes its pane and
   leaves the roster unchanged. Record a successful start as `spawned`.
   `%pane` adopts an unlabelled existing pane, keeps its window, detects its
   CLI, and records it as `adopted`.
