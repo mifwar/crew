@@ -60,8 +60,9 @@ and [pi.md](pi.md) have their checks.
    and `tmux list-sessions` from inside it).
 2. Check its status bar contains something `MODEL_RE` matches; extend the
    regex in **both** `bin/crew` and `share/crew/web.ts`.
-3. Check `detect_cli` names it (first non-shell process on the pane's tty); if
-   its launcher is a wrapper, extend the shell skip-list or `short_cli`/`shortCli`.
+3. Check `detect_cli` names it (first known agent, else first non-shell process
+   on the pane's tty); add it to the known-agent case there, and if its launcher
+   is a wrapper, extend the shell skip-list or `short_cli`/`shortCli`.
 4. Check whether its shell tool has a tty; if it does, a non-member instance
    would be labelled `you (terminal)` — note that in its file.
 5. Add a file here with its flags and quirks, and a row to the table above.

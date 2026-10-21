@@ -219,15 +219,21 @@ short_cli() {
 
 # The agent program running in a pane, from its tty's process list (the first
 # non-shell process). Better than #{pane_current_command}, which shows claude
-# as its version (2.1.284) and pi as node.
+# as its version (2.1.284) and pi as node. A known agent wins over helpers
+# that started earlier on the same tty (a hook's `caffeinate` made the lead
+# read as unknown, so its draft hold was skipped and a doorbell landed in it).
 detect_cli() { # pane
-  local tty w rest
+  local tty w rest first=""
   tty=$(tmux display-message -p -t "$1" '#{pane_tty}' 2>/dev/null) || return 0
-  ps -o args= -t "${tty#/dev/}" 2>/dev/null | while read -r w rest; do
+  while read -r w rest; do
     w="${w##*/}"; w="${w#-}"
     case "$w" in zsh|bash|sh|fish|dash|login|tmux|"") continue ;; esac
-    printf '%s' "$w"; break
-  done
+    case "$(short_cli "$w")" in claude|codex|pi) printf '%s' "$w"; return 0 ;; esac
+    [ -n "$first" ] || first="$w"
+  done <<EOF
+$(ps -o args= -t "${tty#/dev/}" 2>/dev/null)
+EOF
+  printf '%s' "$first"
 }
 # "%7", ".2", "6.1" → pane id. tmux 3.5 prints nothing and exits 0 for a
 # missing pane, so empty output counts as not found.

@@ -87,9 +87,13 @@ using the shared observer in `share/crew/watch.sh`; see [watch.md](watch.md).
 
 ## Agent names (`detect_cli`)
 
-Labels and `panes` use the program found in the pane's tty process list (the
-first non-shell process in `ps -o args= -t <tty>`), falling back to
-`#{pane_current_command}`. That turns Claude's `2.1.284` and pi's `node` into
+Labels, `panes` and the doorbell's draft hold (`pane_hold`) use the program
+found in the pane's tty process list: the first known agent (`claude`, `codex`,
+`pi`, or a version-named Claude) in `ps -o args= -t <tty>`, else the first
+non-shell process, falling back to `#{pane_current_command}`. A known agent
+wins because helpers can start earlier on the same tty (a hook's
+`caffeinate -i -t 300` made the lead read as unknown, so its draft was not
+held and a `watch --ring` doorbell was appended to the human's typing). That turns Claude's `2.1.284` and pi's `node` into
 `claude` / `pi` for adopted, `--self` and rebound panes. Spawned panes use the
 role spec. `short_cli` still maps a bare version to `claude` for old files.
 

@@ -47,6 +47,14 @@ check "roles/rev.md from rev template"  grep -q 'You review' "$D/roles/rev.md"
 check "role file points to the live roster" grep -qF "For the current roster, read \`$D/panes\`" "$D/roles/lead.md"
 check "pane labelled with role"         test "$(tmux display -p -t "$impl" '#{@crew_role}')" = impl
 
+# A helper started earlier on the tty (a hook's caffeinate) must not hide the agent.
+mkdir -p "$CREW_HOME/helper"; ln -s /bin/cat "$CREW_HOME/helper/codex"
+helper=$(tmux new-window -d -P -F '#{pane_id}' -t "$TS" "sleep 300 & sleep 0.3; exec '$CREW_HOME/helper/codex'")
+sleep 1
+check "detect_cli prefers the agent over an earlier helper" \
+  test "$(bash -c "$(sed -n '/^short_cli()/,/^}/p;/^detect_cli()/,/^}/p' "$CREW"); detect_cli $helper")" = codex
+tmux kill-pane -t "$helper"
+
 # 16 prefix bytes + 52 ASCII bytes put byte 70 inside the final arrow.
 utf8_message="$(printf '%052d' 0)→ café 😀 tail"
 as impl send lead "$utf8_message" >/dev/null
