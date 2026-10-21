@@ -116,8 +116,9 @@ Roles are bound to tmux pane ids (`%124`). Ids are stable for a pane's life
 them), so users can rearrange freely and add their own panes (e.g. nvim).
 Ids restart after a tmux **server** restart, so an old crew's `%144` can
 become an unrelated session — hence `owns_pane` ([messaging.md](messaging.md)).
-If an agent's pane is closed and the agent restarted elsewhere, fix it with
-`crew rebind`.
+If an agent's pane is closed and the agent restarted elsewhere, fix the pane
+mapping with `crew rebind`. To restore the native conversation too, run
+`crew resume <role>` inside a new unbound pane; see [sessions.md](sessions.md).
 
 ## `crew rebind <role> [pane] [--intro]`
 

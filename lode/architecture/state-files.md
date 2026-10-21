@@ -8,6 +8,7 @@ flowchart TD
   home["~/.crew/"] --> cur[".current  (name of the default crew)"]
   home --> d["name/"]
   d --> panes["panes  role⇥pane⇥cli⇥origin"]
+  d --> sessions["sessions.tsv  role⇥cli⇥cwd⇥session-id"]
   d --> meta["meta  key=value"]
   d --> board["board.tsv  id⇥owner⇥status⇥dep⇥out⇥title⇥evidence"]
   d --> log["channel.log  time⇥kind⇥from⇥to⇥text"]
@@ -37,6 +38,18 @@ rev2	%133	codex -c sandbox_workspace_write.network_access=true …	spawned
   tasks; completed task owners and output paths stay unchanged.
 - `origin` is `spawned` or `adopted`. Files written before this column existed
   have 3 fields; readers default a missing origin to `spawned`.
+
+## `sessions.tsv`
+
+```
+lead\tclaude\t/private/tmp/project\t8eaf…
+```
+
+Optional exact session IDs are keyed by role, CLI and the crew's recorded cwd.
+`crew session <role> <id>` pins one explicitly; a unique newest native session
+is recorded automatically on first lookup. A different CLI or cwd makes the
+record stale and ignored. Native store layouts and ambiguity handling are in
+[../cli/sessions.md](../cli/sessions.md).
 
 ## `meta`
 

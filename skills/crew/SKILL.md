@@ -191,6 +191,11 @@ Startup dialogs receive no input: answer them yourself, then use the printed
   current-crew pointer. It never types into, unlabels or closes panes; files
   stay. Partial crews are reported and kept. Other commands never auto-sweep.
 - An agent moved to another pane: `crew rebind <role> <pane>` (or run it inside the new pane).
+- To restore a role's native conversation after its pane is gone, run
+  `crew resume <role>` inside a new unbound tmux pane. If multiple same-CLI
+  roles share the project folder, pin the intended ID first with
+  `crew session <role> <session-id>`; `crew session <role>` prints or discovers
+  the role's ID. `rebind` alone keeps the pane mapping but does not resume context.
 - If a tool shell inherits a missing/foreign `TMUX_PANE`, matching
   `CREW_SESSION` / `CREW_AGENT` hints identify its role only while that role's
   recorded pane still belongs to the crew. Actual crew-pane bindings take

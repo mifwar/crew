@@ -39,6 +39,8 @@ crew — coding agents working together in tmux
   crew adopt <name> role=<pane> ...                   use panes you already have (%7, .2, 6.1)
   crew add role=<cli spec|%pane> ...                 add agents to a running crew (spawn or adopt)
   crew rebind <role> [pane]                           point a role at another pane (default: this one)
+  crew session <role> [id]                            show or pin a role's native session ID
+  crew resume <role>                                  resume that role in this unbound tmux pane
   crew override <role> <replacement-role|pane>       hand a role's ongoing work to another crew agent
   crew override <role>=<cli spec|%pane>              spawn or adopt a successor, then hand over
   crew remove <role> [--keep-pane]                    drop a role: block open tasks, close/unlabel its pane
@@ -216,6 +218,8 @@ short_cli() {
   case "$w" in [0-9]*.[0-9]*) w=claude ;; esac
   printf '%s' "$w"
 }
+
+. "$CREW_SHARE/sessions.sh"
 
 # The agent program running in a pane, from its tty's process list (the first
 # non-shell process). Better than #{pane_current_command}, which shows claude
@@ -970,6 +974,60 @@ cmd_rebind() {
   fi
 }
 
+cmd_session() {
+  resolve_session; resolve_me
+  [ $# -ge 1 ] && [ $# -le 2 ] || die 'usage: crew session <role> [session-id]'
+  local role="$1" id="${2:-}"
+  [ -n "$(pane_of "$role")" ] || die "no agent '$role' in crew $S"
+  lock panes
+  if [ -n "$id" ]; then
+    record_session_id "$role" "$id"
+    echo "recorded $role session $id"
+  else
+    id=$(session_id_for_role "$role")
+    echo "$id"
+  fi
+  unlock
+}
+
+cmd_resume() {
+  resolve_session; resolve_me
+  [ $# -eq 1 ] || die 'usage: crew resume <role> (run inside a new, unbound tmux pane)'
+  local role="$1" old new got labels cli agent id cwd win
+  new="${TMUX_PANE:-}"
+  [ -n "$new" ] || die 'crew resume must run inside a tmux pane'
+  new=$(pane_id "$new") || die "no tmux pane '${TMUX_PANE:-}'"
+  lock panes
+  [ ! -f "$D/ended" ] || die "crew '$S' has ended"
+  old=$(pane_of "$role"); [ -n "$old" ] || die "no agent '$role' in crew $S"
+  owns_pane "$old" "$role" && die "$role still has an owned pane; resume only after that pane is gone or unlabelled"
+  got=$(awk -F '\t' -v p="$new" '$2==p {print $1; exit}' "$D/panes")
+  [ -z "$got" ] || { [ "$got" = "$role" ] && [ "$old" = "$new" ]; } \
+    || die "$new is already '$got' in this crew"
+  labels=$(tmux display-message -p -t "$new" '#{@crew_session}/#{@crew_role}')
+  [ "$labels" = / ] || die "$new is labelled as ${labels#*/} in crew ${labels%%/*}; use an unlabelled pane"
+  cli=$(session_role_cli "$role"); [ -n "$cli" ] || die "no agent '$role' in crew $S"
+  agent=$(short_cli "$cli")
+  case "$agent" in claude|codex|pi) ;; *) die "session resume is not supported for $agent" ;; esac
+  id=$(session_id_for_role "$role")
+  cwd=$(meta cwd); [ -d "$cwd" ] || die "crew working directory is missing: $cwd"
+  awk -F '\t' -v OFS='\t' -v r="$role" -v p="$new" '$1==r {$2=p; $4="adopted"} {print}' \
+    "$D/panes" > "$D/panes.tmp"
+  mv "$D/panes.tmp" "$D/panes"
+  label_pane "$new" "$role" "$cli"
+  win=$(tmux display-message -p -t "$new" '#{window_id}')
+  style_window "$win"
+  unlock
+  log_line sys "$ME" "$role" "$ME resumed $role from $agent session $id in $new (was $old)"
+  export CREW_SESSION="$S" CREW_AGENT="$role" CREW_HOME
+  cd "$cwd"
+  case "$agent" in
+    claude) eval "exec $cli --resume $id" ;;
+    codex) eval "exec $cli resume $id" ;;
+    pi) eval "exec $cli --session $id" ;;
+  esac
+}
+
 cmd_remove() {
   resolve_session; resolve_me
   local role="" keep=0 pane origin how open_ids kill_later=""
@@ -1212,6 +1270,8 @@ case "$cmd" in
   say) cmd_say "$@" ;;
   note) cmd_note "$@" ;;
   rebind) cmd_rebind "$@" ;;
+  session) cmd_session "$@" ;;
+  resume) cmd_resume "$@" ;;
   remove) cmd_remove "$@" ;;
   override) cmd_override "$@" ;;
   restyle) cmd_restyle ;;

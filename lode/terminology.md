@@ -18,6 +18,7 @@ flowchart LR
 - rebind - pointing a role at a different pane without recreating the crew.
 - evidence - a file (command + output) attached to a task with `--evidence` to back a "ran/verified" claim.
 - detect_cli - naming a pane's agent from its tty process list (fixes `2.1.284` / `node`).
+- session ID - the native conversation identifier stored by Claude Code, Codex or pi; crew can pin it to a role for resume/fork.
 - role spec - `role=cli` argument to `crew up` or `crew add`; everything after `=` is typed verbatim into the new pane (flags included).
 - spawned pane - a pane `crew up` or `crew add` created; `crew down` closes it.
 - adopted pane - a pane that already existed (`crew adopt`, `crew up --self`, `crew add role=%pane`); `crew down` only removes its labels.
