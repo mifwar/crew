@@ -1062,7 +1062,7 @@ cmd_resume() {
   cwd=$(meta cwd); [ -d "$cwd" ] || die "crew working directory is missing: $cwd"
   # exec runs in this non-interactive bash, so aliases and functions don't resolve.
   command -v "${cli%% *}" >/dev/null || die "can't run '${cli%% *}' from here (aliases and functions don't apply); nothing was changed"
-  awk -F '\t' -v OFS='\t' -v r="$role" -v p="$new" '$1==r {$2=p; $4="adopted"} {print}' \
+  awk -F '\t' -v OFS='\t' -v r="$role" -v p="$new" '$1==r {$2=p; $4="adopted"} $1!=r && $2==p {$2="%gone"} {print}' \
     "$D/panes" > "$D/panes.tmp"
   mv "$D/panes.tmp" "$D/panes"
   label_pane "$new" "$role" "$cli"

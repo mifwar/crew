@@ -79,8 +79,9 @@ session_candidates() { # cli cwd [mtime|birth] [launch-epoch] [role] -> time<TAB
       while IFS= read -r file; do
         id="${file##*/}"; id="${id%.jsonl}"
         case "$id" in ''|*[!A-Za-z0-9_.-]*) continue ;; esac
-        [ -z "$intro" ] || grep -qF -- "$intro" "$file" 2>/dev/null || continue
         if [ "$time_mode" = birth ]; then stamp=$(session_created_at "$file"); else stamp=$(session_mtime "$file"); fi
+        [ "$time_mode" != birth ] || [ -z "$launch_epoch" ] || [ "$stamp" -ge "$launch_epoch" ] || continue
+        [ -z "$intro" ] || grep -qF -- "$intro" "$file" 2>/dev/null || continue
         printf '%s\t%s\n' "$stamp" "$id"
       done < <(session_find_files "$dir" '*.jsonl' "$recent_minutes" subagents)
       ;;
@@ -93,8 +94,9 @@ session_candidates() { # cli cwd [mtime|birth] [launch-epoch] [role] -> time<TAB
         [ "$file_cwd" = "$cwd" ] || continue
         id=$(printf '%s\n' "$header" | sed -nE 's/.*"id"[[:space:]]*:[[:space:]]*"([A-Za-z0-9_.-]+)".*/\1/p' | head -n 1)
         [ -n "$id" ] || continue
-        [ -z "$intro" ] || grep -qF -- "$intro" "$file" 2>/dev/null || continue
         if [ "$time_mode" = birth ]; then stamp=$(session_created_at "$file"); else stamp=$(session_mtime "$file"); fi
+        [ "$time_mode" != birth ] || [ -z "$launch_epoch" ] || [ "$stamp" -ge "$launch_epoch" ] || continue
+        [ -z "$intro" ] || grep -qF -- "$intro" "$file" 2>/dev/null || continue
         printf '%s\t%s\n' "$stamp" "$id"
       done < <(session_find_files "$root" 'rollout-*.jsonl' "$recent_minutes")
       ;;
@@ -110,8 +112,9 @@ session_candidates() { # cli cwd [mtime|birth] [launch-epoch] [role] -> time<TAB
       while IFS= read -r file; do
         id="${file##*/}"; id="${id%.jsonl}"; id="${id##*_}"
         case "$id" in ''|*[!A-Za-z0-9_.-]*) continue ;; esac
-        [ -z "$intro" ] || grep -qF -- "$intro" "$file" 2>/dev/null || continue
         if [ "$time_mode" = birth ]; then stamp=$(session_created_at "$file"); else stamp=$(session_mtime "$file"); fi
+        [ "$time_mode" != birth ] || [ -z "$launch_epoch" ] || [ "$stamp" -ge "$launch_epoch" ] || continue
+        [ -z "$intro" ] || grep -qF -- "$intro" "$file" 2>/dev/null || continue
         printf '%s\t%s\n' "$stamp" "$id"
       done < <(session_find_files "$dir" '*.jsonl' "$recent_minutes")
       ;;

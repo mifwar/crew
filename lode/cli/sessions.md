@@ -67,7 +67,8 @@ bash (aliases and functions don't) before touching the roster. It accepts the
 role's own labelled pane once no agent runs there, and a pane id that matches
 another role's dead row. Limit: the recorded spec is extended verbatim
 (`--resume <id>`), so compound specs (`a; b`) and specs ending in a prompt
-argument misbehave; adopted pi or node-wrapped codex record `node` and refuse.
+argument misbehave. A role that crashed before its first input has no
+transcript: pin its ID or re-spawn it instead of resuming; adopted pi or node-wrapped codex record `node` and refuse.
 
 ## Forking a role
 

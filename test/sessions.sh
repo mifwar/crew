@@ -160,6 +160,8 @@ tmux set-option -p -t "$bad_pane" @crew_session ""
 tmux set-option -p -t "$bad_pane" @crew_role ""
 check 'resume takes a pane id that matches another role stale row' \
   env FAKE_SESSION_ARGS="$CREW_HOME/session-args3" FAKE_SESSION_CWD="$CREW_HOME/session-cwd3" TMUX_PANE="$bad_pane" "$CREW" -s session-resume-reuse resume lead
+check 'whoami resolves the resumed pane to the resumed role, not the dead row' \
+  bash -c 'TMUX_PANE="$1" "$2" -s session-resume-reuse whoami 2>&1 | grep -q "^lead "' _ "$bad_pane" "$CREW"
 tmux kill-pane -t "$bad_pane" 2>/dev/null || true
 
 start_home="$CREW_HOME/start-config"
