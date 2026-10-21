@@ -270,7 +270,10 @@ codex `-c` value (seen 2026-09-30) leaves the pane at a prompt. The intro would
 then run as a shell command too. So `up` checks `detect_cli` after
 `wait_ready`: no non-shell process means the agent isn't running. This check is
 used for spawned agents in `up` and `add`; adoption may take a pane the human
-runs a shell in.
+runs a shell in. A live pane always lists at least its shell, so an empty `ps`
+list means ps itself is blocked (a sandboxed caller, seen 2026-10-21 inside a
+Codex workspace sandbox), not a failed command: crew says so and sends the
+intro anyway.
 
 Mid-session approval prompts are the same hazard for every doorbell (see
 [messaging.md](messaging.md)); their text, from the CLI binaries (claude
