@@ -430,8 +430,14 @@ start_agent() { # role pane spec — never amend the user's command
 settle_agent() { # role pane
   wait_ready "$2" || echo "crew: $1 did not settle in ${BOOT_WAIT}s, sending intro anyway" >&2
   owns_pane "$2" "$1" || return 0
-  # A shell error in the verbatim spec leaves only the shell running.
-  if [ -z "$(detect_cli "$2")" ]; then
+  # A shell error in the verbatim spec leaves only the shell running. A live
+  # pane always lists its shell, so no processes at all means ps is blocked
+  # (e.g. a sandboxed caller): we can't tell, so don't call it a failure.
+  local tty; tty=$(tmux display-message -p -t "$2" '#{pane_tty}' 2>/dev/null)
+  if [ -z "$(ps -o pid= -t "${tty#/dev/}" 2>/dev/null)" ]; then
+    echo "crew: can't list $1's processes ($2; ps blocked, e.g. by a sandbox); sending intro anyway" >&2
+    intro "$1" "$2"; refresh_model "$2"
+  elif [ -z "$(detect_cli "$2")" ]; then
     echo "crew: $1 ($2) is back at a shell prompt, so its command failed; no intro sent. Last line: $(tmux capture-pane -p -t "$2" | sed '/^[[:space:]]*$/d' | tail -n 1). Quote any [...] or * in the role spec, then rebind the role or restart the crew." >&2
   else intro "$1" "$2"; refresh_model "$2"; fi
 }

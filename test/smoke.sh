@@ -759,6 +759,14 @@ check "failed command gets no intro"    bash -c "! tmux capture-pane -p -J -t $g
 check "  and crew says it failed"       bash -c "printf '%s' \"\$1\" | grep -q 'back at a shell prompt'" _ "$err"
 "$CREW" -s gone down >/dev/null 2>&1
 
+# A blocked ps (sandboxed caller) is not a failed command: intro still sent.
+mkdir -p "$CREW_HOME/noprocs" && printf '#!/bin/sh\nexit 1\n' > "$CREW_HOME/noprocs/ps" && chmod +x "$CREW_HOME/noprocs/ps"
+err=$(PATH="$CREW_HOME/noprocs:$PATH" "$CREW" up blind --in "$TS" "b=cat" 2>&1 >/dev/null)
+blind=$(awk -F'\t' '$1=="b"{print $2}' "$CREW_HOME/blind/panes")
+check "blocked ps still sends the intro" screen_has "$blind" "You are agent 'b'"
+check "  and says ps is blocked, not failed" bash -c 'printf "%s" "$1" | grep -q "ps blocked" && ! printf "%s" "$1" | grep -q "back at a shell prompt"' _ "$err"
+"$CREW" -s blind down >/dev/null 2>&1
+
 # Grow a running crew, preserving custom instructions and adopting safely.
 "$CREW" up expand --in "$TS" lead=cat rev=cat >/dev/null 2>&1
 E="$CREW_HOME/expand"
