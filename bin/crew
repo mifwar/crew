@@ -45,8 +45,8 @@ crew — coding agents working together in tmux
   crew send <role[,role…]|@all|you> <message>         message agents (@all: lead/you only)
   crew say <role[,role…]|@all> <message>              same, but only for the human at a terminal
   crew note <text>                                    add a note to the timeline
-  crew task add --to <role> [--dep T1] [--out out/x.md] [--msg ..] <title>   ({id} → new id; warns on review-only roles)
-  crew task set <id> <queued|working|done|blocked|needs-input> [--out <file>] [--evidence <file>] [--force]
+  crew task add --to <role> [--dep T1] [--out out/x.md] [--gate "<cmd>"] [--msg ..] <title>   ({id} → new id; warns on review-only roles)
+  crew task set <id> <queued|working|done|blocked|needs-input> [--out <file>] [--evidence <file>] [--force]   (owner's done runs the task's --gate)
   crew task next-id                                   id the next task add will use
   crew lock [--name build] [--max N] -- <cmd...>     crew-wide command semaphore (default max 1)
   crew board                                          task board
@@ -706,18 +706,21 @@ cmd_task() {
   local sub="${1:-}"; shift || true
   case "$sub" in
     add)
-      local to="" dep="" msg="" title="" out=""
+      local to="" dep="" msg="" title="" out="" gate=""
       while [ $# -gt 0 ]; do
         case "$1" in
           --to) to="$2"; shift 2 ;;
           --dep) dep="$2"; shift 2 ;;
           --msg) msg="$2"; shift 2 ;;
           --out) out="$2"; shift 2 ;;
+          --gate) gate="$(oneline "$2")"; shift 2 ;;
           *) title="${title:+$title }$1"; shift ;;
         esac
       done
       [ -n "$to" ] && [ -n "$title" ] || die 'usage: crew task add --to <role> [--dep T1] [--msg ..] <title>'
       [ -n "$(pane_of "$to")" ] || die "no agent '$to'"
+      # A gate runs shell commands, so only lead or you may plant one.
+      [ -z "$gate" ] || [ "$ME" = lead ] || [ "$ME" = you ] || die "only lead or you can set a --gate"
       # A rendered role file can carry the explicit review-only marker. A task
       # whose title or --msg names review work is what that role is for; warn
       # only on the rest, so the guard doesn't become noise that gets tuned out.
@@ -736,7 +739,7 @@ cmd_task() {
       case "$out" in ""|out/*) ;; */*) die "--out must be out/<name>.md" ;; *) out="out/$out" ;; esac
       [ -z "$out" ] || printf '%s' "$out" | grep -Eq '^out/[A-Za-z0-9._-]+\.md$' || die "--out must be out/<name>.md"
       [ -n "$out" ] || out="out/$id-$to.md"
-      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$id" "$to" queued "${dep:--}" "$out" "$(oneline "$title")" - >> "$D/board.tsv"
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$id" "$to" queued "${dep:--}" "$out" "$(oneline "$title")" - "${gate:--}" >> "$D/board.tsv"
       unlock
       log_line sys "$ME" "$to" "$ME added $id → $to: $title"
       set_pane_status "$to" "$id queued"
@@ -754,6 +757,25 @@ cmd_task() {
         esac
       done
       case "$st" in queued|working|done|blocked|needs-input) ;; *) die "bad status: $st" ;; esac
+      # A gate command runs before the lock (it can be slow) and only for a caller
+      # the owner (so it runs in the owner's own shell); its output is the evidence unless one is given.
+      if [ "$st" = done ] && [ -z "$force" ]; then
+        local gcmd gowner gcwd glog grc=0
+        gcmd=$(awk -F'\t' -v id="$id" '$1==id{print $8; exit}' "$D/board.tsv")
+        gowner=$(awk -F'\t' -v id="$id" '$1==id{print $2; exit}' "$D/board.tsv")
+        if [ -n "$gcmd" ] && [ "$gcmd" != - ] && [ "$ME" != "$gowner" ]; then
+          die "$id has a gate; its owner runs it with 'task set $id done', or pass --force"
+        fi
+        if [ -n "$gcmd" ] && [ "$gcmd" != - ]; then
+          gcwd=$(meta cwd); [ -d "$gcwd" ] || die "crew working directory is missing: $gcwd"
+          glog="out/$id-gate.log"
+          printf '$ %s\n' "$gcmd" > "$D/$glog"
+          (cd "$gcwd" && bash -c "$gcmd") >> "$D/$glog" 2>&1 || grc=$?
+          printf '[exit %s]\n' "$grc" >> "$D/$glog"
+          [ -n "$ev" ] || ev="$glog"
+          [ "$grc" -eq 0 ] || die "$id stays open: gate '$gcmd' exited $grc (output: $D/$glog); fix it or --force"
+        fi
+      fi
       lock board
       resolve_me
       local owner rowout last; owner=$(awk -F'\t' -v id="$id" '$1==id{print $2; exit}' "$D/board.tsv")

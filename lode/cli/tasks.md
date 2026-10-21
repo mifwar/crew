@@ -11,12 +11,12 @@ stateDiagram-v2
   needs_input --> working
 ```
 
-## `crew task add --to <role> [--dep T1] [--out out/x.md] [--msg "…"] <title…>`
+## `crew task add --to <role> [--dep T1] [--out out/x.md] [--gate "<cmd>"] [--msg "…"] <title…>`
 
 `--out` (bare `x.md` becomes `out/x.md`; anything else must match
 `^out/[A-Za-z0-9._-]+\.md$`) names the task's one result file; the default is
 `out/<id>-<owner>.md`. Under the board lock: id = `T<rows+1>`, append
-`id⇥owner⇥queued⇥dep|-⇥out⇥title⇥-`. Then: log a `sys` line, set the owner's
+`id⇥owner⇥queued⇥dep|-⇥out⇥title⇥-⇥gate|-`. Then: log a `sys` line, set the owner's
 `@crew_status` to `Tn queued`, and `crew send` the owner (so there is no need
 for the lead to also message them):
 
@@ -82,6 +82,19 @@ CRLF blank row after `STATUS: DONE` — behave like LF ones.
 `--force` skips the check and logs `[forced]` on the `set` line, so the board
 history shows the shortcut. The gate applies to `lead` and `you` too. Only
 `done` is gated; moving a task to `blocked` still does not need an exit file.
+
+### `--gate "<cmd>"`: a command that must pass for `done`
+
+Stored (one line) in column 8. `set … done` runs it with `bash -c` in the crew's
+project dir (`meta cwd`) **before** taking the board lock, so a slow test run
+can't make other writers time out; only for a caller allowed to set the task.
+Output goes to `out/<id>-gate.log` (`$ cmd`, output, `[exit N]`) and becomes the
+evidence unless `--evidence` is given. Non-zero exit: `Tn stays open: gate … exited N`.
+Only `lead`/`you` may add a gate, and only the task's owner runs it (in the
+owner's own shell and permissions); lead/you marking a gated task done are
+refused unless `--force`. A gate guards against honest mistakes, not proof: the
+owner can fake its own log, and role labels are advisory.
+`--force` skips the gate like the result-file check. Other statuses never run it.
 
 ## Locking
 
