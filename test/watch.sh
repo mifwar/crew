@@ -13,7 +13,16 @@ styled_blanks=$(awk 'BEGIN { for (i=0; i<30; i++) printf "\033[2m  \033[0m\n" }'
 check 'observer ignores styled whitespace-only rows' observe_is 'error||Connection error' codex 'Connection error' "$styled_blanks"
 check 'observer does not call a working editor idle' observe_is 'busy||' codex 'Working… esc to interrupt' '› '
 check 'Codex generation status beats its empty prompt' observe_is 'busy||' codex '• Working (1h 06m 49s • esc to interrupt)' '› '
+check 'Codex Working row stays busy with background terminal suffix' \
+  observe_is 'busy||' codex \
+  '• Working (1h 06m 49s • esc to interrupt) · 1 background terminal running · /ps to view · /stop to close' \
+  'Tip: You can ask Codex to explain a change.' '› ' 'gpt-5.3-codex medium · ? for shortcuts'
+check 'Codex Waiting row stays busy with background terminal suffix' \
+  observe_is 'busy||' codex \
+  '• Waiting for background terminal (4h 18m 04s • esc to interrupt) · 1 background terminal running · /ps to view · /stop to close' \
+  'Tip: You can ask Codex to explain a change.' '› ' 'gpt-5.3-codex medium · ? for shortcuts'
 check 'transcript working text does not suppress an idle prompt' observe_is 'idle||' codex 'I am working on the assigned task.' '› '
+check 'transcript prose about interrupt does not look busy' observe_is 'idle||' codex 'The transcript says press esc to interrupt it when asked.' '› '
 for prose in 'Working tree is clean.' 'Thinking through the result is complete.'; do
   check "completed response stays idle: $prose" observe_is 'idle||' codex "$prose" '› Ask Codex to do anything'
 done
