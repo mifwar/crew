@@ -62,8 +62,9 @@ session_find_files() { # directory pattern recent-minutes [skip-subagents]
   fi
 }
 
-session_candidates() { # cli cwd [mtime|birth] [launch-epoch] -> time<TAB>id rows
-  local cli="$1" cwd="$2" time_mode="${3:-mtime}" launch_epoch="${4:-}" root dir file id stamp header file_cwd slug recent_minutes
+session_candidates() { # cli cwd [mtime|birth] [launch-epoch] [role] -> time<TAB>id rows; with a role, only files holding its intro line
+  local cli="$1" cwd="$2" time_mode="${3:-mtime}" launch_epoch="${4:-}" intro="" root dir file id stamp header file_cwd slug recent_minutes
+  [ -z "${5:-}" ] || intro="You are agent '$5' in crew '$S'"
   if recent_minutes=$(session_recent_minutes "$launch_epoch"); then
     :
   else
@@ -78,6 +79,7 @@ session_candidates() { # cli cwd [mtime|birth] [launch-epoch] -> time<TAB>id row
       while IFS= read -r file; do
         id="${file##*/}"; id="${id%.jsonl}"
         case "$id" in ''|*[!A-Za-z0-9_.-]*) continue ;; esac
+        [ -z "$intro" ] || grep -qF -- "$intro" "$file" 2>/dev/null || continue
         if [ "$time_mode" = birth ]; then stamp=$(session_created_at "$file"); else stamp=$(session_mtime "$file"); fi
         printf '%s\t%s\n' "$stamp" "$id"
       done < <(session_find_files "$dir" '*.jsonl' "$recent_minutes" subagents)
@@ -91,6 +93,7 @@ session_candidates() { # cli cwd [mtime|birth] [launch-epoch] -> time<TAB>id row
         [ "$file_cwd" = "$cwd" ] || continue
         id=$(printf '%s\n' "$header" | sed -nE 's/.*"id"[[:space:]]*:[[:space:]]*"([A-Za-z0-9_.-]+)".*/\1/p' | head -n 1)
         [ -n "$id" ] || continue
+        [ -z "$intro" ] || grep -qF -- "$intro" "$file" 2>/dev/null || continue
         if [ "$time_mode" = birth ]; then stamp=$(session_created_at "$file"); else stamp=$(session_mtime "$file"); fi
         printf '%s\t%s\n' "$stamp" "$id"
       done < <(session_find_files "$root" 'rollout-*.jsonl' "$recent_minutes")
@@ -107,6 +110,7 @@ session_candidates() { # cli cwd [mtime|birth] [launch-epoch] -> time<TAB>id row
       while IFS= read -r file; do
         id="${file##*/}"; id="${id%.jsonl}"; id="${id##*_}"
         case "$id" in ''|*[!A-Za-z0-9_.-]*) continue ;; esac
+        [ -z "$intro" ] || grep -qF -- "$intro" "$file" 2>/dev/null || continue
         if [ "$time_mode" = birth ]; then stamp=$(session_created_at "$file"); else stamp=$(session_mtime "$file"); fi
         printf '%s\t%s\n' "$stamp" "$id"
       done < <(session_find_files "$dir" '*.jsonl' "$recent_minutes")
@@ -123,6 +127,9 @@ record_session_id() { # role id; caller holds the panes lock
   local role="$1" id="$2" cli cwd launch_epoch tmp="$D/sessions.tsv.tmp"
   case "$id" in ''|*[!A-Za-z0-9_.-]*) die "bad session id: $id" ;; esac
   cli=$(session_role_cli "$role"); [ -n "$cli" ] || die "no agent '$role' in crew $S"
+  if [ -f "$D/sessions.tsv" ] && awk -F '\t' -v r="$role" -v i="$id" '$1!=r && $4==i {f=1} END {exit !f}' "$D/sessions.tsv"; then
+    die "session $id is already recorded for another role; fork it with 'crew add <role>=fork:<source>' instead"
+  fi
   cwd=$(meta cwd)
   launch_epoch=$(awk -F '\t' -v r="$role" '$1==r {print $5; exit}' "$D/sessions.tsv" 2>/dev/null || true)
   case "$launch_epoch" in ''|*[!0-9]*) launch_epoch="" ;; esac
@@ -165,6 +172,12 @@ EOF
   printf '%s' "$id"
 }
 
+session_forget() { # role -> drop its row: the binding no longer follows the recorded conversation
+  [ -f "$D/sessions.tsv" ] || return 0
+  awk -F '\t' -v r="$1" '$1!=r {print}' "$D/sessions.tsv" > "$D/sessions.tsv.tmp"
+  mv "$D/sessions.tsv.tmp" "$D/sessions.tsv"
+}
+
 session_launch_epoch() { # role -> launch epoch when CLI and cwd still match
   local role="$1" cli cwd row saved_cli saved_cwd start
   [ -f "$D/sessions.tsv" ] || return 1
@@ -187,7 +200,7 @@ session_capture_role_locked() { # role; caller holds the panes lock
   agent=$(short_cli "$cli"); cwd=$(meta cwd)
   case "$agent" in claude|codex|pi) ;; *) return 1 ;; esac
   start=$(session_launch_epoch "$role") || return 1
-  candidates=$(session_candidates "$agent" "$cwd" birth "$start" | awk -F '\t' -v start="$start" '$1 >= start' | sort -rn)
+  candidates=$(session_candidates "$agent" "$cwd" birth "$start" "$role" | awk -F '\t' -v start="$start" '$1 >= start' | sort -rn)
   [ -n "$candidates" ] || return 1
   if [ -f "$D/sessions.tsv" ]; then
     recorded_ids=$(awk -F '\t' -v r="$role" '$1!=r && $4!="" {print $4}' "$D/sessions.tsv" | tr '\n' ' ')
@@ -252,9 +265,11 @@ session_id_for_role() { # role -> recorded ID, lazy launch ID, or safe legacy fa
   done < "$D/panes"
   [ "$other" = 0 ] || die "can't identify $role's $agent session: another $agent role shares $cwd; pin the exact ID with 'crew -s $S session $role <id>'"
   start=$(session_crew_start)
-  candidates=$(session_candidates "$agent" "$cwd" | awk -F '\t' -v start="$start" '$1 >= start' | sort -rn)
+  candidates=$(session_candidates "$agent" "$cwd" mtime "" "$role" | awk -F '\t' -v start="$start" '$1 >= start' | sort -rn)
   [ -n "$candidates" ] || die "no $agent session found for $cwd since crew start; record its ID with 'crew -s $S session $role <id>'"
-  id=$(printf '%s\n' "$candidates" | head -n 1 | cut -f 2)
+  [ "$(printf '%s\n' "$candidates" | wc -l)" -le 1 ] \
+    || die "more than one $agent session in $cwd carries $role's intro; pin the exact ID with 'crew -s $S session $role <id>'"
+  id=$(printf '%s\n' "$candidates" | cut -f 2)
   record_session_id "$role" "$id"
   printf 'crew: using newest %s session %s for %s (only this %s role uses %s); recorded it for the role\n' "$agent" "$id" "$role" "$agent" "$cwd" >&2
   printf '%s' "$id"

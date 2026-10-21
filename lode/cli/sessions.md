@@ -34,14 +34,18 @@ looks up a role, crew checks for files whose creation time is at or after that
 launch epoch (`stat -f %B`, with a platform fallback). Before reading file
 headers, `find -mmin` prunes files whose modification time predates the launch
 window, rounded up with one minute of slack; the creation-time check remains
-the final cutoff. It records only one unassigned candidate; zero or multiple
-matches leave the ID unset. This also handles same-CLI roles launched
+the final cutoff. A candidate counts only if its file contains the role's intro
+line (`You are agent '<role>' in crew '<crew>'`), so the human's own sessions,
+`claude -p` helpers and other roles' files never match; this also lets
+same-CLI roles launched together each find their own file. It records only
+one unassigned candidate; zero or multiple matches leave the ID unset. This also handles same-CLI roles launched
 separately once an earlier role's ID has been recorded.
 
 If an exact ID is already recorded for the role, crew uses it. Otherwise,
 fallback discovery considers only native sessions created at or after the
 crew's `created_epoch` (or its `created` timestamp for older crews), and only
-when no other role with the same CLI shares that project folder. If same-CLI
+when no other role with the same CLI shares that project folder, and only
+files with the role's intro line; two such files make it refuse. If same-CLI
 roles share a folder, lookup fails with a command to pin the intended ID using
 `crew session <role> <id>`. Explicit IDs are checked for safe characters but
 not verified against a provider API.
@@ -53,6 +57,17 @@ record is ignored after either changes. A user can inspect or replace a
 mapping with `crew session <role>` or `crew session <role> <id>`; the latter
 serializes with pane roster writes. If a pending role has no unique new
 session, lookup refuses and tells the user to pin its ID explicitly.
+`crew session <role> <id>` refuses an ID already recorded for another role.
+A role's row is dropped when its binding changes to a pane crew did not spawn
+(`rebind`, `remove`, adopting `add`, adopting `override`), so a new occupant
+never inherits the previous one's conversation.
+
+`crew resume` checks that the CLI's first word resolves in a non-interactive
+bash (aliases and functions don't) before touching the roster. It accepts the
+role's own labelled pane once no agent runs there, and a pane id that matches
+another role's dead row. Limit: the recorded spec is extended verbatim
+(`--resume <id>`), so compound specs (`a; b`) and specs ending in a prompt
+argument misbehave; adopted pi or node-wrapped codex record `node` and refuse.
 
 ## Forking a role
 
@@ -79,14 +94,16 @@ flowchart TD
   exact -- no --> pending{launch epoch recorded?}
   pending -- yes --> launched[find files created after launch]
   launched --> assigned[exclude IDs assigned to other roles]
-  assigned --> unique{exactly one remains?}
+  assigned --> intro[keep files with the role intro line]
+  intro --> unique{exactly one remains?}
   unique -- yes --> store[record exact ID]
   unique -- no --> pin[stop; pin with crew session role id]
   pending -- no --> shared{another same-CLI role in this folder?}
   shared -- yes --> pin[stop; pin with crew session role id]
-  shared -- no --> fresh[filter to sessions newer than crew start]
-  fresh --> newest[choose newest native session]
-  newest --> store
+  shared -- no --> fresh[filter to sessions newer than crew start with the role intro]
+  fresh --> newest{exactly one?}
+  newest -- yes --> store
+  newest -- no --> pin
   use --> resume[exec native resume in new pane]
   store --> resume
   use --> fork[crew add role=fork:source]

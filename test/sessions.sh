@@ -34,6 +34,7 @@ check 'recorded ID resolves even when same-CLI roles share a folder' \
   bash -c 'test "$(CLAUDE_CONFIG_DIR="$1" "$2" -s session-ambiguous session lead)" = claude-exact-id' _ "$claude_home" "$CREW"
 
 session_test_crew session-newest claude
+printf "You are agent 'lead' in crew 'session-newest'\n" > "$claude_dir/claude-new.jsonl"
 touch "$claude_dir/claude-new.jsonl"
 check 'unique Claude role selects and records its newest project transcript' \
   bash -c 'test "$(CLAUDE_CONFIG_DIR="$1" "$2" -s session-newest session lead 2>/dev/null)" = claude-new' _ "$claude_home" "$CREW"
@@ -42,11 +43,30 @@ session_test_crew session-stale claude
 check 'session fallback ignores transcripts older than the crew start' \
   bash -c 'CLAUDE_CONFIG_DIR="$1" "$2" -s session-stale session lead 2>&1 | grep -q "no claude session found"' _ "$claude_home" "$CREW"
 
+session_test_crew session-intro claude
+printf "You are agent 'lead' in crew 'session-intro'\n" > "$claude_dir/intro-a.jsonl"
+printf '{}\n' > "$claude_dir/unrelated.jsonl"
+touch -t 203601010000 "$claude_dir/unrelated.jsonl"
+check 'fallback skips a newer transcript without the role intro' \
+  bash -c 'test "$(CLAUDE_CONFIG_DIR="$1" "$2" -s session-intro session lead 2>/dev/null)" = intro-a' _ "$claude_home" "$CREW"
+session_test_crew session-intro2 claude
+cp "$claude_dir/intro-a.jsonl" "$claude_dir/intro-b.jsonl"
+sed -i.bak 's/session-intro/session-intro2/' "$claude_dir/intro-a.jsonl" "$claude_dir/intro-b.jsonl"; rm -f "$claude_dir"/*.bak
+check 'fallback refuses when two transcripts carry the role intro' \
+  bash -c 'CLAUDE_CONFIG_DIR="$1" "$2" -s session-intro2 session lead 2>&1 | grep -q "more than one"' _ "$claude_home" "$CREW"
+rm -f "$claude_dir/intro-a.jsonl" "$claude_dir/intro-b.jsonl" "$claude_dir/unrelated.jsonl"
+session_test_crew session-pending claude
+printf 'lead\tclaude\t%s\t\t%s\n' "$session_project" "$(date +%s)" > "$CREW_HOME/session-pending/sessions.tsv"
+printf '{}\n' > "$claude_dir/human-session.jsonl"
+check 'pending capture ignores a new transcript without the role intro' \
+  bash -c 'CLAUDE_CONFIG_DIR="$1" "$2" -s session-pending session lead 2>&1 | grep -q "no unique claude session"' _ "$claude_home" "$CREW"
+rm -f "$claude_dir/human-session.jsonl"
+
 codex_home="$CREW_HOME/codex-config"
 codex_dir="$codex_home/sessions/2026/10/21"
 mkdir -p "$codex_dir"
 session_test_crew session-codex codex
-printf '{"timestamp":"2026-10-21T09:00:00Z","type":"session_meta","payload":{"id":"codex-session-id","cwd":"%s"}}\n' \
+printf '{"timestamp":"2026-10-21T09:00:00Z","type":"session_meta","payload":{"id":"codex-session-id","cwd":"%s"}}\nYou are agent '"'lead' in crew 'session-codex'"'\n' \
   "$session_project" > "$codex_dir/rollout-2026-10-21T09-00-00-codex-session-id.jsonl"
 check 'Codex lookup matches rollout metadata to the crew working folder' \
   bash -c 'test "$(CODEX_HOME="$1" "$2" -s session-codex session lead 2>/dev/null)" = codex-session-id' _ "$codex_home" "$CREW"
@@ -92,7 +112,7 @@ tmux kill-pane -t "$codex_prune_pane"
 pi_dir="$CREW_HOME/pi-config"
 mkdir -p "$pi_dir"
 session_test_crew session-pi pi
-printf '{}\n' > "$pi_dir/2026-10-21T10-00-00-000Z_pi-session-id.jsonl"
+printf "You are agent 'lead' in crew 'session-pi'\n" > "$pi_dir/2026-10-21T10-00-00-000Z_pi-session-id.jsonl"
 check 'pi lookup reads the session ID from its project filename' \
   bash -c 'test "$(PI_CODING_AGENT_SESSION_DIR="$1" "$2" -s session-pi session lead 2>/dev/null)" = pi-session-id' _ "$pi_dir" "$CREW"
 
@@ -118,6 +138,30 @@ check 'resume starts in the crew working directory' \
 check 'resume keeps the new pane owned by its role' \
   test "$(tmux display-message -p -t "$resume_pane" '#{@crew_session}/#{@crew_role}')" = session-resume/lead
 
+resume_case() { # name pane cli panes-extra -> crew dir with a saved lead ID
+  local d="$CREW_HOME/$1"
+  mkdir -p "$d"; : > "$d/board.tsv"; : > "$d/channel.log"
+  printf 'mode=up\ncwd=%s\n' "$session_project" > "$d/meta"
+  printf 'lead\t%s\t%s\tspawned\n%s' "$2" "$3" "${4:-}" > "$d/panes"
+  printf 'lead\tclaude\t%s\tresume-case-id\n' "$session_project" > "$d/sessions.tsv"
+}
+resume_case session-resume-bad %999995 /nonexistent/claude
+bad_pane=$(tmux split-window -d -P -F '#{pane_id}' -t "$TS:" 'sleep 300')
+check 'resume refuses before binding when the CLI is not runnable here' \
+  bash -c '! TMUX_PANE="$1" "$2" -s session-resume-bad resume lead >/dev/null 2>&1 && grep -q "%999995" "$3/session-resume-bad/panes" && test "$(tmux display-message -p -t "$1" "#{@crew_role}")" = ""' _ "$bad_pane" "$CREW" "$CREW_HOME"
+resume_case session-resume-own "$bad_pane" "$CREW_HOME/fake-bin/claude"
+tmux set-option -p -t "$bad_pane" @crew_session session-resume-own
+tmux set-option -p -t "$bad_pane" @crew_role lead
+check 'resume reuses the role own labelled pane once its agent has exited' \
+  env FAKE_SESSION_ARGS="$CREW_HOME/session-args2" FAKE_SESSION_CWD="$CREW_HOME/session-cwd2" TMUX_PANE="$bad_pane" "$CREW" -s session-resume-own resume lead
+resume_case session-resume-reuse %999996 "$CREW_HOME/fake-bin/claude" "other	$bad_pane	cat	spawned
+"
+tmux set-option -p -t "$bad_pane" @crew_session ""
+tmux set-option -p -t "$bad_pane" @crew_role ""
+check 'resume takes a pane id that matches another role stale row' \
+  env FAKE_SESSION_ARGS="$CREW_HOME/session-args3" FAKE_SESSION_CWD="$CREW_HOME/session-cwd3" TMUX_PANE="$bad_pane" "$CREW" -s session-resume-reuse resume lead
+tmux kill-pane -t "$bad_pane" 2>/dev/null || true
+
 start_home="$CREW_HOME/start-config"
 start_bin="$CREW_HOME/start-bin"
 start_cli_dir=$(mktemp -d /tmp/c.XXXXXX)
@@ -128,7 +172,7 @@ cat > "$start_bin/claude" <<EOF
 id="\$2"
 exec -a claude /bin/bash -c '
   IFS= read -r first_message
-  : > "$start_home/projects/$start_slug/\$1.jsonl"
+  printf "%s\\n" "\$first_message" > "$start_home/projects/$start_slug/\$1.jsonl"
   exec -a claude /bin/sleep 300
 ' _ "\$id"
 EOF
@@ -174,14 +218,15 @@ check 'override replaces the role mapping with its new CLI session' \
   awk -F '\t' '$1=="lead" && $2=="claude" && $4=="override-lead"{f=1} END{exit !f}' "$CREW_HOME/session-start/sessions.tsv"
 "$CREW" -s session-start down >/dev/null 2>&1
 
-check 'up keeps overlapping same-CLI launch IDs unrecorded' \
+check 'up launches two same-CLI roles whose files appear within one settle' \
   env CREW_NO_SWITCH=1 CREW_BOOT_WAIT=4 CLAUDE_CONFIG_DIR="$start_home" \
     "$CREW" up session-overlap --in "$TS" \
       "lead=$start_cli_dir/claude --id overlap-lead" "rev=$start_cli_dir/claude --id overlap-rev"
-check 'overlapping session lookup refuses to guess' \
-  bash -c 'CLAUDE_CONFIG_DIR="$1" CREW_SESSION=session-overlap CREW_AGENT=lead "$2" -s session-overlap session lead 2>&1 | grep -q "no unique claude session found"' _ "$start_home" "$CREW"
-check 'overlapping sessions stay unrecorded for both roles' \
-  awk -F '\t' '$4!=""{f=1} END{exit f}' "$CREW_HOME/session-overlap/sessions.tsv"
+check 'each overlapping role captures the file holding its own intro' \
+  bash -c 'CLAUDE_CONFIG_DIR="$1" CREW_SESSION=session-overlap CREW_AGENT=lead "$2" -s session-overlap session lead >/dev/null 2>&1
+    CLAUDE_CONFIG_DIR="$1" CREW_SESSION=session-overlap CREW_AGENT=rev "$2" -s session-overlap session rev >/dev/null 2>&1
+    awk -F "\t" "\$1==\"lead\" && \$4==\"overlap-lead\"{a=1} \$1==\"rev\" && \$4==\"overlap-rev\"{b=1} END{exit !(a&&b)}" "$3/session-overlap/sessions.tsv"' \
+    _ "$start_home" "$CREW" "$CREW_HOME"
 "$CREW" -s session-overlap down >/dev/null 2>&1
 unlink "$start_cli_dir/claude"
 rmdir "$start_cli_dir"
@@ -225,7 +270,7 @@ cat > "$fork_bin/claude" <<EOF
 printf '%s\n' "\$@" > "$CREW_HOME/fork-cli-args"
 exec -a claude /bin/bash -c '
   IFS= read -r first_message
-  printf '{}\n' > "$fork_home/projects/$claude_slug/fork-created-id.jsonl"
+  printf "%s\\n" "\$first_message" > "$fork_home/projects/$claude_slug/fork-created-id.jsonl"
   exec -a claude /bin/sleep 300
 '
 EOF
@@ -254,4 +299,11 @@ check 'regular additions keep their own launch command beside a fork' \
   awk -F '\t' '$1=="ordinary" && $3=="cat" && $4=="spawned"{f=1} END{exit !f}' "$fork_dir/panes"
 check 'fork command receives source flags and exact native session ID' \
   awk 'NR==1&&$0=="--source-flag"{a=1} NR==2&&$0=="--resume"{b=1} NR==3&&$0=="fork-source-id"{c=1} NR==4&&$0=="--fork-session"{d=1} END{exit !(a&&b&&c&&d)}' "$CREW_HOME/fork-cli-args"
+check 'session refuses an ID already recorded for another role' \
+  bash -c '! "$1" -s session-fork session forked fork-source-id >/dev/null 2>&1' _ "$CREW"
+rebind_pane=$(tmux new-window -d -P -F '#{pane_id}' -t "$TS:" 'sleep 300')
+"$CREW" -s session-fork rebind forked "$rebind_pane" >/dev/null
+check 'rebind drops the role session row so the old conversation is not reused' \
+  bash -c '! awk -F "\t" "\$1==\"forked\"{f=1} END{exit !f}" "$1/sessions.tsv"' _ "$fork_dir"
 "$CREW" -s session-fork down >/dev/null 2>&1
+tmux kill-pane -t "$rebind_pane" 2>/dev/null || true

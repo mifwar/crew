@@ -208,8 +208,12 @@ capture is ambiguous.
   captures the ID lazily after the CLI creates its first session file. A role
   command, `session`, or `resume` triggers that capture when exactly one new
   unassigned session matches. Ambiguous or missing IDs need an explicit pin.
-  Fallback discovery ignores sessions older than the crew. `rebind` alone keeps
-  the pane mapping but does not resume context.
+  Only transcripts containing the role's intro line count. Fallback discovery
+  ignores sessions older than the crew. `rebind`/`remove`/adopting a pane drops
+  the role's recorded ID. `session <role> <id>` refuses an ID held by another
+  role. `rebind` alone keeps the pane mapping but does not resume context.
+  Resume appends flags to the role's CLI spec, so compound specs (`a; b`)
+  don't work.
 - If a tool shell inherits a missing/foreign `TMUX_PANE`, matching
   `CREW_SESSION` / `CREW_AGENT` hints identify its role only while that role's
   recorded pane still belongs to the crew. Actual crew-pane bindings take
