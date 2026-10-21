@@ -58,5 +58,8 @@ flowchart TD
 3. **SSE for the viewer** instead of 2 s polling, only if polling cost shows up.
 4. **Evidence checks**: warn in `task set … done` when a result file contains
    words like "tests pass" / "verified" but no `--evidence` was given.
+5. **Context-aware completion gate**: normalize CLI percentages that report
+   context used versus context left before warning or gating `task set … done`;
+   `status` currently preserves the raw CLI-specific value.
 
 Related: [declined.md](declined.md), [../summary.md](../summary.md).

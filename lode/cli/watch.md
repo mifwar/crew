@@ -9,7 +9,9 @@ of a row after common UI gutters / `Error:` prefixes; crew doorbell echoes
 are excluded.
 Healthy quota descriptions and completed prose beginning with Working or
 Thinking do not change an idle observation. Busy requires a stop/interrupt
-affordance or a pi activity border. The last 30 nonblank rows supply errors;
+affordance or a pi activity border. A Codex `Working (…) • esc to interrupt`
+row remains busy when an empty `›` prompt is also visible; the generating
+affordance wins over the prompt. The last 30 nonblank rows supply errors;
 the last eight supply input prompts and busy indicators (busy wins over idle).
 Context and 5h percentages are shown only if printed by the CLI, including pi `42%/1.0M`,
 Codex `Context 38% used · 5h 62% left`, and Claude auto-compact/context rows.
@@ -81,7 +83,8 @@ created by stdout mode. The loop exits on the crew's ended marker, SIGINT or
 SIGTERM, cleans its cache, and terminates its current sleep process.
 
 Verification is part of `test/smoke.sh`, via `test/watch.sh`: sample CLI
-footers/errors, busy precedence, duration errors, quiet/debounce transitions,
+footers/errors, Codex generation status above an empty prompt, busy precedence,
+duration errors, quiet/debounce transitions,
 empty board, guarded lead delivery/reused panes, normal-exit cleanup, and
 `draft pending` notes/events from the startup-draft fixtures.
 

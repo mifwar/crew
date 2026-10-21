@@ -12,6 +12,7 @@ check 'observer reads percentage-first context' observe_is 'idle|13% context lef
 styled_blanks=$(awk 'BEGIN { for (i=0; i<30; i++) printf "\033[2m  \033[0m\n" }')
 check 'observer ignores styled whitespace-only rows' observe_is 'error||Connection error' codex 'Connection error' "$styled_blanks"
 check 'observer does not call a working editor idle' observe_is 'busy||' codex 'Working… esc to interrupt' '› '
+check 'Codex generation status beats its empty prompt' observe_is 'busy||' codex '• Working (1h 06m 49s • esc to interrupt)' '› '
 check 'transcript working text does not suppress an idle prompt' observe_is 'idle||' codex 'I am working on the assigned task.' '› '
 for prose in 'Working tree is clean.' 'Thinking through the result is complete.'; do
   check "completed response stays idle: $prose" observe_is 'idle||' codex "$prose" '› Ask Codex to do anything'
