@@ -29,6 +29,11 @@ flowchart TD
   sse[SSE instead of polling]
 ```
 
+Restart recovery uses existing per-role `session`/`resume` or explicit `rebind`.
+A private-server restart regression verifies that reused ids running the same
+CLI remain stale without ownership labels. Historical restored-label behavior
+is unverified; see [../cli/sessions.md](../cli/sessions.md#recovery-after-a-reboot).
+
 ## Open questions
 
 - **pi**: does its shell tool have a tty (would a non-member pi be labelled

@@ -96,6 +96,11 @@ crew — coding agents working together in tmux
   prints why the caller resolved (a `why:` line); a send labelled outside also
   warns on stderr with that reason.
 
+  After a restart: use ls/status to find gone/reused roles. In a new unbound
+  pane, session <role> shows its conversation ID and resume <role> restores it.
+  Use rebind only when the agent conversation is already running elsewhere.
+  A matching CLI/pane id alone never establishes ownership.
+
   Doorbells wait up to CREW_RING_WAIT seconds for a recognised draft to clear
   (default 30, capped at 3600); skipped rings warn and leave the message in the
   inbox. CREW_RING_WAIT=0 checks once and refuses a busy editor immediately;
