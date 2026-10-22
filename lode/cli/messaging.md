@@ -60,8 +60,13 @@ flowchart TD
   message. Easy to miss; keep `crew log -f` or `crew web` open.
 - The doorbell and inbox heading show `sender_label`: the role, `you (terminal)`,
   `you (web)`, or `outside %N (not in this crew)`.
-- `crew say` = `send` that dies unless the caller resolves to `you`. It is the
-  documented way for the human to give decisions.
+- `crew say <role[,role…]|@all> <message>` = `send` that dies unless the caller
+  resolves to `you`. Missing arguments print `say` usage. An agent caller gets
+  a hint to use a terminal outside crew panes or `crew -s <name> web --allow-send`;
+  a Claude Code `!` command still runs in the agent pane.
+  Example: `crew -s demo say lead "Proceed with the agreed scope"`.
+  Decisions given in lead's own human conversation need no repeat via `say`;
+  see [../roles/summary.md](../roles/summary.md#lead-as-the-humans-coordination-point).
 - `crew note <text>` logs `sys: note (<caller>): text` (manual repairs, decisions).
 
 ## Ring hold: never type into a draft
@@ -107,7 +112,7 @@ flowchart LR
 | CLI | editor is | idle | draft |
 |---|---|---|---|
 | claude | the bottom-most `❯` row | blank text or a standalone dim span | any other text |
-| codex | the bottom-most `›` row | nothing, or `Ask Codex to do anything…` (prefix match) | any other text |
+| codex | the bottom-most `›` row and its indented continuation rows | nothing, or `Ask Codex to do anything…` (prefix match) | any other text |
 | pi | a box drawn with `─` | its two border rows are found and the rows between them are empty | any non-empty row between them |
 
 Claude captures retain SGR styling so its standalone dim ghost span can be

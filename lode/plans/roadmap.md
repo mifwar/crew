@@ -18,6 +18,10 @@ Native session discovery, launch-time epoch recording, lazy ID capture,
 role resume, and forking a role's conversation are implemented; fallback
 lookup is limited to sessions from the crew's start and refuses same-CLI
 ambiguity. See [../cli/sessions.md](../cli/sessions.md).
+Lead is the human's coordination point: assignments within agreed scope need
+no repeated human confirmation; workers route questions through lead. `crew say`
+prints its own usage and explains where the human can run it; see
+[../roles/summary.md](../roles/summary.md) and [../cli/messaging.md](../cli/messaging.md).
 What remains are open questions and candidate improvements. When one ships,
 describe it in the matching lode file and delete it here.
 
@@ -33,6 +37,8 @@ flowchart TD
 its binding. A pipeline fixture reproduces filter detection but not a wrong pane;
 the historical Claude `!` wrong-id cause remains unverified. See
 [../cli/lifecycle.md](../cli/lifecycle.md).
+Codex startup retries reconstruct hard-wrapped composer rows and still require
+the complete intro to match; see [../cli/lifecycle.md](../cli/lifecycle.md).
 
 ## Open questions
 
