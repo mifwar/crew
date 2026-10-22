@@ -33,6 +33,10 @@ flowchart TD
   sse[SSE instead of polling]
 ```
 
+Restart recovery uses existing per-role `session`/`resume` or explicit `rebind`.
+A private-server restart regression verifies that reused ids running the same
+CLI remain stale without ownership labels. Historical restored-label behavior
+is unverified; see [../cli/sessions.md](../cli/sessions.md#recovery-after-a-reboot).
 Queued dependency owners receive guarded system notices when their final
 prerequisite becomes done; the board status stays queued until work starts.
 See [../cli/tasks.md](../cli/tasks.md#dependency-readiness-notices).

@@ -229,6 +229,24 @@ blank ID before starting it, then lazily captures the new session ID after the
 CLI creates its native file. Pin it with `crew session <new-role> <id>` if
 capture is ambiguous.
 
+## After a reboot or tmux server restart
+
+1. Run `crew ls` and `crew -s <name> status` to identify dead/reused roles.
+   An existing pane running the same CLI is not automatically the old role.
+2. If the agent and conversation are already running in a new pane, use
+   `crew -s <name> rebind <role> <pane>`; this repairs routing only.
+3. To restore the old conversation, open a new unbound tmux pane and run
+   `crew -s <name> session <role>` to inspect its ID, then
+   `crew -s <name> resume <role>` there. Pin an ambiguous ID with
+   `crew -s <name> session <role> <id>` first. Repeat per role.
+4. If no native transcript remains, restart the user's exact recorded role spec
+   in a fresh pane and rebind it with `--intro`. Recover the task from the board,
+   inboxes and result files. Never add launch flags or guess a conversation ID.
+
+A restored pane with matching crew/role labels counts as owned; `alive` means
+ownership, not proof that its agent responds. A reused id without those labels
+stays stale. Crew does not automatically adopt matching CLI processes.
+
 ## Repair
 
 - `crew ls` shows project, state, per-agent pane liveness, task counts and last
