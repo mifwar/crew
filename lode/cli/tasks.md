@@ -90,7 +90,10 @@ lead to name paths only with `--out` (pi once wrote both files when it wasn't).
 
 Status must be `queued|working|done|blocked|needs-input`. Only the task's
 owner, `lead` or `you` may set it (advisory, like sender labels: it stops a
-worker closing someone else's task by mistake). Under the lock,
+worker closing someone else's task by mistake). An unresolved (`outside`) caller
+fails before any gate or board write, even with `--force`, with the deciding
+identity failure and a `whoami`/per-call hint. Identity is refreshed under the
+lock before authorizing the update. Under the lock,
 rewrites the row via `awk` → `board.tsv.tmp` → `mv`; `--evidence` fills
 column 7 (old 6-column rows gain it). Then updates the owner's
 pane label (only if `owns_pane`) and logs `"<caller> set Tn → status (file)"`
