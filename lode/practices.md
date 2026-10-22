@@ -27,6 +27,7 @@ bash -n share/crew/pane.sh         # sourced pane readers, ring and its hold
 bash -n share/crew/watch.sh        # status observations and foreground watch
 bash -n share/crew/timers.sh       # detached timer workers
 bash -n share/crew/semaphore.sh    # command slots and holder listing
+bash -n share/crew/tasks.sh        # dependency readiness and guarded notices
 test/smoke.sh                     # behaviour; must print "all passed"
 node --check <(sed -n '/<script>/,/<\/script>/p' share/crew/web.html | sed '1d;$d')
 bun build --no-bundle share/crew/web.ts >/dev/null

@@ -72,8 +72,25 @@ Observed in crewfix: rev's pane was `%338`, but its tool shells reported
 `outside %13` and the `diskclean` session. Crew must not trust such hints
 when `CREW_SESSION` does not match the requested crew, so `crew whoami` and
 the outside `crew send` warning name the failed check
-([../cli/messaging.md](../cli/messaging.md)). Restarting the daemon from a
-pane of the wanted crew fixes it; crew does not restart user daemons.
+([../cli/messaging.md](../cli/messaging.md)). The same environment mismatch is
+reproduced with local Codex 0.163.0:
+the tool shell and both managed daemon processes expose `TMUX_PANE=%36` with
+no `CREW_SESSION` or `CREW_AGENT` hints. The historical worker shell was not
+captured, so its exact environment cannot be established retroactively.
+
+Use the role file's explicit **per-call** hints instead of restarting a daemon
+shared with other sessions:
+
+```sh
+CREW_SESSION=<name> CREW_AGENT=<your-role> crew -s <name> whoami
+CREW_SESSION=<name> CREW_AGENT=<your-role> crew -s <name> task set T1 working
+```
+
+Verify `whoami` reports your role first. Hints still require that role's pane to
+pass `owns_pane`; pane bindings take priority, and deliberately detached panes
+stay outside. `task set` rejects unresolved identity before running a gate or
+writing the board, with the failed check and a recovery hint. Crew does not
+restart user daemons or modify the chosen agent launch command.
 
 ## Model
 
