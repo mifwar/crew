@@ -47,6 +47,14 @@ Keep the single quotes around `writable_roots=[…]`: the spec is typed into
 the user’s shell, and zsh treats bare `[...]` as a glob, so Codex fails to
 start with "no matches found". Never choose the unsandboxed option for the user.
 
+Run `up --self` from your actual agent pane, without piping the command through
+`tail` or a pager. Crew validates `TMUX_PANE`, warns if it detects a filter or
+pager, and prints the adopted role, pane and CLI. Check that line; if a command
+runner used a temporary pane, use `crew -s <name> rebind lead <agent-pane>`.
+Crew cannot infer the intended agent pane from a live but wrong `TMUX_PANE`.
+If your CLI refuses to launch the user's chosen spec, give the human the exact
+command to run themselves. Keep the spec unchanged; do not add bypass flags.
+
 Then read the role file the command prints (`~/.crew/<name>/roles/lead.md`)
 and follow it. Tell the user they can watch with `crew log -f` or
 `crew web --open`.

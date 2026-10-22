@@ -46,6 +46,8 @@ check "up creates 3 spawned panes"      test "$(awk -F'\t' '$4=="spawned"' "$D/p
 check "intro typed into lead"           screen_has "$lead" "You are agent 'lead'"
 check "roles/rev.md from rev template"  grep -q 'You review' "$D/roles/rev.md"
 check "role file points to the live roster" grep -qF "For the current roster, read \`$D/panes\`" "$D/roles/lead.md"
+. "$ROOT/test/self.sh"
+
 check "pane labelled with role"         test "$(tmux display -p -t "$impl" '#{@crew_role}')" = impl
 
 # A helper started earlier on the tty (a hook's caffeinate) must not hide the agent.

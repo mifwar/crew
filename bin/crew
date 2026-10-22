@@ -96,6 +96,9 @@ crew — coding agents working together in tmux
   prints why the caller resolved (a `why:` line); a send labelled outside also
   warns on stderr with that reason.
 
+  --self/--here require a live TMUX_PANE. --self prints its adopted pane and
+  CLI; filter/pager CLIs warn because a temporary command pane may be bound.
+
   Doorbells wait up to CREW_RING_WAIT seconds for a recognised draft to clear
   (default 30, capped at 3600); skipped rings warn and leave the message in the
   inbox. CREW_RING_WAIT=0 checks once and refuses a busy editor immediately;
@@ -445,7 +448,7 @@ settle_agent() { # role pane
 }
 
 cmd_up() {
-  local name="" target="" self="" here=0 specs=() spec role cli pane win="" origin created_at created_epoch launch_time
+  local name="" target="" self="" here=0 specs=() spec role cli pane win="" origin created_at created_epoch launch_time caller="${TMUX_PANE:-}" self_cli=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --in) target="$2"; shift 2 ;;
@@ -459,9 +462,10 @@ cmd_up() {
   [ -n "$name" ] && [ ${#specs[@]} -gt 0 ] || die 'usage: crew up <name> [--self <role>] [--here] role=cli ...'
   check_name "$name"
   if [ -n "$self" ] || [ "$here" = 1 ]; then
-    [ -n "${TMUX_PANE:-}" ] || die "--self and --here must run inside a tmux pane"
+    [ -n "$caller" ] || die "--self and --here must run inside a tmux pane"
+    caller=$(pane_id "$caller") || die "TMUX_PANE=$TMUX_PANE is not a live pane; run --self/--here from the agent's actual tmux pane"
   fi
-  check_roles ${self:+"$self=$TMUX_PANE"} "${specs[@]}"
+  check_roles ${self:+"$self=$caller"} "${specs[@]}"
   if [ -z "$target" ]; then
     [ -n "${TMUX:-}" ] || die "run inside tmux, or pass --in <tmux-session>"
     target=$(tmux display-message -p ${TMUX_PANE:+-t "$TMUX_PANE"} '#S')
@@ -469,13 +473,17 @@ cmd_up() {
   init_dir "$name"
 
   if [ -n "$self" ]; then
-    cli=$(pane_cli "$TMUX_PANE")
-    label_pane "$TMUX_PANE" "$self" "$cli"
-    refresh_model "$TMUX_PANE"
-    style_window "$(tmux display-message -p -t "$TMUX_PANE" '#{window_id}')"
-    printf '%s\t%s\t%s\t%s\n' "$self" "$TMUX_PANE" "$cli" adopted >> "$D/panes"
+    self_cli=$(pane_cli "$caller")
+    case "$(short_cli "$self_cli")" in
+      tail|head|less|more|cat)
+        echo "crew: --self sees '$self_cli' in $caller, which may be a temporary command pane. Check the binding below; use crew -s $S rebind $self <agent-pane> if needed." >&2 ;;
+    esac
+    label_pane "$caller" "$self" "$self_cli"
+    refresh_model "$caller"
+    style_window "$(tmux display-message -p -t "$caller" '#{window_id}')"
+    printf '%s\t%s\t%s\t%s\n' "$self" "$caller" "$self_cli" adopted >> "$D/panes"
   fi
-  [ "$here" = 0 ] || win=$(tmux display-message -p -t "$TMUX_PANE" '#{window_id}')
+  [ "$here" = 0 ] || win=$(tmux display-message -p -t "$caller" '#{window_id}')
 
   for spec in "${specs[@]}"; do
     role="${spec%%=*}"; cli="${spec#*=}"
@@ -516,6 +524,7 @@ cmd_up() {
   fi
   echo "ready. files: $D"
   if [ -n "$self" ]; then
+    echo "self: $self bound to $caller ($self_cli, adopted)"
     echo
     echo "You are agent '$self' in crew '$S'. Read $D/roles/$self.md now and follow it for the rest of this session."
   fi
