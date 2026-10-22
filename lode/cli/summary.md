@@ -114,3 +114,23 @@ Lessons:
   some TUIs treat the newline as part of a paste.
 
 Related: [../architecture/summary.md](../architecture/summary.md), [../agents/summary.md](../agents/summary.md).
+
+## Wrapper detection contract
+
+`detect_cli` scans tty processes and prefers a known `claude`, `codex` or `pi`
+process (including version-named Claude) over earlier helpers. Thus `caffeinate`,
+`nice`, `env` and `time` wrappers do not hide the agent when it is visible on the
+tty. The fallback remains the first non-shell process; arbitrary compound shell
+syntax is not parsed. Recorded launch specs stay verbatim. This behavior already
+covers the personal-site wrapper report; no new wrapper-specific production
+branches are needed. `test/wrappers.sh` exercises real OS wrappers around a fake
+Codex and verifies detection, adoption's recorded CLI and pane labels.
+
+```mermaid
+flowchart LR
+  tty[TTY processes including wrappers] --> known{Known agent visible?}
+  known -- yes --> agent[Prefer agent]
+  known -- no --> fallback[First non-shell process]
+```
+
+Related: [../agents/summary.md](../agents/summary.md), [lifecycle.md](lifecycle.md).

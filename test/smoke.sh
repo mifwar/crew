@@ -55,6 +55,7 @@ sleep 1
 check "detect_cli prefers the agent over an earlier helper" \
   test "$(bash -c "$(sed -n '/^short_cli()/,/^}/p;/^detect_cli()/,/^}/p' "$CREW"); detect_cli $helper")" = codex
 tmux kill-pane -t "$helper"
+. "$ROOT/test/wrappers.sh"
 
 # 16 prefix bytes + 52 ASCII bytes put byte 70 inside the final arrow.
 utf8_message="$(printf '%052d' 0)→ café 😀 tail"

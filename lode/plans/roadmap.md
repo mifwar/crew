@@ -29,6 +29,10 @@ flowchart TD
   sse[SSE instead of polling]
 ```
 
+The wrapper report is covered by existing agent-first tty detection. Smoke
+exercises real `caffeinate`, `nice`, `env` and `time` wrappers plus adoption;
+see [../cli/summary.md](../cli/summary.md#wrapper-detection-contract).
+
 ## Open questions
 
 - **pi**: does its shell tool have a tty (would a non-member pi be labelled
