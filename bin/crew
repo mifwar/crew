@@ -100,6 +100,8 @@ crew — coding agents working together in tmux
   (default 30, capped at 3600); skipped rings warn and leave the message in the
   inbox. CREW_RING_WAIT=0 checks once and refuses a busy editor immediately;
   web sends use it to avoid waiting. Dialog and tmux mode checks stay active.
+  Startup retries one Enter only for the complete original intro; Codex composer
+  continuation rows are joined for that comparison. Other drafts stay untouched.
 
   Watch defaults: --every 120 seconds, --quiet-after 10m of unchanged pane/task
   text before idle notices. Errors and empty-board notices are immediate.
