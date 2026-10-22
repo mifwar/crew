@@ -112,7 +112,7 @@ flowchart LR
 | CLI | editor is | idle | draft |
 |---|---|---|---|
 | claude | the bottom-most `❯` row | blank text or a standalone dim span | any other text |
-| codex | the bottom-most `›` row | nothing, or `Ask Codex to do anything…` (prefix match) | any other text |
+| codex | the bottom-most `›` row and its indented continuation rows | nothing, or `Ask Codex to do anything…` (prefix match) | any other text |
 | pi | a box drawn with `─` | its two border rows are found and the rows between them are empty | any non-empty row between them |
 
 Claude captures retain SGR styling so its standalone dim ghost span can be

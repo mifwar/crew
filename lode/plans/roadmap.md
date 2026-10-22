@@ -33,6 +33,9 @@ flowchart TD
   sse[SSE instead of polling]
 ```
 
+Codex startup retries reconstruct hard-wrapped composer rows and still require
+the complete intro to match; see [../cli/lifecycle.md](../cli/lifecycle.md).
+
 ## Open questions
 
 - **pi**: does its shell tool have a tty (would a non-member pi be labelled

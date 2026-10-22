@@ -357,6 +357,7 @@ box() { # pane [content] — a pi editor box, cursor left below it
 # argument is "pane_width pane_height cursor_y"). A missed border here is a
 # doorbell typed into a draft.
 . "$ROOT/share/crew/pane.sh"
+. "$ROOT/test/intro.sh"
 pi_box() { # want(w|idle) dims row...
   local want="$1" dims="$2" got; shift 2
   got=$(printf '%s\n' "$@" | pi_box_draft "$dims")

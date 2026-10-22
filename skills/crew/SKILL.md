@@ -160,8 +160,9 @@ crew lock --name checks --max 2 -- ./run-checks
   hidden/unrecognised editors and border-like pi draft rows with the cursor
   elsewhere can escape detection. Never treat the hold as a safety guarantee.
 - Crew's own startup line gets one retry if a starting CLI swallows the Enter
-  (`crew up`/`add` press Enter again only while the editor holds exactly that
-  line, then warn with the `tmux send-keys -t %P Enter` hint). `crew status`
+  (`crew up`/`add` reconstruct Codex composer continuation rows and press
+  Enter again only while the editor holds exactly that line, then warn with the
+  `tmux send-keys -t %P Enter` hint). `crew status`
   and `crew watch` show `draft pending: doorbells are held` for such an editor.
 - Verify every finding against the code before relaying it. Claims of "tests
   pass" / "verified" need an evidence file.
