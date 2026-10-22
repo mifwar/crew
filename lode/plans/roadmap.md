@@ -33,6 +33,9 @@ flowchart TD
   sse[SSE instead of polling]
 ```
 
+The wrapper report is covered by existing agent-first tty detection. Smoke
+exercises real `caffeinate`, `nice`, `env` and `time` wrappers plus adoption;
+see [../cli/summary.md](../cli/summary.md#wrapper-detection-contract).
 Restart recovery uses existing per-role `session`/`resume` or explicit `rebind`.
 A private-server restart regression verifies that reused ids running the same
 CLI remain stale without ownership labels. Historical restored-label behavior

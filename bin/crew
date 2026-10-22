@@ -107,6 +107,9 @@ crew — coding agents working together in tmux
   Use rebind only when the agent conversation is already running elsewhere.
   A matching CLI/pane id alone never establishes ownership.
 
+  Agent detection prefers known Claude/Codex/pi processes over tty helpers,
+  including caffeinate, nice, env and time. Launch specs stay unchanged.
+
   Doorbells wait up to CREW_RING_WAIT seconds for a recognised draft to clear
   (default 30, capped at 3600); skipped rings warn and leave the message in the
   inbox. CREW_RING_WAIT=0 checks once and refuses a busy editor immediately;

@@ -229,6 +229,12 @@ blank ID before starting it, then lazily captures the new session ID after the
 CLI creates its native file. Pin it with `crew session <new-role> <id>` if
 capture is ambiguous.
 
+Agent detection scans the pane tty for a known Claude Code, Codex or pi process
+before falling back to a helper. An agent behind `caffeinate`, `nice`, `env` or
+`time` is therefore recorded as the agent for adoption/self binding and draft
+checks. If no known agent is visible, crew retains the detected fallback; it
+does not guess through arbitrary shell syntax or rewrite the launch spec.
+
 ## After a reboot or tmux server restart
 
 1. Run `crew ls` and `crew -s <name> status` to identify dead/reused roles.
