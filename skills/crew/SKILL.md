@@ -224,6 +224,13 @@ capture is ambiguous.
   recorded pane still belongs to the crew. Actual crew-pane bindings take
   priority; a detached unlabelled pane stays outside. `crew whoami` prints the
   deciding check, and an outside `crew send` repeats that reason on stderr.
-  These are advisory labels.
+  These are advisory labels. In Codex 0.163.0 the long-lived app-server can
+  supply its own stale environment (including a dead `TMUX_PANE` and no crew
+  hints). Use a per-call prefix from your rendered role file, for example
+  `CREW_SESSION=<name> CREW_AGENT=<your-role> crew -s <name> whoami`, then
+  keep that prefix on subsequent crew calls. Verify your role first; never
+  borrow another role. No daemon restart or launch flag change is needed.
+  Unresolved `task set` calls fail before gates or board writes and explain
+  the failed identity check and recovery command.
 - Borders look wrong: `crew restyle`.
 - Done: `crew down` (closes panes crew started; keeps yours; files stay).

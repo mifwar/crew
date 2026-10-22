@@ -94,7 +94,10 @@ crew — coding agents working together in tmux
   anything else (e.g. an agent that isn't in the crew) is "outside". This is a
   label to stop accidental relays, not a security boundary. `crew whoami`
   prints why the caller resolved (a `why:` line); a send labelled outside also
-  warns on stderr with that reason.
+  warns on stderr with that reason. Unresolved task setters fail before any gate
+  or board write. For a dead/foreign tool-shell pane, use explicit per-call hints:
+    CREW_SESSION=<name> CREW_AGENT=<your-role> crew -s <name> whoami
+  Verify your own role before using that prefix for other crew calls.
 
   Doorbells wait up to CREW_RING_WAIT seconds for a recognised draft to clear
   (default 30, capped at 3600); skipped rings warn and leave the message in the
@@ -798,6 +801,7 @@ cmd_task() {
         esac
       done
       case "$st" in queued|working|done|blocked|needs-input) ;; *) die "bad status: $st" ;; esac
+      [ "$ME" != outside ] || die "cannot set $id as outside: $WHY; run crew -s $S whoami. If your tool shell inherited a dead/foreign pane, prefix crew calls with CREW_SESSION=$S CREW_AGENT=<your-role> and verify whoami first."
       # A gate command runs before the lock (it can be slow) and only for a caller
       # the owner (so it runs in the owner's own shell); its output is the evidence unless one is given.
       if [ "$st" = done ] && [ -z "$force" ]; then
@@ -822,7 +826,7 @@ cmd_task() {
       local owner rowout last; owner=$(awk -F'\t' -v id="$id" '$1==id{print $2; exit}' "$D/board.tsv")
       [ -n "$owner" ] || die "no task $id"
       # Advisory like sender labels: catches a worker closing someone else's task.
-      [ "$ME" = "$owner" ] || [ "$ME" = lead ] || [ "$ME" = you ] || die "$id is $owner's; only $owner, lead or you can set it"
+      [ "$ME" = "$owner" ] || [ "$ME" = lead ] || [ "$ME" = you ] || die "$id is $owner's; only $owner, lead or you can set it (caller: $ME; $WHY; see crew -s $S whoami)"
       # done needs the named result file to say so; --force is the logged escape
       # hatch, so a task can't be closed on a missing or blocked result.
       if [ "$st" = done ] && [ -z "$force" ]; then

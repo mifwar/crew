@@ -134,6 +134,7 @@ tmux set-option -p -t "$foreign_pane" @crew_session t
 check "identity rejects an unbound pane labelled to this crew" bash -c 'CREW_SESSION=t CREW_AGENT=impl TMUX_PANE="$2" "$1" whoami | grep -q "^outside "' _ "$CREW" "$foreign_pane"
 check "  and says the same-crew pane is bound to no role" bash -c 'CREW_SESSION=t CREW_AGENT=impl TMUX_PANE="$2" "$1" whoami | grep -q "^why: TMUX_PANE $2 is labelled for crew t but bound to no role"' _ "$CREW" "$foreign_pane"
 check "fallback identity can update its own task" bash -c 'CREW_SESSION=t CREW_AGENT=lead TMUX_PANE=%999999 "$1" task add --to impl identity-check > "$2" && CREW_SESSION=t CREW_AGENT=impl TMUX_PANE=%999999 "$1" task set "$(cat "$2")" done --force' _ "$CREW" "$CREW_HOME/identity-task"
+. "$ROOT/test/identity.sh"
 # Existing board count assertions expect the first task to be T1 below.
 : > "$D/board.tsv"
 check "identity fallback refuses an unknown env role" bash -c 'CREW_SESSION=t CREW_AGENT=absent TMUX_PANE=%999999 "$1" whoami | grep -q "^outside "' _ "$CREW"
