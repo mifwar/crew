@@ -119,6 +119,12 @@ crew lock --name checks --max 2 -- ./run-checks
   rendered role file carries the review-only marker and the title/`--msg`
   names no review work; it still records the task. Only `lead` or `you` can
   `crew remove` a role.
+- `--dep T1,T2` lists prerequisite task ids. When the last prerequisite changes
+  to `done`, queued dependents receive a `system` unblock notice through their
+  inbox and guarded doorbell. Repeating `done` is quiet; blocked/working/done
+  tasks are not resumed. The owner sets `working` when starting. The notice is
+  computed under the board lock and delivered after release; skipped rings
+  stay in the inbox. Dependencies are advisory, not a completion gate.
 - Each task names one result file (`--out`); results end in `STATUS:` or `FINAL:`.
   `task set … done` reads that file and refuses unless its last non-empty line
   starts with `STATUS: DONE` or `FINAL:` (`STATUS: BLOCKED`/`PARTIAL` leave the

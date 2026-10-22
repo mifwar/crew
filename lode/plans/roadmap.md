@@ -33,6 +33,9 @@ flowchart TD
   sse[SSE instead of polling]
 ```
 
+Queued dependency owners receive guarded system notices when their final
+prerequisite becomes done; the board status stays queued until work starts.
+See [../cli/tasks.md](../cli/tasks.md#dependency-readiness-notices).
 `up --self` validates the caller pane, warns on filter/pager detection and prints
 its binding. A pipeline fixture reproduces filter detection but not a wrong pane;
 the historical Claude `!` wrong-id cause remains unverified. See
