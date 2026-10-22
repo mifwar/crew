@@ -18,6 +18,10 @@ Native session discovery, launch-time epoch recording, lazy ID capture,
 role resume, and forking a role's conversation are implemented; fallback
 lookup is limited to sessions from the crew's start and refuses same-CLI
 ambiguity. See [../cli/sessions.md](../cli/sessions.md).
+Lead is the human's coordination point: assignments within agreed scope need
+no repeated human confirmation; workers route questions through lead. `crew say`
+prints its own usage and explains where the human can run it; see
+[../roles/summary.md](../roles/summary.md) and [../cli/messaging.md](../cli/messaging.md).
 What remains are open questions and candidate improvements. When one ships,
 describe it in the matching lode file and delete it here.
 
@@ -32,6 +36,19 @@ flowchart TD
 The wrapper report is covered by existing agent-first tty detection. Smoke
 exercises real `caffeinate`, `nice`, `env` and `time` wrappers plus adoption;
 see [../cli/summary.md](../cli/summary.md#wrapper-detection-contract).
+Restart recovery uses existing per-role `session`/`resume` or explicit `rebind`.
+A private-server restart regression verifies that reused ids running the same
+CLI remain stale without ownership labels. Historical restored-label behavior
+is unverified; see [../cli/sessions.md](../cli/sessions.md#recovery-after-a-reboot).
+Queued dependency owners receive guarded system notices when their final
+prerequisite becomes done; the board status stays queued until work starts.
+See [../cli/tasks.md](../cli/tasks.md#dependency-readiness-notices).
+`up --self` validates the caller pane, warns on filter/pager detection and prints
+its binding. A pipeline fixture reproduces filter detection but not a wrong pane;
+the historical Claude `!` wrong-id cause remains unverified. See
+[../cli/lifecycle.md](../cli/lifecycle.md).
+Codex startup retries reconstruct hard-wrapped composer rows and still require
+the complete intro to match; see [../cli/lifecycle.md](../cli/lifecycle.md).
 
 ## Open questions
 
@@ -40,7 +57,9 @@ see [../cli/summary.md](../cli/summary.md#wrapper-detection-contract).
 - **Codex tool-shell identity**: answered — tool calls run through a shared,
   detached app-server daemon and inherit its stale `CREW_*`/`TMUX_PANE`
   ([../agents/codex.md](../agents/codex.md)). Candidate: detect the stale
-  daemon and explain how to restart it from the right crew pane.
+  daemon automatically. Current recovery uses verified per-call role hints
+  without restarting any shared process; unresolved task updates explain the
+  failure and recovery command before gates or writes.
 - **Draft detection coverage**: the ring hold reads rendered text. Claude Code's
   standalone dim ghost spans are empty; other prompt text remains a draft.
   Pi border-like draft rows can look empty with the cursor elsewhere, and

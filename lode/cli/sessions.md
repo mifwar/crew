@@ -14,6 +14,26 @@ crew -s pr42 resume lead                  # run inside a new unbound tmux pane
 crew -s pr42 add rev2=fork:lead           # start a new role from lead's context
 ```
 
+## Recovery after a reboot
+
+Inspect `crew ls` and `crew -s <name> status` first. A dead role or a reused id
+needs explicit recovery; do not adopt a process just because its CLI matches.
+If its conversation is already running in another pane, use `rebind`. Otherwise
+open a new unbound pane, inspect/pin `crew -s <name> session <role> [id]`, then
+run `crew -s <name> resume <role>` there. Repeat per role. No native transcript
+means resume cannot reconstruct it: launch the user's exact recorded spec in a
+fresh pane, `rebind <role> <pane> --intro`, then recover from board/log/results.
+Do not add flags or guess IDs. Resume keeps the recorded launch spec and adds
+only native conversation-selection arguments.
+
+A private-server smoke fixture ends its sole tmux session, starts a new server
+with the same pane id and same `cat` CLI but no ownership labels, and verifies
+status/listing mark it reused, send retains the inbox without ringing, and down
+leaves the unrelated pane open. This reproduces id reuse safely. It does not
+establish how the historical personal-site worker regained matching labels.
+Restored matching crew/role labels count as owned; `alive` is an ownership check,
+not proof of responsiveness. See [messaging.md](messaging.md#ownership-guard-owns_pane).
+
 ## Discovery and ambiguity
 
 IDs come from the CLI's native store under the current user's home. Crew uses

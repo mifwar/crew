@@ -13,12 +13,16 @@ stateDiagram-v2
 1. Parse `--in <tmux-session>`, `--self <role>`, `--here`; anything else
    starting with `-` is an error; `x=y` args are role specs.
 2. Target session: `--in`, else the caller's (`display -p -t "$TMUX_PANE" '#S'`).
-   `--self`/`--here` require `$TMUX_PANE`.
+   `--self`/`--here` require a live `$TMUX_PANE`, resolved before creating
+   crew files. A missing/dead id fails without leaving a crew directory.
 3. `check_roles` on every spec (and `--self`): valid name, non-empty value,
    no duplicates. It runs before anything exists, so a bad spec can't leave
    orphan panes or a crew dir that blocks the name.
    Then `init_dir`: refuse if the crew is up; move an ended one aside; create dirs.
-4. `--self R`: label the caller's pane as `R`, record it as `adopted`.
+4. `--self R`: label the validated caller pane as `R`, record it as `adopted`.
+   Warn when its detected CLI is a filter/pager (`tail`, `head`, `less`, `more`,
+   `cat`), and print the role, pane and CLI near the final output. Do not guess
+   a different pane: a live but incorrect `TMUX_PANE` needs explicit `rebind`.
 5. For each spec: first pane via `new-window -d -n <name>` (or, with `--here`,
    `split-window` into the caller's window), the rest via `split-window` +
    `select-layout tiled`. Each gets `-e CREW_SESSION -e CREW_AGENT -e CREW_HOME`
@@ -42,6 +46,12 @@ stateDiagram-v2
 crew up voucher lead=claude impl=codex rev=pi          # new window "voucher"
 crew up pr358 --self lead --here "rev2=codex -c …" rev=pi   # agent starts its own crew
 ```
+
+A pipeline fixture running `crew up --self lead --here … | tail -20` inside a
+throwaway pane keeps the correct pane id but detects the pipeline's `tail` as
+the CLI. This reproduces filter detection, not the historical wrong-id report.
+The report's Claude `!` transient-pane cause remains unverified. Avoid a pipe,
+check the printed binding and rebind explicitly if needed.
 
 `--here` re-tiles the caller's window, resizing the user's existing panes.
 
@@ -309,7 +319,10 @@ A CLI still starting can swallow ring's Enter, leaving crew's intro as a
 draft that then holds every later doorbell (pi did this for hours in
 `ringrace`). After a typed intro, `intro_submit` waits (~3 s, bounded), and if
 the editor still holds a draft it presses Enter once more — but only when
-`draft_text` shows the editor holds exactly the line crew typed, so no other
+`draft_text` shows the editor holds exactly the line crew typed. Codex composer
+continuation rows are reconstructed even when they are hard-wrapped by the UI
+and tmux `capture-pane -J` cannot join them. Extra text is retained for the exact
+comparison; a matching prefix alone never permits submission. Thus no other
 draft is ever submitted. Still a draft after that prints a warning with the
 `tmux send-keys -t %P Enter` hint; there is no loop. `crew status`/`crew watch`
 flag the state as `draft pending: doorbells are held` ([watch.md](watch.md)).

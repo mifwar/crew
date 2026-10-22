@@ -3,7 +3,7 @@
 `crew` runs several coding-agent CLIs (Claude Code, Codex, pi) as a team inside
 tmux. It is a Bash entrypoint (`bin/crew`, macOS bash 3.2 compatible) with
 a sourced listing/sweep module and a sourced pane module (`share/crew/listing.sh`,
-`share/crew/pane.sh`), a shared status/watch module (`share/crew/watch.sh`), plus
+`share/crew/pane.sh`), a shared status/watch module (`share/crew/watch.sh`), a task-readiness module (`share/crew/tasks.sh`), plus
 markdown role templates (`share/crew/`) and a Bun web viewer (read-only by default)
 (`share/crew/web.ts` + `web.html`). Messages are plain files under
 `~/.crew/<name>/`; tmux `send-keys` is only the "doorbell" that types a
@@ -12,7 +12,7 @@ for recognised drafts to clear, or report a skipped doorbell while keeping the
 inbox message; zero wait checks once without disabling protection. There is no
 coordinating daemon and no IPC: commands run on demand, and agents call them
 from their own shell tool. A crew has one **lead** that assigns tasks on a
-board (`board.tsv`), workers that write results to `out/` ending in an exact
+board (`board.tsv`, with guarded notices when queued dependencies become ready), workers that write results to `out/` ending in an exact
 `STATUS:` / `FINAL:` line and back claims with evidence files, and the human
 (`you`), who messages from a terminal (`crew say`) or the web viewer.
 Doorbells name the sender (`impl`, `you (terminal)`, `you (web)`, `outside`)

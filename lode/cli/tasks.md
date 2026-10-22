@@ -36,6 +36,37 @@ so a lead can name the result file before the id exists:
 anything (`T<rows+1>`; `T1` on empty). Both expansions happen before the
 `--out` validation, so `out/{id}.md` is checked as `out/Tn.md`.
 
+## Dependency readiness notices
+
+`--dep T1,T2` records a comma-separated list of prerequisites (one id works too).
+Dependencies are advisory; they do not gate status updates. When a task changes
+from a non-done state to `done`, the pre-update board is inspected under the board
+lock. Queued rows directly depending on that id are announced only when all
+other dependencies are already done. Missing dependencies are unsatisfied.
+Repeated `done` is quiet. Reopening a dependency and completing it again creates
+a new readiness transition. Blocked/working/done dependents receive no notice.
+
+After the updated board is published and unlocked, `task_notify_ready` logs a
+`dm` from `system` and uses `deliver` for each ready owner's inbox/doorbell. Thus
+same-owner successors work, and stale panes, drafts, dialogs and modes retain
+the usual protection. A skipped ring stays in the inbox with the normal warning;
+no retry or auto-start occurs. The task stays queued until its owner starts it.
+Concurrent completions serialize the readiness calculation, so only the last
+completion sees the transition. Delivery is best-effort after commit: a process
+crash between the board update and inbox write can lose a notice.
+
+```mermaid
+flowchart LR
+  done[Predecessor done] --> lock[Under board lock: find newly ready queued tasks]
+  lock --> publish[Publish and unlock]
+  publish --> inbox[System notice through guarded delivery]
+  inbox --> start[Owner sets working]
+```
+
+The sourced `share/crew/tasks.sh` holds readiness calculation and delivery; the
+command entrypoint owns validation, locking and publishing. Tests live in
+`test/dependencies.sh`, sourced by smoke.
+
 ## Ids follow the order of `crew task add` calls
 
 The id only exists after the row does (`T<rows+1>`), and `add` immediately
@@ -59,7 +90,10 @@ lead to name paths only with `--out` (pi once wrote both files when it wasn't).
 
 Status must be `queued|working|done|blocked|needs-input`. Only the task's
 owner, `lead` or `you` may set it (advisory, like sender labels: it stops a
-worker closing someone else's task by mistake). Under the lock,
+worker closing someone else's task by mistake). An unresolved (`outside`) caller
+fails before any gate or board write, even with `--force`, with the deciding
+identity failure and a `whoami`/per-call hint. Identity is refreshed under the
+lock before authorizing the update. Under the lock,
 rewrites the row via `awk` → `board.tsv.tmp` → `mv`; `--evidence` fills
 column 7 (old 6-column rows gain it). Then updates the owner's
 pane label (only if `owns_pane`) and logs `"<caller> set Tn → status (file)"`

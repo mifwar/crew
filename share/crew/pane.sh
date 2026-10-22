@@ -90,7 +90,7 @@ pane_hold() { # pane
 pane_editor_text() { # cli dims
   case "$1" in
     claude) claude_prompt_text ;;
-    codex)  prompt_row_text '›' 'Ask Codex to do anything' ;;
+    codex)  codex_prompt_text ;;
     pi)     pi_box_text "$2" ;;
   esac
 }
@@ -120,6 +120,27 @@ prompt_row_text() { # marker placeholder — capture rows on stdin
     case "$text" in "$placeholder"*) return 0 ;; esac   # a renamed placeholder becomes a loud hold
   fi
   printf '%s' "$text"
+}
+
+# Codex lays out wrapped composer text as separate indented rows. tmux -J
+# only joins terminal soft wraps, so reconstruct these rows before comparing
+# a startup draft. Stop at the editor border/footer; retain extra draft text.
+codex_prompt_text() { # capture rows on stdin
+  LC_ALL=C awk '
+    /^[[:space:]]*›/ {
+      text = $0; sub(/^[[:space:]]*›[[:space:]]?/, "", text)
+      active = 1; seen = 1; next
+    }
+    active {
+      if ($0 ~ /^  / && $0 !~ /^  ─/ && $0 !~ /^  ━/) {
+        text = text "\n" substr($0, 3)
+      } else if ($0 ~ /^[[:space:]]*$/) text = text "\n"
+      else active = 0
+    }
+    END {
+      sub(/[[:space:]]+$/, "", text)
+      if (seen && text !~ /^Ask Codex to do anything/) printf "%s", text
+    }'
 }
 
 # pi draws its editor as a box: its top and bottom are the last two rows that

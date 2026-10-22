@@ -45,7 +45,7 @@ crew — coding agents working together in tmux
   crew override <role>=<cli spec|%pane>              spawn or adopt a successor, then hand over
   crew remove <role> [--keep-pane]                    drop a role: block open tasks, close/unlabel its pane
   crew send <role[,role…]|@all|you> <message>         message agents (@all: lead/you only)
-  crew say <role[,role…]|@all> <message>              same, but only for the human at a terminal
+  crew say <role[,role…]|@all> <message>              human message; run in a terminal outside crew panes
   crew note <text>                                    add a note to the timeline
   crew task add --to <role> [--dep T1] [--out out/x.md] [--gate "<cmd>"] [--msg ..] <title>   ({id} → new id; warns on review-only roles)
   crew task set <id> <queued|working|done|blocked|needs-input> [--out <file>] [--evidence <file>] [--force]   (owner's done runs the task's --gate)
@@ -94,7 +94,18 @@ crew — coding agents working together in tmux
   anything else (e.g. an agent that isn't in the crew) is "outside". This is a
   label to stop accidental relays, not a security boundary. `crew whoami`
   prints why the caller resolved (a `why:` line); a send labelled outside also
-  warns on stderr with that reason.
+  warns on stderr with that reason. Unresolved task setters fail before any gate
+  or board write. For a dead/foreign tool-shell pane, use explicit per-call hints:
+    CREW_SESSION=<name> CREW_AGENT=<your-role> crew -s <name> whoami
+  Verify your own role before using that prefix for other crew calls.
+
+  --self/--here require a live TMUX_PANE. --self prints its adopted pane and
+  CLI; filter/pager CLIs warn because a temporary command pane may be bound.
+
+  After a restart: use ls/status to find gone/reused roles. In a new unbound
+  pane, session <role> shows its conversation ID and resume <role> restores it.
+  Use rebind only when the agent conversation is already running elsewhere.
+  A matching CLI/pane id alone never establishes ownership.
 
   Agent detection prefers known Claude/Codex/pi processes over tty helpers,
   including caffeinate, nice, env and time. Launch specs stay unchanged.
@@ -103,6 +114,12 @@ crew — coding agents working together in tmux
   (default 30, capped at 3600); skipped rings warn and leave the message in the
   inbox. CREW_RING_WAIT=0 checks once and refuses a busy editor immediately;
   web sends use it to avoid waiting. Dialog and tmux mode checks stay active.
+  Startup retries one Enter only for the complete original intro; Codex composer
+  continuation rows are joined for that comparison. Other drafts stay untouched.
+
+  Task dependencies accept comma-separated ids (--dep T1,T2). Completing the
+  last dependency notifies owners of queued tasks through the guarded inbox
+  path. Tasks stay queued until their owners start; repeated done is quiet.
 
   Watch defaults: --every 120 seconds, --quiet-after 10m of unchanged pane/task
   text before idle notices. Errors and empty-board notices are immediate.
@@ -214,6 +231,7 @@ log_line() { # kind from to text
 . "$CREW_SHARE/watch.sh"
 . "$CREW_SHARE/timers.sh"
 . "$CREW_SHARE/semaphore.sh"
+. "$CREW_SHARE/tasks.sh"
 
 # Program name for labels: "codex --sandbox …" → codex. Claude's process is
 # named after its version (e.g. 2.1.284), so a bare version means claude.
@@ -446,7 +464,7 @@ settle_agent() { # role pane
 }
 
 cmd_up() {
-  local name="" target="" self="" here=0 specs=() spec role cli pane win="" origin created_at created_epoch launch_time
+  local name="" target="" self="" here=0 specs=() spec role cli pane win="" origin created_at created_epoch launch_time caller="${TMUX_PANE:-}" self_cli=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --in) target="$2"; shift 2 ;;
@@ -460,9 +478,10 @@ cmd_up() {
   [ -n "$name" ] && [ ${#specs[@]} -gt 0 ] || die 'usage: crew up <name> [--self <role>] [--here] role=cli ...'
   check_name "$name"
   if [ -n "$self" ] || [ "$here" = 1 ]; then
-    [ -n "${TMUX_PANE:-}" ] || die "--self and --here must run inside a tmux pane"
+    [ -n "$caller" ] || die "--self and --here must run inside a tmux pane"
+    caller=$(pane_id "$caller") || die "TMUX_PANE=$TMUX_PANE is not a live pane; run --self/--here from the agent's actual tmux pane"
   fi
-  check_roles ${self:+"$self=$TMUX_PANE"} "${specs[@]}"
+  check_roles ${self:+"$self=$caller"} "${specs[@]}"
   if [ -z "$target" ]; then
     [ -n "${TMUX:-}" ] || die "run inside tmux, or pass --in <tmux-session>"
     target=$(tmux display-message -p ${TMUX_PANE:+-t "$TMUX_PANE"} '#S')
@@ -470,13 +489,17 @@ cmd_up() {
   init_dir "$name"
 
   if [ -n "$self" ]; then
-    cli=$(pane_cli "$TMUX_PANE")
-    label_pane "$TMUX_PANE" "$self" "$cli"
-    refresh_model "$TMUX_PANE"
-    style_window "$(tmux display-message -p -t "$TMUX_PANE" '#{window_id}')"
-    printf '%s\t%s\t%s\t%s\n' "$self" "$TMUX_PANE" "$cli" adopted >> "$D/panes"
+    self_cli=$(pane_cli "$caller")
+    case "$(short_cli "$self_cli")" in
+      tail|head|less|more|cat)
+        echo "crew: --self sees '$self_cli' in $caller, which may be a temporary command pane. Check the binding below; use crew -s $S rebind $self <agent-pane> if needed." >&2 ;;
+    esac
+    label_pane "$caller" "$self" "$self_cli"
+    refresh_model "$caller"
+    style_window "$(tmux display-message -p -t "$caller" '#{window_id}')"
+    printf '%s\t%s\t%s\t%s\n' "$self" "$caller" "$self_cli" adopted >> "$D/panes"
   fi
-  [ "$here" = 0 ] || win=$(tmux display-message -p -t "$TMUX_PANE" '#{window_id}')
+  [ "$here" = 0 ] || win=$(tmux display-message -p -t "$caller" '#{window_id}')
 
   for spec in "${specs[@]}"; do
     role="${spec%%=*}"; cli="${spec#*=}"
@@ -517,6 +540,7 @@ cmd_up() {
   fi
   echo "ready. files: $D"
   if [ -n "$self" ]; then
+    echo "self: $self bound to $caller ($self_cli, adopted)"
     echo
     echo "You are agent '$self' in crew '$S'. Read $D/roles/$self.md now and follow it for the rest of this session."
   fi
@@ -717,7 +741,8 @@ cmd_send() {
 
 cmd_say() {
   resolve_session; resolve_me
-  [ "$ME" = you ] || die "crew say is for the human at a terminal; here you are '$ME'. Use crew send."
+  [ "$ME" = you ] || die "crew say is for the human at a terminal; here you are '$ME'. Agents use crew send. For the human: run crew -s $S say <role> \"<message>\" from a terminal outside the crew's panes, or use crew -s $S web --allow-send."
+  [ $# -ge 2 ] || die 'usage: crew say <role[,role…]|@all> <message>'
   cmd_send "$@"
 }
 
@@ -801,6 +826,7 @@ cmd_task() {
         esac
       done
       case "$st" in queued|working|done|blocked|needs-input) ;; *) die "bad status: $st" ;; esac
+      [ "$ME" != outside ] || die "cannot set $id as outside: $WHY; run crew -s $S whoami. If your tool shell inherited a dead/foreign pane, prefix crew calls with CREW_SESSION=$S CREW_AGENT=<your-role> and verify whoami first."
       # A gate command runs before the lock (it can be slow) and only for a caller
       # the owner (so it runs in the owner's own shell); its output is the evidence unless one is given.
       if [ "$st" = done ] && [ -z "$force" ]; then
@@ -822,10 +848,10 @@ cmd_task() {
       fi
       lock board
       resolve_me
-      local owner rowout last; owner=$(awk -F'\t' -v id="$id" '$1==id{print $2; exit}' "$D/board.tsv")
+      local ready_notices="" owner rowout last; owner=$(awk -F'\t' -v id="$id" '$1==id{print $2; exit}' "$D/board.tsv")
       [ -n "$owner" ] || die "no task $id"
       # Advisory like sender labels: catches a worker closing someone else's task.
-      [ "$ME" = "$owner" ] || [ "$ME" = lead ] || [ "$ME" = you ] || die "$id is $owner's; only $owner, lead or you can set it"
+      [ "$ME" = "$owner" ] || [ "$ME" = lead ] || [ "$ME" = you ] || die "$id is $owner's; only $owner, lead or you can set it (caller: $ME; $WHY; see crew -s $S whoami)"
       # done needs the named result file to say so; --force is the logged escape
       # hatch, so a task can't be closed on a missing or blocked result.
       if [ "$st" = done ] && [ -z "$force" ]; then
@@ -843,12 +869,14 @@ cmd_task() {
           *) die "$id stays open: $out's last line is not 'STATUS: DONE' or 'FINAL: …'; --force to override" ;;
         esac
       fi
+      [ "$st" != done ] || ready_notices=$(task_unblocked_by "$id")
       awk -F'\t' -v OFS='\t' -v id="$id" -v st="$st" -v out="$out" -v ev="$ev" \
         '$1==id{$3=st; if(out!="") $5=out; if(ev!="") $7=ev; else if($7=="") $7="-"} {print}' "$D/board.tsv" > "$D/board.tsv.tmp"
       mv "$D/board.tsv.tmp" "$D/board.tsv"
       unlock
       set_pane_status "$owner" "$id $st"
-      log_line sys "$ME" - "$ME set $id → $st${out:+ ($out)}${ev:+ evidence: $ev}${force:+ [forced]}" ;;
+      log_line sys "$ME" - "$ME set $id → $st${out:+ ($out)}${ev:+ evidence: $ev}${force:+ [forced]}"
+      task_notify_ready "$ready_notices" ;;
     next-id)
       [ $# -eq 0 ] || die 'usage: crew task next-id'
       [ -s "$D/board.tsv" ] || { echo T1; return; }

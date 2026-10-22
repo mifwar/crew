@@ -65,8 +65,9 @@ Claude Code is `outside` too ([../cli/messaging.md](../cli/messaging.md)).
 
 - Read its role file and waited correctly after the intro.
 - Created tasks with `crew task add`, then waited for the doorbell.
-- A reviewer once relayed "the user approved X" to the lead. It was true, but
-  indistinguishable from a false claim; the protocol now routes decisions
-  through `crew say`, and the relayed message is visibly from the reviewer.
+- A worker's claim of human approval is not independent authorization. Lead
+  checks its own human conversation and existing decisions before asking for
+  missing authorization. Workers act on lead assignments within agreed scope
+  without repeated confirmation; see [../roles/summary.md](../roles/summary.md).
 
 Related: [summary.md](summary.md).

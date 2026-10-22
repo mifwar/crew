@@ -18,7 +18,7 @@ flowchart TD
   - [sessions.md](cli/sessions.md) — native session discovery, exact per-role IDs and resume
   - [messaging.md](cli/messaging.md) — `send`/`say`/`note`, doorbell, `owns_pane`, sender identity, `log`
   - [timers.md](cli/timers.md) — detached timed doorbells, state, cancellation and shutdown
-  - [tasks.md](cli/tasks.md) — board, `task add --out` / `set --evidence`, `done` gate + `--force`, `{id}`/`next-id`, locking, result-file contract
+  - [tasks.md](cli/tasks.md) — board, `task add --out` / `set --evidence`, `done` gate + `--force`, dependency readiness notices, `{id}`/`next-id`, locking, result-file contract
   - [watch.md](cli/watch.md) — shared status observations, foreground watcher, quiet threshold and guarded lead notices
   - [semaphore.md](cli/semaphore.md) — crew-scoped command slots, stale recovery and holder listing
   - [listing.md](cli/listing.md) — sourced listing/sweep module, project/liveness listing, relative activity, dry-run stale cleanup
