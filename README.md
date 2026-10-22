@@ -22,7 +22,11 @@ crew down
 From inside a running agent: `crew up pr42 --self lead --here rev=pi`.
 Existing panes: `crew adopt pr42 lead=%4 rev=%9`. An agent moved panes:
 `crew rebind rev %12`. Decisions from you: `crew say lead "ship it"` (in a
-terminal), or `crew web --allow-send` for a compose box.
+terminal outside crew panes), or `crew web --allow-send` for a compose box.
+Give the goal and decisions to your lead; it coordinates workers and resolves
+routine questions. Decisions given in the lead's own chat need no repeat via
+`crew say`, and workers need no separate confirmation for lead assignments
+within the agreed scope.
 
 If the leader hits a usage limit mid-work, hand control to another running
 crew agent or an agent you started in a new tmux pane:

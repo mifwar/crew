@@ -45,7 +45,7 @@ crew — coding agents working together in tmux
   crew override <role>=<cli spec|%pane>              spawn or adopt a successor, then hand over
   crew remove <role> [--keep-pane]                    drop a role: block open tasks, close/unlabel its pane
   crew send <role[,role…]|@all|you> <message>         message agents (@all: lead/you only)
-  crew say <role[,role…]|@all> <message>              same, but only for the human at a terminal
+  crew say <role[,role…]|@all> <message>              human message; run in a terminal outside crew panes
   crew note <text>                                    add a note to the timeline
   crew task add --to <role> [--dep T1] [--out out/x.md] [--gate "<cmd>"] [--msg ..] <title>   ({id} → new id; warns on review-only roles)
   crew task set <id> <queued|working|done|blocked|needs-input> [--out <file>] [--evidence <file>] [--force]   (owner's done runs the task's --gate)
@@ -714,7 +714,8 @@ cmd_send() {
 
 cmd_say() {
   resolve_session; resolve_me
-  [ "$ME" = you ] || die "crew say is for the human at a terminal; here you are '$ME'. Use crew send."
+  [ "$ME" = you ] || die "crew say is for the human at a terminal; here you are '$ME'. Agents use crew send. For the human: run crew -s $S say <role> \"<message>\" from a terminal outside the crew's panes, or use crew -s $S web --allow-send."
+  [ $# -ge 2 ] || die 'usage: crew say <role[,role…]|@all> <message>'
   cmd_send "$@"
 }
 
