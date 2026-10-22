@@ -202,7 +202,11 @@ caller has no `TMUX_PANE`, its id is gone, or its pane is labelled to another
 crew. This handles Codex tool shells inheriting a missing/foreign id from a
 shared background process. Existing unlabelled or unbound same-crew panes
 stay outside. Unknown roles, stale role panes and mismatched session hints
-never get fallback identity. These remain advisory labels, not authentication.
+never get fallback identity. These remain advisory labels, not authentication. Rendered role files explain
+per-call `CREW_SESSION` / `CREW_AGENT` hints for tool shells inheriting a dead or
+foreign pane, verified with `whoami`; shell-wide exports may not persist across
+Codex tool calls. Unresolved `task set` fails before any gate or board write,
+including `--force`, and names the failed check plus the recovery command.
 `env_identity_ok` owns these early-return checks; `resolve_me` selects the
 pane binding, then eligible env identity, then human/outside provenance.
 

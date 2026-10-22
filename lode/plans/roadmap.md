@@ -47,7 +47,9 @@ the complete intro to match; see [../cli/lifecycle.md](../cli/lifecycle.md).
 - **Codex tool-shell identity**: answered — tool calls run through a shared,
   detached app-server daemon and inherit its stale `CREW_*`/`TMUX_PANE`
   ([../agents/codex.md](../agents/codex.md)). Candidate: detect the stale
-  daemon and explain how to restart it from the right crew pane.
+  daemon automatically. Current recovery uses verified per-call role hints
+  without restarting any shared process; unresolved task updates explain the
+  failure and recovery command before gates or writes.
 - **Draft detection coverage**: the ring hold reads rendered text. Claude Code's
   standalone dim ghost spans are empty; other prompt text remains a draft.
   Pi border-like draft rows can look empty with the cursor elsewhere, and
