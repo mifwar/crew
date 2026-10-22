@@ -101,6 +101,10 @@ crew — coding agents working together in tmux
   inbox. CREW_RING_WAIT=0 checks once and refuses a busy editor immediately;
   web sends use it to avoid waiting. Dialog and tmux mode checks stay active.
 
+  Task dependencies accept comma-separated ids (--dep T1,T2). Completing the
+  last dependency notifies owners of queued tasks through the guarded inbox
+  path. Tasks stay queued until their owners start; repeated done is quiet.
+
   Watch defaults: --every 120 seconds, --quiet-after 10m of unchanged pane/task
   text before idle notices. Errors and empty-board notices are immediate.
   Durations accept seconds or s/m/h; --quiet-after 0 reports idle immediately.
@@ -211,6 +215,7 @@ log_line() { # kind from to text
 . "$CREW_SHARE/watch.sh"
 . "$CREW_SHARE/timers.sh"
 . "$CREW_SHARE/semaphore.sh"
+. "$CREW_SHARE/tasks.sh"
 
 # Program name for labels: "codex --sandbox …" → codex. Claude's process is
 # named after its version (e.g. 2.1.284), so a bare version means claude.
@@ -819,7 +824,7 @@ cmd_task() {
       fi
       lock board
       resolve_me
-      local owner rowout last; owner=$(awk -F'\t' -v id="$id" '$1==id{print $2; exit}' "$D/board.tsv")
+      local ready_notices="" owner rowout last; owner=$(awk -F'\t' -v id="$id" '$1==id{print $2; exit}' "$D/board.tsv")
       [ -n "$owner" ] || die "no task $id"
       # Advisory like sender labels: catches a worker closing someone else's task.
       [ "$ME" = "$owner" ] || [ "$ME" = lead ] || [ "$ME" = you ] || die "$id is $owner's; only $owner, lead or you can set it"
@@ -840,12 +845,14 @@ cmd_task() {
           *) die "$id stays open: $out's last line is not 'STATUS: DONE' or 'FINAL: …'; --force to override" ;;
         esac
       fi
+      [ "$st" != done ] || ready_notices=$(task_unblocked_by "$id")
       awk -F'\t' -v OFS='\t' -v id="$id" -v st="$st" -v out="$out" -v ev="$ev" \
         '$1==id{$3=st; if(out!="") $5=out; if(ev!="") $7=ev; else if($7=="") $7="-"} {print}' "$D/board.tsv" > "$D/board.tsv.tmp"
       mv "$D/board.tsv.tmp" "$D/board.tsv"
       unlock
       set_pane_status "$owner" "$id $st"
-      log_line sys "$ME" - "$ME set $id → $st${out:+ ($out)}${ev:+ evidence: $ev}${force:+ [forced]}" ;;
+      log_line sys "$ME" - "$ME set $id → $st${out:+ ($out)}${ev:+ evidence: $ev}${force:+ [forced]}"
+      task_notify_ready "$ready_notices" ;;
     next-id)
       [ $# -eq 0 ] || die 'usage: crew task next-id'
       [ -s "$D/board.tsv" ] || { echo T1; return; }

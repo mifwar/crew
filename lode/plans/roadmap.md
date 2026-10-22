@@ -29,6 +29,10 @@ flowchart TD
   sse[SSE instead of polling]
 ```
 
+Queued dependency owners receive guarded system notices when their final
+prerequisite becomes done; the board status stays queued until work starts.
+See [../cli/tasks.md](../cli/tasks.md#dependency-readiness-notices).
+
 ## Open questions
 
 - **pi**: does its shell tool have a tty (would a non-member pi be labelled

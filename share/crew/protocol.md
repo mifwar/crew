@@ -19,6 +19,12 @@ Crew files: `{{DIR}}` (board.tsv, channel.log, inbox/, out/).
   get blocked, or need a decision.
 - Never type into other tmux panes. `crew send` is the only way to reach an agent.
 
+## Dependencies
+Tasks may name prerequisites with `--dep T1,T2`. Wait until all are done before
+starting. A `system` notice says when your queued task becomes unblocked; check
+`crew board`, then set it `working` when you start. The notice uses normal
+inbox/doorbell protection, so read your inbox if a ring was skipped.
+
 ## Results
 - Write each task's result to the path given in the task message (under `{{DIR}}/out/`), never
   inside your working directory.
