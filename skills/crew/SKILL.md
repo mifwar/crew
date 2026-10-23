@@ -30,7 +30,12 @@ notes: `~/code/crew` (see its `lode/`).
 ```sh
 crew up <name> --self lead --here "rev2=codex -c …" rev=pi   # --here: split this window
 crew up <name> --self lead impl=codex rev=pi                  # or a new window
+crew up <name> --self lead --no-watch impl=codex rev=pi       # without the watcher
 ```
+
+With a lead role, `crew up` also starts one detached watcher that rings the
+lead on errors, drafts, stuck work and a caught-up board (`crew timers` lists
+it as `watching`, `crew down` stops it). `--no-watch` skips it.
 
 Codex cannot reach tmux or write `~/.crew` under its default sandbox. When the
 user wants Codex workers, they pick the spec; either of these keeps
@@ -137,20 +142,25 @@ crew lock --name checks --max 2 -- ./run-checks
   work, and recent errors. Context and 5h quota appear only when printed in
   the pane. These are text heuristics, not proof that an agent is stuck.
 - `watch` scans every 120 seconds by default. Idle/stuck notices wait for
-  10 minutes of unchanged pane text and task rows; errors with open work
-  and an empty board report at the next scan. Each role/event is announced
-  once until its state changes. Open work includes blocked/needs-input;
-  stuck means an input prompt with queued/working work. Durations accept
-  seconds or `s`/`m`/`h` suffixes; `--quiet-after 0` reports immediately.
+  10 minutes of unchanged pane text and task rows; errors (with or without
+  open work) report at the next scan. The empty-board notice fires only when
+  the board goes from open tasks to none, never on a watcher's first scan.
+  Each role/event is announced once until its state changes. Open work
+  includes blocked/needs-input; stuck means an input prompt with
+  queued/working work. Durations accept seconds or `s`/`m`/`h`/`d` suffixes;
+  `--quiet-after 0` reports immediately.
   `--ring` uses the lead inbox and guarded doorbell (skipped rings stay in
   the inbox); otherwise events print to stdout. It exits when the crew ends
-  or on Ctrl-C. It never answers prompts or resumes workers.
+  or on Ctrl-C. It never answers prompts or resumes workers. The detached
+  watcher `up` starts follows the same rules and rings the lead; it is the
+  lead's automatic check, not a substitute for reading results.
 - `at` and `every` start detached timer workers recorded under the crew's
-  `timers/`. Delays accept positive seconds or `s`/`m`/`h`; `HH:MM` means the
-  next local occurrence. Repeats first fire after one interval and do not
+  `timers/`. Delays accept positive seconds or `s`/`m`/`h`/`d`; `HH:MM` means
+  the next local occurrence. Repeats first fire after one interval and do not
   replay missed intervals. `timers cancel <id>` stops a timer; `down` cancels
-  the crew's timers. Messages use the normal inbox and guarded doorbell,
-  checking drafts once and refusing a contended doorbell immediately. A skipped
+  the crew's timers (`crew timers` shows NEXT `-` for the watcher record).
+  Messages use the normal inbox and guarded doorbell, checking drafts once
+  and refusing a contended doorbell immediately. A skipped
   ring stays in the inbox without retry.
   Timer senders are labelled `timer`, not the scheduling human or agent.
 - `lock` runs a command under a crew-wide named counting semaphore. Defaults
@@ -263,6 +273,12 @@ stays stale. Crew does not automatically adopt matching CLI processes.
   `crew sweep --apply` marks only those crews ended, logs it and clears their
   current-crew pointer. It never types into, unlabels or closes panes; files
   stay. Partial crews are reported and kept. Other commands never auto-sweep.
+- Old crew folders are pruned separately: `crew sweep --delete-older 14d` lists
+  ended crew folders whose last log activity is older than the age (s/m/h/d)
+  and `--delete-older 14d --apply` deletes them. It has its own mode: it never
+  marks stale crews ended, so run plain `sweep --apply` for that. Folders without
+  `meta` and `panes` (non-crew dirs) are never touched, and the current crew is
+  always kept.
 - An agent moved to another pane: `crew rebind <role> <pane>` (or run it inside the new pane).
 - To restore a role's native conversation after its pane is gone, run
   `crew resume <role>` inside a new unbound tmux pane. If multiple same-CLI

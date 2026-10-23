@@ -10,8 +10,10 @@ stateDiagram-v2
 
 ## `crew up <name> [options] role=cli …`
 
-1. Parse `--in <tmux-session>`, `--self <role>`, `--here`; anything else
-   starting with `-` is an error; `x=y` args are role specs.
+1. Parse `--in <tmux-session>`, `--self <role>`, `--here`, `--no-watch`;
+   anything else starting with `-` is an error; `x=y` args are role specs.
+   `CREW_WATCH_EVERY` (a duration) must be positive and is checked here, before
+   any crew directory exists.
 2. Target session: `--in`, else the caller's (`display -p -t "$TMUX_PANE" '#S'`).
    `--self`/`--here` require a live `$TMUX_PANE`, resolved before creating
    crew files. A missing/dead id fails without leaving a crew directory.
@@ -38,13 +40,21 @@ stateDiagram-v2
    Session IDs are captured lazily on a later crew command, after the CLI has
    received its first message and created its native session file (see
    [sessions.md](sessions.md)).
-9. `select-window` to the new window unless `--self`, `--here` or `CREW_NO_SWITCH`.
-10. With `--self`, print the intro line on stdout: the calling agent reads it
-    from its own command output instead of having it typed into its prompt.
+9. With a lead role and no `--no-watch`, start the detached watcher: a timer
+   record of kind `watch` whose worker scans panes and rings the lead
+   ([watch.md](watch.md), [timers.md](timers.md)). It is published through the
+   same launcher/ready handshake as a timer, so `crew timers` lists it and
+   `down` stops it; a failure is a warning, never a failed `up`. This runs
+   after the settle phase, so the watcher never sees a half-started crew.
+10. `select-window` to the new window unless `--self`, `--here` or `CREW_NO_SWITCH`.
+11. Print `ready. files: <dir>`, then the `watch: <id>` line, then (with
+    `--self`) the intro line on stdout: the calling agent reads it from its own
+    command output instead of having it typed into its prompt.
 
 ```sh
 crew up voucher lead=claude impl=codex rev=pi          # new window "voucher"
 crew up pr358 --self lead --here "rev2=codex -c …" rev=pi   # agent starts its own crew
+crew up quiet lead=claude impl=codex --no-watch      # no detached watcher
 ```
 
 A pipeline fixture running `crew up --self lead --here … | tail -20` inside a
@@ -127,7 +137,9 @@ crew -s voucher add rev2=fork:lead
 First hold `.timers.lock`, mark the crew ended and its timers cancelled,
 then release that lock. Stop workers through their individual dispatch locks
 before pane teardown; pane I/O never holds the crew-wide timer lock. No timer
-dispatch can occur after shutdown completes. See [timers.md](timers.md).
+dispatch can occur after shutdown completes. The watcher `up` started is one
+of those records (kind `watch`), so `down` stops it too. See
+[timers.md](timers.md).
 
 For each pane in `panes`:
 - skip (with a warning) if `owns_pane` fails — the id is gone or reused;
@@ -328,6 +340,8 @@ draft is ever submitted. Still a draft after that prints a warning with the
 flag the state as `draft pending: doorbells are held` ([watch.md](watch.md)).
 
 `crew sweep --apply` ends only crews with zero owned panes, without touching
-any pane; default sweep is a dry run. See [listing.md](listing.md).
+any pane; default sweep is a dry run. Deleting old ended crew folders is a
+separate mode, `crew sweep --delete-older <age> --apply`; see
+[listing.md](listing.md#prune-contract---delete-older).
 
 Related: [summary.md](summary.md), [../architecture/state-files.md](../architecture/state-files.md).

@@ -24,6 +24,17 @@ crew watch --every 120 --quiet-after 10m
 crew watch --ring &  # foreground loop placed in the lead shell background
 ```
 
+`crew up` starts one detached watcher by itself for every crew that has a
+lead role: the same scan loop with `--every 120` and `--quiet-after 600`
+ringing the lead, recorded as a timer (kind `watch`) so `crew timers` lists it
+(NEXT is `-`: it scans on its interval, not a recorded due time) and
+`crew down` stops it ([timers.md](timers.md)). `--no-watch` opts out, and
+`CREW_WATCH_EVERY=<duration>` changes the scan interval. Every watch mode seeds
+the board cache from the current board at loop start: the `board has no open
+tasks` notice is a transition from open tasks to none, never a first-scan
+observation, so a crew that is empty at `up` (or when a foreground watch
+starts) is not announced.
+
 `status` flags errors, pending drafts and idle input prompts with
 queued/working tasks: a pane whose editor holds a draft gets
 `draft pending: doorbells are held` from `draft_note`, which parses the scan's
@@ -39,20 +50,26 @@ crew role with no open tasks and falls back to the `lead=<cli>` spawn form.
 `watch` emits one timestamped stdout line per new event, or uses the lead
 inbox and existing guarded doorbell with `--ring`:
 
-- errored with an open task (next scan, no quiet wait);
+- errored with an open task: <reason> (next scan, no quiet wait);
+- errored: <reason> for the same error without open work — review rounds run
+  over `crew send` after `done`, so an error is never silent;
 - draft pending: doorbells are held (next scan, no quiet wait);
 - stuck: input prompt with queued/working task (after quiet threshold);
-- idle with no open task (after quiet threshold);
-- board has no open tasks (next scan).
+- idle with no open task (after quiet threshold; with `--ring`, never for the
+  lead itself — waiting is its normal state, and ringing it would wake it to
+  idle again every quiet period);
+- board has no open tasks (on the open → empty transition; a watcher that
+  starts with an empty board stays quiet);
 
 Open means any task not `done`, including blocked/needs-input. Idle with only
 blocked/needs-input work does not imply stuck. Each role/event is emitted
 once until the observed event changes or clears; the empty-board notice
 rearms when work reopens. Pane/text/task-row changes restart the quiet timer.
 The first scan starts the timer; it cannot infer how long a pane was already
-quiet. Durations are integer seconds or `s`, `m`, `h` suffixes; interval must
-be positive, quiet may be zero. Default interval is 120 seconds and quiet
-threshold 600 seconds.
+quiet. Durations are integer seconds or `s`, `m`, `h`, `d` suffixes, parsed by
+the shared `duration` helper in `bin/crew` (also used by timers and
+`sweep --delete-older`); interval must be positive, quiet may be zero. Default
+interval is 120 seconds and quiet threshold 600 seconds.
 
 ```mermaid
 flowchart LR
@@ -67,9 +84,15 @@ flowchart LR
   leadHint --> quiet
   hold --> quiet
   board[board.tsv] --> quiet
+  up[up sees a lead role] --> record[timer record kind=watch]
+  record --> quiet
+  cancel[down or timers cancel] --> record
   quiet --> stdout[timestamped event]
   quiet --> deliver[optional guarded delivery to lead]
 ```
+
+`status` notes a recent error whether or not the role has open work; the scan
+and its wording are shared, so status and watch never disagree about it.
 
 Every scan checks ownership before reading a pane. Reused/missing panes are
 skipped and their cache removed. `--ring` uses `deliver`, including
@@ -80,15 +103,24 @@ until a new event; the watcher never resumes workers or answers dialogs.
 
 State is private to a temporary directory per watcher; concurrent watchers
 have independent debounce histories. No persistent daemon or crew files are
-created by stdout mode. The loop exits on the crew's ended marker, SIGINT or
-SIGTERM, cleans its cache, and terminates its current sleep process.
+created by stdout mode. The loop exits on the crew's ended marker, a deleted
+crew directory, SIGINT or SIGTERM, cleans its cache, and terminates its
+current sleep process. The detached watcher polls its record's `cancelled`
+marker too, so `down` and `crew timers cancel` stop it the same way as a
+timer; it never rewrites the record's files, and `crew timers` therefore shows
+NEXT `-` for it.
 
 Verification is part of `test/smoke.sh`, via `test/watch.sh`: sample CLI
 footers/errors, Codex Working and Waiting rows with a background-terminal
 suffix above an empty prompt, interrupt prose, busy precedence, duration
-errors, quiet/debounce transitions, empty board, guarded lead delivery/reused
-panes, normal-exit cleanup, and `draft pending` notes/events from the
-startup-draft fixtures.
+errors, quiet/debounce transitions, empty-board transitions after startup
+(including the detached watcher, which stays quiet about a board that was
+already empty), guarded lead delivery/reused panes, normal-exit cleanup,
+`draft pending` notes/events from the startup-draft fixtures, an error with no
+open task (event and status note), and the watcher
+`up` starts: record and listing (NEXT `-`, interval, an unchanged `next`), an
+error ring to a lead whose worker's task is done, cancellation by `down`,
+`--no-watch` and no lead role.
 
 Related: [summary.md](summary.md), [tasks.md](tasks.md),
 [messaging.md](messaging.md), [../practices.md](../practices.md).

@@ -21,7 +21,7 @@ flowchart TD
   - [tasks.md](cli/tasks.md) — board, `task add --out` / `set --evidence`, `done` gate + `--force`, dependency readiness notices, `{id}`/`next-id`, locking, result-file contract
   - [watch.md](cli/watch.md) — shared status observations, foreground watcher, quiet threshold and guarded lead notices
   - [semaphore.md](cli/semaphore.md) — crew-scoped command slots, stale recovery and holder listing
-  - [listing.md](cli/listing.md) — sourced listing/sweep module, project/liveness listing, relative activity, dry-run stale cleanup
+  - [listing.md](cli/listing.md) — sourced listing/sweep module, project/liveness listing, relative activity, dry-run stale cleanup and `--delete-older` folder pruning
 - agents/
   - [summary.md](agents/summary.md) — per-CLI needs table, shared behaviour, adding a CLI
   - [claude.md](agents/claude.md) — permission prompts, version-named process, `--self` lead

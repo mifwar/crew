@@ -182,7 +182,7 @@ chmod +x "$start_bin/claude"
 ln -s "$start_bin/claude" "$start_cli_dir/claude"
 check 'up stores a launch epoch before the CLI receives its first message' \
   env CREW_NO_SWITCH=1 CREW_BOOT_WAIT=4 CLAUDE_CONFIG_DIR="$start_home" \
-    "$CREW" up session-start --in "$TS" "lead=$start_cli_dir/claude --id start-lead"
+    "$CREW" up session-start --in "$TS" --no-watch "lead=$start_cli_dir/claude --id start-lead"
 check 'the fake Claude creates its native file only on first input' \
   test -f "$start_home/projects/$start_slug/start-lead.jsonl"
 check 'up leaves the session ID empty until a later crew command' \
@@ -222,7 +222,7 @@ check 'override replaces the role mapping with its new CLI session' \
 
 check 'up launches two same-CLI roles whose files appear within one settle' \
   env CREW_NO_SWITCH=1 CREW_BOOT_WAIT=4 CLAUDE_CONFIG_DIR="$start_home" \
-    "$CREW" up session-overlap --in "$TS" \
+    "$CREW" up session-overlap --in "$TS" --no-watch \
       "lead=$start_cli_dir/claude --id overlap-lead" "rev=$start_cli_dir/claude --id overlap-rev"
 check 'each overlapping role captures the file holding its own intro' \
   bash -c 'CLAUDE_CONFIG_DIR="$1" CREW_SESSION=session-overlap CREW_AGENT=lead "$2" -s session-overlap session lead >/dev/null 2>&1

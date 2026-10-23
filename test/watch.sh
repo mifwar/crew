@@ -1,5 +1,8 @@
 # Sourced by smoke.sh, sharing only its scratch CREW_HOME and detached session.
 . "$ROOT/share/crew/watch.sh"
+# The duration parser is a bin/crew helper shared with timers and sweep.
+sed -n '/^duration()/,/^}/p' "$CREW" > "$CREW_HOME/duration.sh"
+. "$CREW_HOME/duration.sh"
 observe_is() { local expected="$1" cli="$2" got; shift 2
   got=$(printf '%s\n' "$@" | pane_observation "$cli")
   [ "$got" = "$expected" ]
@@ -40,15 +43,19 @@ check 'observer recognises a Codex provider limit banner' observe_is 'error||pro
 check 'observer recognises a Claude provider limit banner' observe_is 'error||provider limit' claude '❯ ' 'You’ve hit your limit · resets 3pm'
 check 'observer recognises a usage limit row' observe_is 'error||provider limit' claude 'Usage limit reached. Try again later.'
 check 'observer recognises a 429 rate limit row' observe_is 'error||rate limit' pi '429 rate limit exceeded, retrying'
-check 'duration handles leading zero minutes' test "$(watch_duration 08m)" = 480
+check 'duration handles leading zero minutes' test "$(duration 08m)" = 480
+check 'duration handles a day suffix' test "$(duration 14d)" = 1209600
+check 'duration allows zero' test "$(duration 0)" = 0
+check 'duration rejects an oversized value' bash -c '. "$1"; ! duration 1000000' _ "$CREW_HOME/duration.sh"
 check 'watch rejects a zero interval' bash -c '! "$1" -s t watch --every 0' _ "$CREW"
 check 'watch rejects missing duration' bash -c '! "$1" -s t watch --quiet-after' _ "$CREW"
 check 'watch rejects malformed duration' bash -c '! "$1" -s t watch --quiet-after 1day' _ "$CREW"
 check 'watch has command help' bash -c '"$1" watch --help | grep -q quiet-after' _ "$CREW"
+check 'up documents --no-watch' bash -c '"$1" up --help | grep -q -- --no-watch' _ "$CREW"
 
 watch_mock="$CREW_HOME/watch-mock.sh"
 printf '%s\n' '#!/bin/sh' 'printf "› \nContext 38%% used · 5h 62%% left\n"' 'cat >/dev/null' > "$watch_mock"
-"$CREW" up watch-test --in "$TS" lead=cat "worker=sh $watch_mock" >/dev/null 2>&1
+"$CREW" up watch-test --in "$TS" --no-watch lead=cat "worker=sh $watch_mock" >/dev/null 2>&1
 watch_dir="$CREW_HOME/watch-test"
 watch_pane=$(awk -F'\t' '$1=="worker"{print $2}' "$watch_dir/panes")
 watch_lead=$(awk -F'\t' '$1=="lead"{print $2}' "$watch_dir/panes")
@@ -78,7 +85,17 @@ watch_type_lead() { # same ownership guard, lead's fixture pane
 }
 watch_until() { local tries=0
   until grep -qF "$2" "$1"; do
+    tries=$((tries+1)); [ "$tries" -lt 100 ] || return 1; sleep 0.2
+  done
+}
+watch_screen_until() { local tries=0
+  until tmux capture-pane -p -J -t "$1" | grep -qF -- "$2"; do
     tries=$((tries+1)); [ "$tries" -lt 40 ] || return 1; sleep 0.2
+  done
+}
+watch_retry() { local tries=0
+  until "$@" >/dev/null 2>&1; do
+    tries=$((tries+1)); [ "$tries" -lt 40 ] || return 1; sleep 0.1
   done
 }
 watch_stop() { kill "$watch_pid"; wait "$watch_pid" 2>/dev/null || true; }
@@ -118,6 +135,14 @@ check 'status flags recent errors' grep -q 'ERROR: Connection error' "$CREW_HOME
 sleep 1.2
 check 'watch debounces error state' test "$(grep -c 'worker errored' "$watch_log")" = 1
 watch_board done
+# Review rounds run over `crew send` after `done`, so an error must never need
+# an open task to be noticed (gemi-eye, 2026-10-23). Same error on screen, no
+# open work left: it is a new event with its own wording, and status notes it.
+check 'watch reports an error with no open task' watch_until "$watch_log" 'worker errored: Connection error'
+"$CREW" -s watch-test status > "$CREW_HOME/watch-status-error-done"
+check 'status flags an error with no open task' grep -q 'ERROR: Connection error' "$CREW_HOME/watch-status-error-done"
+sleep 1.2
+check 'watch debounces an error with no open task' test "$(grep -c 'worker errored: Connection error' "$watch_log")" = 1
 # Blank rows flush the earlier error off the visible screen.
 watch_type "$(printf '%060d' 0 | tr 0 '\n'; printf '› ')"
 check 'watch reports an empty board' watch_until "$watch_log" 'board has no open tasks'
@@ -139,9 +164,20 @@ watch_stop
 check 'empty-board event is debounced' test "$(grep -c 'board has no open tasks' "$watch_log")" = 2
 
 watch_tmp="$CREW_HOME/watch-tmp"; mkdir "$watch_tmp"
+# An idle lead with no open work is the normal waiting state; ringing it about
+# itself would wake it, it would idle again, and the loop would repeat forever.
+# The board is open when the watcher seeds, so the later empty board is a real
+# transition (a board that is already empty at startup must stay silent).
+watch_type_lead "$(printf '%060d' 0 | tr 0 '\n'; printf '› ')"
+watch_board queued
+watch_type 'Error: Retry failed after 3 attempts: Connection error.'
 TMPDIR="$watch_tmp" TMUX_PANE="$watch_lead" "$CREW" -s watch-test watch --every 1 --quiet-after 0 --ring > "$CREW_HOME/watch-ring" 2>&1 & watch_pid=$!
-check 'watch ring uses lead inbox' watch_until "$watch_dir/inbox/lead.md" 'board has no open tasks'
+check 'watch ring delivers a first-scan error' watch_until "$watch_dir/inbox/lead.md" 'worker errored with an open task: Retry failed'
+watch_board done
+check 'watch ring uses lead inbox for the empty-board transition' watch_until "$watch_dir/inbox/lead.md" 'board has no open tasks'
+sleep 2.5
 watch_stop
+check 'watch ring never rings the lead about its own idleness' bash -c '! grep -q "lead idle with no open task" "$1"' _ "$watch_dir/inbox/lead.md"
 check 'watch removes its cache on SIGTERM' bash -c 'test -z "$(ls -A "$1")"' _ "$watch_tmp"
 check 'watch ring reaches the owned lead pane even from its background shell' screen_has "$watch_lead" '[crew] watch → lead:'
 # A reused pane may not be read or rung by either new command path.
@@ -161,8 +197,78 @@ mv "$watch_dir/panes.next" "$watch_dir/panes"
 check 'status hints a missing lead pane' grep -q 'if lead is dead' "$CREW_HOME/watch-status-missing-lead"
 cp "$CREW_HOME/watch-panes-before-missing-lead" "$watch_dir/panes"
 # A normal crew shutdown exits without an EXIT trap losing its local cache.
+# Seed the board with open work first, then let the watcher see it empty.
+watch_board working
 TMPDIR="$watch_tmp" "$CREW" -s watch-test watch --every 1 --quiet-after 0 > "$CREW_HOME/watch-ended" 2>&1 & watch_pid=$!
-check 'watch starts before shutdown' watch_until "$CREW_HOME/watch-ended" 'board has no open tasks'
+check 'watch scans before shutdown' watch_until "$CREW_HOME/watch-ended" 'errored'
+watch_board done
+check 'watch announces a board that empties after startup' watch_until "$CREW_HOME/watch-ended" 'board has no open tasks'
 "$CREW" -s watch-test down >/dev/null 2>&1
 check 'watch exits cleanly when the crew ends' wait "$watch_pid"
 check 'watch removes its cache on normal exit' bash -c 'test -z "$(ls -A "$1")"' _ "$watch_tmp"
+
+# `crew up` starts a detached watcher for a crew with a lead, so a worker that
+# dies after `done` is noticed without anyone starting `crew watch --ring`.
+auto_mock="$CREW_HOME/watch-auto-mock.sh"
+printf '%s\n' '#!/bin/sh' 'printf "> "' 'cat >/dev/null' > "$auto_mock"
+CREW_WATCH_EVERY=1 "$CREW" up watch-auto --in "$TS" lead=cat "worker=sh $auto_mock" > "$CREW_HOME/watch-auto-up" 2>&1
+auto_dir="$CREW_HOME/watch-auto"
+auto_list=$("$CREW" -s watch-auto timers)
+auto_id=$(printf '%s\n' "$auto_list" | awk 'NR>1 && $2=="watch"{print $1}')
+auto_lead=$(awk -F'\t' '$1=="lead"{print $2}' "$auto_dir/panes")
+auto_worker=$(awk -F'\t' '$1=="worker"{print $2}' "$auto_dir/panes")
+check 'up starts a watcher for a crew with a lead'     test -n "$auto_id"
+check 'up prints the watcher it started'               grep -qF "watch: $auto_id" "$CREW_HOME/watch-auto-up"
+check 'crew timers lists the watcher as watching'      bash -c 'printf "%s\n" "$1" | grep -q " watching "' _ "$auto_list"
+check 'the watcher records its scan interval'          test "$(awk -F'\t' '{print $2}' "$auto_dir/timers/$auto_id/config")" = 1
+auto_next=$(printf '%s\n' "$auto_list" | awk -v id="$auto_id" '$1==id{print $4}')
+check 'crew timers shows NEXT - for a watcher'          test "$auto_next" = -
+auto_next_file=$(cat "$auto_dir/timers/$auto_id/next")
+# A crew is empty at startup; the watcher must not ring its lead about that.
+check 'the watcher keeps quiet about an empty board'   bash -c '! tmux capture-pane -p -J -t "$1" | grep -q "board has no open tasks"' _ "$auto_lead"
+watch_board_auto() { # $1: status of the worker's only task
+  printf 'T1\tworker\t%s\t-\tout/test.md\twatch work\t-\n' "$1" > "$auto_dir/board.next"
+  mv "$auto_dir/board.next" "$auto_dir/board.tsv"
+}
+auto_send() { # ownership first: this types into a crew pane
+  local S=watch-auto
+  owns_pane "$auto_worker" worker || return 1
+  tmux send-keys -t "$auto_worker" -l -- "$1"
+  tmux send-keys -t "$auto_worker" Enter
+  sleep 0.2
+}
+# An immediate error ring proves the watcher's first scan ran and seeded the
+# cache while the board was open. Only then empty the board, so the notice
+# below can only come from the open → empty transition.
+watch_board_auto queued
+auto_send 'Error: Request timed out'
+check 'the up watcher scans after startup' \
+  watch_until "$auto_dir/inbox/lead.md" 'worker errored with an open task: Request timed out'
+watch_board_auto done
+check 'the up watcher rings a board that empties after startup' \
+  watch_until "$auto_dir/inbox/lead.md" 'board has no open tasks'
+check 'the watcher never rewrites its next scan time'  test "$(cat "$auto_dir/timers/$auto_id/next")" = "$auto_next_file"
+auto_send 'Error: Retry failed after 3 attempts: Connection error.'
+check 'the up watcher rings lead for an error with no open task' \
+  watch_screen_until "$auto_lead" '[crew] watch → lead: worker errored: Retry failed'
+check '  and keeps the ring in the lead inbox'  grep -q 'worker errored: Retry failed' "$auto_dir/inbox/lead.md"
+sleep 2
+check '  and announces an unchanged error once' bash -c 'test "$(grep -c "worker errored: Retry failed" "$1")" = 1' _ "$auto_dir/inbox/lead.md"
+auto_pid=$(awk -F'\t' '{print $1}' "$auto_dir/timers/$auto_id/owner")
+auto_gone() { ! kill -0 "$auto_pid" 2>/dev/null; }
+"$CREW" -s watch-auto down >/dev/null 2>&1
+check 'down stops the watcher'                  watch_retry auto_gone
+check 'down marks the watcher record cancelled' test -f "$auto_dir/timers/$auto_id/cancelled"
+
+# `--no-watch` opts out; a crew without a lead role gets no watcher at all.
+"$CREW" up watch-quiet --in "$TS" --no-watch lead=cat > "$CREW_HOME/watch-quiet-up" 2>&1
+check '--no-watch starts no watcher'      bash -c 'out=$("$1" -s watch-quiet timers) && ! printf "%s" "$out" | grep -q watch' _ "$CREW"
+check '--no-watch prints no watcher line' bash -c '! grep -qF "watch: timer-" "$1"' _ "$CREW_HOME/watch-quiet-up"
+"$CREW" -s watch-quiet down >/dev/null 2>&1
+"$CREW" up watch-nolead --in "$TS" worker=cat > "$CREW_HOME/watch-nolead-up" 2>&1
+check 'a crew with no lead role gets no watcher' \
+  bash -c 'out=$("$1" -s watch-nolead timers) && ! printf "%s" "$out" | grep -q watch && ! grep -qF "watch: timer-" "$2"' \
+  _ "$CREW" "$CREW_HOME/watch-nolead-up"
+"$CREW" -s watch-nolead down >/dev/null 2>&1
+check 'up rejects a bad watcher interval before creating the crew' \
+  bash -c '! CREW_WATCH_EVERY=0 "$1" up watch-bad --in "$2" lead=cat && test ! -e "$3/watch-bad"' _ "$CREW" "$TS" "$CREW_HOME"

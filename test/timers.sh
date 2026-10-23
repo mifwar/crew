@@ -1,16 +1,19 @@
 # Sourced by smoke.sh, using only its scratch home and detached session.
 . "$ROOT/share/crew/timers.sh"
+# The duration parser is a bin/crew helper shared with watch and sweep.
+sed -n '/^duration()/,/^}/p' "$CREW" > "$CREW_HOME/duration.sh"
+. "$CREW_HOME/duration.sh"
 check 'timer module syntax (bash 3.2)' bash -n "$ROOT/share/crew/timers.sh"
-check 'timer durations parse decimal leading zeros' test "$(timer_duration 08m)" = 480
-for invalid in 0 0m -1 1day ''; do
-  check "timer rejects duration [$invalid]" bash -c '. "$1/share/crew/timers.sh"; ! timer_duration "$2"' _ "$ROOT" "$invalid"
+check 'timer durations parse decimal leading zeros' test "$(duration 08m)" = 480
+for invalid in -1 1day '' 1000000; do
+  check "timer rejects duration [$invalid]" bash -c '. "$1/share/crew/timers.sh"; . "$2/duration.sh"; ! duration "$3"' _ "$ROOT" "$CREW_HOME" "$invalid"
 done
 for invalid in 24:00 12:60 noon +0 +bad; do
   check "timer rejects time $invalid" bash -c '. "$1/share/crew/timers.sh"; ! timer_when "$2"' _ "$ROOT" "$invalid"
 done
 check 'timer parses next local HH:MM occurrence' bash -c '. "$1/share/crew/timers.sh"; due=$(timer_when "$(date +%H:%M)") && [ "$due" -gt "$(date +%s)" ] && [ "$due" -le "$(( $(date +%s)+90000 ))" ]' _ "$ROOT"
 check 'timers command has help' bash -c '"$1" timers --help | grep -q "crew at"' _ "$CREW"
-"$CREW" up timer-test --in "$TS" lead=cat worker=cat >/dev/null 2>&1
+"$CREW" up timer-test --in "$TS" --no-watch lead=cat worker=cat >/dev/null 2>&1
 timer_dir="$CREW_HOME/timer-test"
 timer_lead=$(awk -F'\t' '$1=="lead"{print $2}' "$timer_dir/panes")
 timer_worker=$(awk -F'\t' '$1=="worker"{print $2}' "$timer_dir/panes")
@@ -34,6 +37,7 @@ timer_send_fixture() {
   sleep 0.2
 }
 check 'timer rejects unknown role' bash -c '! "$1" -s timer-test at +1s nobody nope' _ "$CREW"
+check 'timer rejects a zero interval' bash -c '! "$1" -s timer-test every 0 worker nope' _ "$CREW"
 check 'timer requires message' bash -c '! "$1" -s timer-test every 1s worker' _ "$CREW"
 # Message text is data, even when it contains shell syntax and newlines.
 timer_message='literal $(touch SHOULD_NOT_EXIST) `echo not-executed`
@@ -107,7 +111,7 @@ check 'ended crews reject new timers' bash -c '! "$1" -s timer-test at +1s worke
 check 'shutdown timer never delivers' bash -c '! grep -q after-shutdown "$1"' _ "$timer_dir/inbox/worker.md"
 
 # Interrupt the real launcher after nohup, before owner/ready publication.
-"$CREW" up timer-start-test --in "$TS" lead=cat >/dev/null 2>&1
+"$CREW" up timer-start-test --in "$TS" --no-watch lead=cat >/dev/null 2>&1
 timer_start_root="$CREW_HOME/timer-start-test"
 timer_ps_dir="$CREW_HOME/timer-ps"; mkdir "$timer_ps_dir"
 cat > "$timer_ps_dir/ps" <<'SH'

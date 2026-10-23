@@ -24,14 +24,16 @@ a running crew by spawning or adopting agents. New role files point to the
 live roster; existing role files stay untouched.
 `crew status` adds heuristic stuck/error notes and printed context/quota;
 `crew watch` emits debounced state changes, optionally ringing the lead through
-the normal guarded delivery path.
+the normal guarded delivery path, and `crew up` keeps one such watcher running
+detached for any crew with a lead (`--no-watch` opts out).
 `crew at` and `crew every` run detached timer workers for guarded doorbells,
 recorded under the crew; `crew timers` lists/cancels them and `down` stops them.
 `crew lock` bounds concurrent heavy commands with named, crew-scoped
 semaphores; `status` shows their active holders.
 `crew ls` shows projects, actual pane ownership, tasks and activity;
 `crew sweep` previews stale-crew cleanup and `--apply` marks stale crews ended
-without touching panes.
+without touching panes, and `crew sweep --delete-older 14d --apply` prunes
+ended crew folders whose last activity is older than the cutoff.
 `crew override lead impl` promotes
 an existing agent mid-work; `crew override lead %12` adopts a new successor
 pane. Overrides preserve history and results and save recovery context. The web viewer (`crew web`,

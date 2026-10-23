@@ -100,10 +100,12 @@ web); the doorbell and inbox heading do.
 
 ## Timers
 
-`timers/timer-<epoch>-<pid>/` holds `config` (`at|every⇥interval-seconds⇥role`),
+`timers/timer-<epoch>-<pid>/` holds `config` (`at|every|watch⇥interval-seconds⇥role`),
 `owner` (`pid⇥process-start-time`), `next`/`claimed` (epoch), `message` (literal full text),
 `ready` (publication marker) and `worker.log`. `done` / `cancelled` markers
-retain completed/cancelled history. The crew-wide `.timers.lock` serializes
+retain completed/cancelled history. A `watch` record writes `next` once at
+publication and never advances it; `crew timers` prints `-` for it. The
+crew-wide `.timers.lock` serializes
 publication, schedule claims and shutdown markers. Each timer's
 `.dispatch.lock` serializes pane dispatch with cancellation; pane I/O never
 holds the crew-wide lock. See
@@ -125,13 +127,23 @@ state is separate from the board/pane rewrite locks. See
 ## Lifecycle
 
 - `crew up`/`adopt` refuse a name whose dir exists without `ended`. An ended
-  dir is moved aside to `<name>.<timestamp>` and a fresh one created.
+  dir is moved aside to `<name>.<timestamp>` and a fresh one created. The
+  moved-aside folder keeps `meta`, `panes` and `ended`, so `crew sweep
+  --delete-older` sees it as an ordinary ended crew.
 - `crew down` writes `ended`, clears `.current` if it pointed here, and keeps
   every file for later reading (`crew -s name log`, the web viewer).
 - `crew sweep --apply` does the same bookkeeping only when no recorded pane
   passes `owns_pane`, under `.panes.lock`; it never changes pane labels or
   closes panes. Default `crew sweep` is read-only. [Listing](../cli/listing.md)
   computes real liveness rather than trusting the absence of `ended`.
+- `crew sweep --delete-older <age> --apply` is the only command that removes a
+  crew directory: it ends nothing and deletes only folders that are ended,
+  hold `meta` and `panes`, are older than the cutoff by their last
+  `channel.log` line, and are not the `.current` crew. It re-checks under the
+  folder's own `.panes.lock` and never touches non-crew directories; the
+  folder's files (board, inboxes, results, timeline) are gone afterwards, so
+  export anything worth keeping first. See
+  [listing.md](../cli/listing.md#prune-contract---delete-older).
 - `pane_session` (lookup by pane id) skips ended crews.
 
 Related: [summary.md](summary.md), [../cli/tasks.md](../cli/tasks.md).

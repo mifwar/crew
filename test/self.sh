@@ -1,13 +1,13 @@
 # Sourced by smoke.sh; all panes belong to its throwaway tmux session.
 check "--self refuses a dead TMUX_PANE before creating crew files" bash -c '
-  TMUX_PANE=%999999 "$1" up dead-self --in "$2" --self lead impl=cat > "$3/self-dead-err" 2>&1
+  TMUX_PANE=%999999 "$1" up dead-self --in "$2" --self lead --no-watch impl=cat > "$3/self-dead-err" 2>&1
   rc=$?
   test "$rc" -ne 0 && test ! -d "$3/dead-self" && grep -q "TMUX_PANE=%999999 is not a live pane" "$3/self-dead-err"
 ' _ "$CREW" "$TS" "$CREW_HOME"
 cat > "$CREW_HOME/self-pipe.sh" <<'SCRIPT'
 #!/bin/bash
 export CREW_HOME="$2" CREW_NO_SWITCH=1 CREW_BOOT_WAIT=4
-"$1" up selfpipe --in "$3" --self lead --here impl=cat 2>&1 | tail -20 > "$2/self-pipe-output"
+"$1" up selfpipe --in "$3" --self lead --here --no-watch impl=cat 2>&1 | tail -20 > "$2/self-pipe-output"
 printf '%s\n' "${PIPESTATUS[0]}" > "$2/self-pipe-rc"
 exec cat
 SCRIPT
