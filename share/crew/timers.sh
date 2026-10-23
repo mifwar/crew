@@ -1,19 +1,10 @@
 # Sourced by bin/crew. Timers retain messages in files, never shell code.
-timer_duration() {
-  local value="$1" factor=1
-  case "$value" in *s) value=${value%s} ;; *m) value=${value%m}; factor=60 ;; *h) value=${value%h}; factor=3600 ;; esac
-  case "$value" in ''|*[!0-9]*) return 1 ;; esac
-  value="${value#"${value%%[!0]*}"}"; [ -n "$value" ] || value=0
-  [ ${#value} -le 6 ] || return 1
-  value=$((10#$value * factor)); [ "$value" -gt 0 ] || return 1
-  printf '%s' "$value"
-}
-
 timer_when() { # local HH:MM (next occurrence), or +duration -> epoch
   local spec="$1" current day hour minute due seconds
   current=$(date +%s)
   case "$spec" in
-    +*) seconds=$(timer_duration "${spec#+}") || return 1; printf '%s' "$((current+seconds))" ;;
+    +*) seconds=$(duration "${spec#+}") || return 1; [ "$seconds" -gt 0 ] || return 1
+        printf '%s' "$((current+seconds))" ;;
     *)
       printf '%s' "$spec" | grep -Eq '^[0-2][0-9]:[0-5][0-9]$' || return 1
       hour=${spec%:*}; minute=${spec#*:}; [ "$((10#$hour))" -le 23 ] || return 1
@@ -56,6 +47,18 @@ timer_mark_all() { # caller holds .timers.lock; no pane I/O or process waits
     [ -d "$dir" ] || continue
     [ -f "$dir/done" ] || touch "$dir/cancelled"
   done
+}
+
+# Spawn the private worker for a published record and record its identity.
+# Caller holds the timer lock and has written config/next/message.
+timer_publish() { # dir
+  local dir="$1" pid started
+  CREW_HOME="$CREW_HOME" CREW_SHARE="$CREW_SHARE" TMUX_PANE="" \
+    nohup "$_self" -s "$S" _timer "${dir##*/}" > "$dir/worker.log" 2>&1 < /dev/null & pid=$!
+  started=$(ps -p "$pid" -o lstart=)
+  printf '%s\t%s\n' "$pid" "$started" > "$dir/owner"
+  [ ! -f "$dir/cancelled" ] && kill -0 "$pid" 2>/dev/null || die 'timer worker failed before publication'
+  touch "$dir/ready"
 }
 
 timer_cancel_all() { # called after the crew timer lock is released
@@ -102,6 +105,20 @@ cmd_timer_run() { # private subprocess entry; only the recorded pid may run it
   IFS="$(printf '\t')" read -r kind interval role < "$dir/config"
   message=""
   IFS= read -r -d '' message < "$dir/message" || true
+  if [ "$kind" = watch ]; then
+    # A standing watcher is a timer record too: same owner/ready handshake,
+    # listing, cancellation and down path. Its worker scans panes and rings
+    # the lead instead of dispatching one recorded message.
+    trap 'watch_cleanup; timer_worker_cleanup' EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    watch_cache=$(mktemp -d "${TMPDIR:-/tmp}/crew-watch.XXXXXX")
+    watch_loop "$watch_cache" "$interval" "$watch_quiet_default" 1 "$dir/cancelled"
+    watch_cleanup
+    timer_worker_cleanup
+    trap - EXIT INT TERM
+    return 0
+  fi
   while [ ! -f "$D/ended" ] && [ ! -f "$dir/cancelled" ]; do
     due=$(cat "$dir/next")
     if [ "$(date +%s)" -ge "$due" ]; then
@@ -146,16 +163,15 @@ timer_add_cleanup() {
   unlock
 }
 
-cmd_timer_add() { # at|every schedule role message...
-  resolve_session; resolve_me
-  [ $# -ge 4 ] || die 'usage: crew at <HH:MM|+30m> <role> <message> / crew every <30m> <role> <message>'
-  local kind="$1" spec="$2" role="$3" interval=0 due id dir pid started timer_add_dir="" timer_published=0
-  shift 3
-  [ -n "$(pane_of "$role")" ] || die "no agent '$role'"
-  if [ "$kind" = every ]; then
-    interval=$(timer_duration "$spec") || die "bad interval: $spec"
-    due=$(( $(date +%s) + interval ))
-  else due=$(timer_when "$spec") || die "bad time: $spec"; fi
+# Every timer record — at, every and watch — is born through this one
+# sequence: timer lock, failed-launch cleanup, ended check, id and directory,
+# config/next/message, worker publication, unlock. Caller resolves S/D and
+# logs the outcome; it keeps timer_add_dir/timer_published local so the EXIT
+# cleanup can still cancel an unpublished record. Prints the id and leaves it
+# in timer_create_id for callers in the same shell. `crew up` runs it in
+# $(...) so a failure there cannot end `up`; the lock and traps work either way.
+timer_create() { # kind interval role due message — prints the record id
+  local kind="$1" interval="$2" role="$3" due="$4" message="$5" id dir
   lock timers
   trap timer_add_cleanup EXIT
   trap 'exit 130' INT
@@ -165,17 +181,39 @@ cmd_timer_add() { # at|every schedule role message...
   mkdir -p "$D/timers"; mkdir "$dir"; timer_add_dir="$dir"
   printf '%s\t%s\t%s\n' "$kind" "$interval" "$role" > "$dir/config"
   printf '%s\n' "$due" > "$dir/next"
-  printf '%s' "$*" > "$dir/message"
-  CREW_HOME="$CREW_HOME" CREW_SHARE="$CREW_SHARE" TMUX_PANE="" \
-    nohup "$_self" -s "$S" _timer "$id" > "$dir/worker.log" 2>&1 < /dev/null & pid=$!
-  started=$(ps -p "$pid" -o lstart=)
-  printf '%s\t%s\n' "$pid" "$started" > "$dir/owner"
-  [ ! -f "$dir/cancelled" ] && kill -0 "$pid" 2>/dev/null || die 'timer worker failed before publication'
-  touch "$dir/ready"; timer_published=1
+  printf '%s' "$message" > "$dir/message"
+  timer_publish "$dir"; timer_published=1
   unlock
   trap - INT TERM
-  log_line sys "$ME" "$role" "scheduled $id: $kind $spec"
+  timer_create_id="$id"
   printf '%s\n' "$id"
+}
+
+cmd_timer_add() { # at|every schedule role message...
+  resolve_session; resolve_me
+  [ $# -ge 4 ] || die 'usage: crew at <HH:MM|+30m> <role> <message> / crew every <30m> <role> <message>'
+  local kind="$1" spec="$2" role="$3" interval=0 due id timer_add_dir="" timer_published=0
+  shift 3
+  [ -n "$(pane_of "$role")" ] || die "no agent '$role'"
+  if [ "$kind" = every ]; then
+    interval=$(duration "$spec") || die "bad interval: $spec"
+    [ "$interval" -gt 0 ] || die "bad interval: $spec"
+    due=$(( $(date +%s) + interval ))
+  else due=$(timer_when "$spec") || die "bad time: $spec"; fi
+  timer_create "$kind" "$interval" "$role" "$due" "$*"
+  id=$timer_create_id
+  log_line sys "$ME" "$role" "scheduled $id: $kind $spec"
+}
+
+# `crew up` starts one of these per crew with a lead: a detached watcher that
+# rings the lead on errors and caught-up work. Caller has set S and D (init_dir)
+# and must not call resolve_session, which could pick an unrelated crew.
+timer_add_watch() { # interval role — prints the record id
+  local interval="$1" role="$2" id timer_add_dir="" timer_published=0
+  timer_create watch "$interval" "$role" \
+    "$(( $(date +%s) + interval ))" "watch $role: errors, drafts, stuck and caught-up work"
+  id=$timer_create_id
+  log_line sys - "$role" "started $id: watch every ${interval}s (crew timers, crew down stops it)"
 }
 
 cmd_timers() {
@@ -195,10 +233,13 @@ cmd_timers() {
         [ -d "$dir" ] && [ -f "$dir/ready" ] || continue
         IFS="$(printf '\t')" read -r kind interval role < "$dir/config"
         due=$(cat "$dir/next"); state=stopped
-        next_time=$(date -r "$due" '+%Y-%m-%d %H:%M:%S')
+        next_time=-
+        [ "$kind" = watch ] || next_time=$(date -r "$due" '+%Y-%m-%d %H:%M:%S')
         if [ -f "$dir/cancelled" ]; then state=cancelled
         elif [ -f "$dir/done" ]; then state=done
-        elif timer_pid_is "$dir"; then state=waiting; fi
+        elif timer_pid_is "$dir"; then
+          if [ "$kind" = watch ]; then state=watching; else state=waiting; fi
+        fi
         printf '%s\t%s\t%s\t%s\t%s\t%s\n' "${dir##*/}" "$kind" "$role" "$next_time" "$state" "$(oneline "$(cat "$dir/message")")"
       done; } | column -t -s "$(printf '\t')" ;;
     *) die "bad timers option: $1" ;;

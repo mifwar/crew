@@ -17,6 +17,21 @@ RING_MAX=500                         # longer messages ring with a pointer inste
 die() { printf 'crew: %s\n' "$*" >&2; exit 1; }
 now() { date '+%Y-%m-%dT%H:%M:%S'; }
 oneline() { printf '%s' "$*" | tr '\t\n\r' '   '; }
+# Duration: integer seconds, optionally suffixed s/m/h/d. Zero is allowed;
+# callers that need a positive value check it themselves.
+duration() {
+  local value="$1" factor=1
+  case "$value" in
+    *s) value=${value%s} ;;
+    *m) value=${value%m}; factor=60 ;;
+    *h) value=${value%h}; factor=3600 ;;
+    *d) value=${value%d}; factor=86400 ;;
+  esac
+  case "$value" in ''|*[!0-9]*) return 1 ;; esac
+  value="${value#"${value%%[!0]*}"}"; [ -n "$value" ] || value=0
+  [ ${#value} -le 6 ] || return 1
+  printf '%s' "$((10#$value * factor))"
+}
 # BSD awk's substr counts bytes. Bash counts characters in a UTF-8 locale,
 # including when the caller uses LC_ALL=C. macOS ships en_US.UTF-8.
 truncate_text() { local LC_ALL=en_US.UTF-8; printf '%s' "${1:0:$2}"; }
@@ -36,6 +51,7 @@ crew — coding agents working together in tmux
       --self <role>    the calling pane joins as <role> (an agent can start its own crew)
       --here           split the calling window instead of opening a new one
       --in <session>   tmux session for the new window (default: the caller's)
+      --no-watch       don't start the detached watcher that rings the lead
   crew adopt <name> role=<pane> ...                   use panes you already have (%7, .2, 6.1)
   crew add role=<cli spec|%pane|fork:role> ...       add agents to a running crew (spawn, adopt, or fork)
   crew rebind <role> [pane]                           point a role at another pane (default: this one)
@@ -66,7 +82,10 @@ crew — coding agents working together in tmux
   crew restyle                                        re-apply the pane border format to the crew's windows
   crew down                                           close the crew (files are kept)
   crew ls [--live]                                    projects, pane liveness, tasks and last activity
-  crew sweep [--apply]                                report stale crews; --apply marks them ended
+  crew sweep [--apply] [--delete-older <age>]        report stale crews; --apply marks them ended;
+                                                      --delete-older 14d (its own mode) lists ended
+                                                      crew folders older than <age> (s/m/h/d) and
+                                                      deletes them only with --apply
   crew whoami | path
 
   -s <name> before the command picks a crew explicitly.
@@ -122,12 +141,18 @@ crew — coding agents working together in tmux
   path. Tasks stay queued until their owners start; repeated done is quiet.
 
   Watch defaults: --every 120 seconds, --quiet-after 10m of unchanged pane/task
-  text before idle notices. Errors and empty-board notices are immediate.
-  Durations accept seconds or s/m/h; --quiet-after 0 reports idle immediately.
+  text before idle notices. Errors are immediate; the empty-board notice fires
+  only when the board goes from open tasks to none, never on a first scan.
+  Durations accept seconds or s/m/h/d; --quiet-after 0 reports idle immediately.
   --ring uses the guarded lead doorbell instead of stdout. Ctrl-C stops watch.
+  A crew with a lead role also gets one detached watcher from `crew up`
+  (120 s scans, same rules, ringing the lead); it appears in `crew timers`
+  (NEXT is '-') and `crew down` stops it. --no-watch skips it;
+  CREW_WATCH_EVERY=<duration> changes its scan interval.
 
   Timers run detached, recorded under the crew timers/ directory. Delays use
-  seconds or s/m/h (positive integers). HH:MM uses the next local occurrence.
+  seconds or s/m/h/d suffixes (positive integers). HH:MM uses the next local
+  occurrence.
   Repeats first fire after one interval; crew down cancels all timers. Rings
   inspect drafts once and skip contended doorbells; skipped rings remain in
   the inbox without retry.
@@ -464,18 +489,23 @@ settle_agent() { # role pane
 }
 
 cmd_up() {
-  local name="" target="" self="" here=0 specs=() spec role cli pane win="" origin created_at created_epoch launch_time caller="${TMUX_PANE:-}" self_cli=""
+  local name="" target="" self="" here=0 no_watch=0 specs=() spec role cli pane win="" origin created_at created_epoch launch_time caller="${TMUX_PANE:-}" self_cli="" watch_every=$watch_interval watch_id=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --in) target="$2"; shift 2 ;;
       --self) self="$2"; shift 2 ;;
       --here) here=1; shift ;;
+      --no-watch) no_watch=1; shift ;;
       -*) die "unknown option: $1" ;;
       *=*) specs+=("$1"); shift ;;
       *) [ -z "$name" ] || die "unexpected argument: $1"; name="$1"; shift ;;
     esac
   done
-  [ -n "$name" ] && [ ${#specs[@]} -gt 0 ] || die 'usage: crew up <name> [--self <role>] [--here] role=cli ...'
+  [ -n "$name" ] && [ ${#specs[@]} -gt 0 ] || die 'usage: crew up <name> [--self <role>] [--here] [--no-watch] role=cli ...'
+  if [ -n "${CREW_WATCH_EVERY:-}" ]; then
+    watch_every=$(duration "$CREW_WATCH_EVERY") || die "bad CREW_WATCH_EVERY: $CREW_WATCH_EVERY"
+    [ "$watch_every" -gt 0 ] || die "bad CREW_WATCH_EVERY: $CREW_WATCH_EVERY"
+  fi
   check_name "$name"
   if [ -n "$self" ] || [ "$here" = 1 ]; then
     [ -n "$caller" ] || die "--self and --here must run inside a tmux pane"
@@ -535,10 +565,18 @@ cmd_up() {
     settle_agent "$role" "$pane" &
   done < "$D/panes"
   wait
+  # Anything after this point must not fail the crew: the panes and files are
+  # already up, so a watcher that cannot start is a warning, not an error.
+  if [ "$no_watch" = 0 ] && [ -n "$(pane_of lead)" ]; then
+    # The subshell keeps a die, lock or trap inside timer_create from ending `up`.
+    watch_id=$(timer_add_watch "$watch_every" lead) || {
+      echo "crew: could not start the watcher (crew watch --ring still works)" >&2; watch_id=""; }
+  fi
   if [ -z "$self" ] && [ "$here" = 0 ] && [ -z "${CREW_NO_SWITCH:-}" ] && [ -n "${TMUX:-}" ]; then
     tmux select-window -t "$win" 2>/dev/null || true
   fi
   echo "ready. files: $D"
+  [ -z "$watch_id" ] || echo "watch: $watch_id (rings lead; crew timers lists it, crew down stops it)"
   if [ -n "$self" ]; then
     echo "self: $self bound to $caller ($self_cli, adopted)"
     echo

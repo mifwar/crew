@@ -1,4 +1,9 @@
 # Sourced by bin/crew. Observations are heuristics, never permission to type.
+# Defaults shared by `crew watch` and the watcher `crew up` starts for a crew
+# with a lead (CREW_WATCH_EVERY overrides the interval, see cmd_up).
+watch_interval=120
+watch_quiet_default=600
+
 # Keep the rendered-text patterns in one table for status and watch alike.
 pane_patterns() {
   cat <<'EOF'
@@ -102,15 +107,6 @@ draft_note() { # pane cli — the caller's capture on stdin
   [ -z "$text" ] || printf 'draft pending: doorbells are held'
 }
 
-watch_duration() { # digits + optional s/m/h; bounded to avoid shell overflow
-  local value="$1" factor=1
-  case "$value" in *s) value=${value%s} ;; *m) value=${value%m}; factor=60 ;; *h) value=${value%h}; factor=3600 ;; esac
-  case "$value" in ''|*[!0-9]*) return 1 ;; esac
-  value="${value#"${value%%[!0]*}"}"; [ -n "$value" ] || value=0
-  [ ${#value} -le 6 ] || return 1
-  printf '%s' "$((10#$value * factor))"
-}
-
 watch_event() { # ring? text
   if [ "$1" = 1 ]; then
     log_line sys watch lead "$2"
@@ -143,10 +139,18 @@ watch_scan() { # private cache quiet-seconds ring?; one observation per owned pa
     [ "$fingerprint" = "$previous" ] || changed=$current_time
     open=$(role_tasks "$role"); active=$(role_tasks "$role" active)
     event=""
-    if [ "$health" = error ] && [ "$open" -gt 0 ]; then event="errored with an open task: $reason"
+    # An error is never silent: review rounds run over `crew send` after a task
+    # is done, so requiring open work would hide exactly the case that matters.
+    # The wording still says when the role also has open work to pick up.
+    if [ "$health" = error ]; then
+      if [ "$open" -gt 0 ]; then event="errored with an open task: $reason"
+      else event="errored: $reason"; fi
     elif [ -n "$draft" ]; then event="$draft"
     elif [ "$health" = idle ] && [ "$active" -gt 0 ]; then event="stuck: input prompt with queued/working task"
-    elif [ "$health" = idle ] && [ "$open" -eq 0 ]; then event="idle with no open task"; fi
+    # Never ring an idle lead about itself: waiting is its normal state, and
+    # each ring would wake it only to idle again, repeating every quiet period.
+    elif [ "$health" = idle ] && [ "$open" -eq 0 ] && { [ "$role" != lead ] || [ "$ring_events" = 0 ]; }; then
+      event="idle with no open task"; fi
     if [ -z "$event" ]; then sent=-
     elif [ "$event" != "$sent" ] && { [ "$health" = error ] || [ -n "$draft" ] || [ $((current_time-changed)) -ge "$quiet" ]; }; then
       sent=$event
@@ -161,27 +165,54 @@ watch_scan() { # private cache quiet-seconds ring?; one observation per owned pa
     fi
     printf '%s|%s|%s\n' "$fingerprint" "$changed" "$sent" > "$cache/$role"
   done < "$D/panes"
-  board=$(awk -F'\t' '$3!="done"{n++} END{print n+0}' "$D/board.tsv")
+  board=$(watch_board_state)
   previous=-; [ ! -f "$cache/.board" ] || previous=$(cat "$cache/.board")
-  if [ "$board" -eq 0 ] && [ "$previous" != empty ]; then
+  if [ "$board" = empty ] && [ "$previous" != empty ]; then
     watch_event "$ring_events" 'board has no open tasks'
   fi
-  if [ "$board" -eq 0 ]; then printf 'empty\n'; else printf 'open\n'; fi > "$cache/.board"
+  printf '%s\n' "$board" > "$cache/.board"
+}
+
+watch_board_state() { # -> empty|open, the same open-task rule as status
+  if [ "$(awk -F'\t' '$3!="done"{n++} END{print n+0}' "$D/board.tsv")" -eq 0 ]; then
+    printf 'empty\n'
+  else printf 'open\n'; fi
+}
+
+# The scan/sleep loop shared by `crew watch` and the watcher `crew up` starts.
+# The caller owns the traps; `cancel` is the worker's cancellation marker (""
+# for a foreground watch, which only stops on the crew's ended marker). A
+# deleted crew directory also ends the loop, so a watcher whose crew is gone
+# can never poll a reused path forever. The board cache is seeded from the
+# current state before the first scan in every mode: the empty-board notice is
+# a transition (open → empty), never a first-scan observation.
+watch_loop() { # cache every quiet ring? [cancel-file]
+  local cache="$1" every="$2" quiet="$3" ring_events="$4" cancel="${5:-}"
+  watch_cache="$cache"
+  printf '%s\n' "$(watch_board_state)" > "$cache/.board"
+  while [ -d "$D" ] && [ ! -f "$D/ended" ] && { [ -z "$cancel" ] || [ ! -f "$cancel" ]; }; do
+    watch_scan "$cache" "$quiet" "$ring_events"
+    sleep "$every" & watch_sleep_pid=$!
+    wait "$watch_sleep_pid" || true
+    watch_sleep_pid=""
+  done
 }
 
 watch_cleanup() {
   [ -z "${watch_sleep_pid:-}" ] || kill "$watch_sleep_pid" 2>/dev/null || true
-  rm -rf "$watch_cache"
+  watch_sleep_pid=""
+  [ -z "${watch_cache:-}" ] || rm -rf "$watch_cache"
+  watch_cache=""
 }
 
 cmd_watch() {
   resolve_session
-  local every=120 quiet=600 ring_events=0 watch_cache watch_sleep_pid=""
+  local every=$watch_interval quiet=$watch_quiet_default ring_events=0 watch_cache="" watch_sleep_pid=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --every|--quiet-after)
         [ $# -ge 2 ] || die "$1 needs a duration"
-        local seconds; seconds=$(watch_duration "$2") || die "bad duration: $2"
+        local seconds; seconds=$(duration "$2") || die "bad duration: $2"
         if [ "$1" = --every ]; then
           [ "$seconds" -gt 0 ] || die '--every must be positive'
           every=$seconds
@@ -196,12 +227,7 @@ cmd_watch() {
   trap watch_cleanup EXIT
   trap 'exit 130' INT
   trap 'exit 143' TERM
-  while [ ! -f "$D/ended" ]; do
-    watch_scan "$watch_cache" "$quiet" "$ring_events"
-    sleep "$every" & watch_sleep_pid=$!
-    wait "$watch_sleep_pid" || true
-    watch_sleep_pid=""
-  done
+  watch_loop "$watch_cache" "$every" "$quiet" "$ring_events" ""
   watch_cleanup
   trap - EXIT INT TERM
 }

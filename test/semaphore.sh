@@ -2,7 +2,7 @@
 . "$ROOT/share/crew/semaphore.sh"
 check 'semaphore syntax (bash 3.2)' bash -n "$ROOT/share/crew/semaphore.sh"
 check 'lock has command help' bash -c '"$1" lock --help | grep -q "crew lock"' _ "$CREW"
-"$CREW" up sem-test --in "$TS" lead=cat worker=cat >/dev/null 2>&1
+"$CREW" up sem-test --in "$TS" --no-watch lead=cat worker=cat >/dev/null 2>&1
 sem_dir="$CREW_HOME/sem-test"
 sem_until() { local i=0
   until "$@" >/dev/null 2>&1; do i=$((i+1)); [ "$i" -lt 100 ] || return 1; sleep 0.1; done

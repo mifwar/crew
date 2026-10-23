@@ -3,9 +3,10 @@
 One Bash entrypoint, one `cmd_*` function per command, dispatched at the bottom.
 `ls`/`sweep` and their two helpers are sourced from `share/crew/listing.sh`
 via `CREW_SHARE`; the pane readers, `pane_hold`, the `ring` doorbell and its
-draft hold come from `share/crew/pane.sh` the same way. Status observations
-and the foreground watcher come from `share/crew/watch.sh`; detached timer
-workers live in `share/crew/timers.sh`; command semaphores and holder listing
+draft hold come from `share/crew/pane.sh` the same way. Status observations and
+the watch scan loop (foreground and the detached watcher `up` starts) come from
+`share/crew/watch.sh`; timer records and their detached workers live in
+`share/crew/timers.sh`; command semaphores and holder listing
 live in `share/crew/semaphore.sh`. See [listing.md](listing.md),
 [messaging.md](messaging.md), [watch.md](watch.md), [timers.md](timers.md)
 and [semaphore.md](semaphore.md).
@@ -14,7 +15,7 @@ after a command prints the full usage (exit 0); unknown commands exit 1.
 
 | Command | What it does | Detail |
 |---|---|---|
-| `up <name> [--self R] [--here] [--in S] role=cli …` | create panes, start CLIs, send intros | [lifecycle.md](lifecycle.md) |
+| `up <name> [--self R] [--here] [--in S] [--no-watch] role=cli …` | create panes, start CLIs, send intros, start the lead watcher | [lifecycle.md](lifecycle.md) |
 | `adopt <name> role=<pane> …` | label existing panes, send intros | [lifecycle.md](lifecycle.md) |
 | `add role=<cli spec\|%pane\|fork:role> …` | spawn, adopt or fork a role in a running crew | [lifecycle.md](lifecycle.md), [sessions.md](sessions.md) |
 | `override <role> <replacement-role\|pane>` / `<role>=<cli spec>` | hand ongoing work to another agent or spawn a successor | [lifecycle.md](lifecycle.md) |
@@ -30,7 +31,7 @@ after a command prints the full usage (exit 0); unknown commands exit 1.
 | `task next-id` | id the next `add` will take | [tasks.md](tasks.md) |
 | `lock [--name build] [--max N] -- <cmd...>` | crew-wide counting semaphore | [semaphore.md](semaphore.md) |
 | `board` / `status` | board table / agents, model, stuck/error notes, context/quota + lock holders + board | [tasks.md](tasks.md), [watch.md](watch.md), [semaphore.md](semaphore.md) |
-| `watch [--every 120] [--quiet-after 10m] [--ring]` | debounced state-change notices, optionally ring lead | [watch.md](watch.md) |
+| `watch [--every 120] [--quiet-after 10m] [--ring]` | debounced state-change notices, optionally ring lead; `up` starts one detached for crews with a lead | [watch.md](watch.md) |
 | `at <HH:MM\|+30m> <role> <message>` / `every <30m> <role> <message>` | detached guarded doorbells | [timers.md](timers.md) |
 | `timers [cancel <id>]` | list timers or stop one | [timers.md](timers.md) |
 | `log [-f] [-n N]` | formatted `channel.log` | [messaging.md](messaging.md) |
@@ -40,7 +41,7 @@ after a command prints the full usage (exit 0); unknown commands exit 1.
 | `restyle` | re-apply the border format to the crew's windows | below |
 | `down` | close spawned panes, unlabel adopted ones, mark ended | [lifecycle.md](lifecycle.md) |
 | `ls [--live]` | projects, actual pane liveness, task counts and last activity | [listing.md](listing.md) |
-| `sweep [--apply]` | dry-run stale cleanup, or mark stale crews ended without touching panes | [listing.md](listing.md) |
+| `sweep [--apply] [--delete-older <age>]` | dry-run stale cleanup, or mark stale crews ended without touching panes; `--delete-older` (own mode, s/m/h/d) prunes ended folders older than the cutoff | [listing.md](listing.md) |
 | `whoami`, `path` | caller identity + `why:` reason, crew dir | — |
 
 ```mermaid

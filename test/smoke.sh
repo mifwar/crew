@@ -37,7 +37,7 @@ bash -n "$ROOT/share/crew/pane.sh" || { echo "FAIL  bash -n pane.sh"; exit 1; }
 bash -n "$ROOT/share/crew/sessions.sh" || { echo "FAIL  bash -n sessions.sh"; exit 1; }
 tmux new-session -d -s "$TS" -x 200 -y 50
 
-"$CREW" up t --in "$TS" lead=cat "impl=cat && true" rev=cat >/dev/null 2>&1
+"$CREW" up t --in "$TS" --no-watch lead=cat "impl=cat && true" rev=cat >/dev/null 2>&1
 D="$CREW_HOME/t"
 lead=$(awk -F'\t' '$1=="lead"{print $2}' "$D/panes")
 impl=$(awk -F'\t' '$1=="impl"{print $2}' "$D/panes")
@@ -731,7 +731,7 @@ check "down marks crew ended"           test -f "$D/ended"
 
 # --self --here: an existing pane joins as lead; others split into its window.
 self=$(tmux new-window -d -P -F '#{pane_id}' -t "$TS:")
-TMUX_PANE=$self "$CREW" up s --self lead --here impl=cat >/dev/null 2>&1
+TMUX_PANE=$self "$CREW" up s --self lead --here --no-watch impl=cat >/dev/null 2>&1
 check "--self registers caller as adopted" awk -F'\t' -v p="$self" '$1=="lead" && $2==p && $4=="adopted"{f=1} END{exit !f}' "$CREW_HOME/s/panes"
 check "--here splits caller's window"   test "$(tmux display -p -t "$self" '#{window_panes}')" = 2
 self_worker=$(awk -F'\t' '$1=="impl"{print $2}' "$CREW_HOME/s/panes")
@@ -791,7 +791,7 @@ check "  and says ps is blocked, not failed" bash -c 'printf "%s" "$1" | grep -q
 "$CREW" -s blind down >/dev/null 2>&1
 
 # Grow a running crew, preserving custom instructions and adopting safely.
-"$CREW" up expand --in "$TS" lead=cat rev=cat >/dev/null 2>&1
+"$CREW" up expand --in "$TS" --no-watch lead=cat rev=cat >/dev/null 2>&1
 E="$CREW_HOME/expand"
 expand_win=$(awk -F'=' '$1=="window"{print $2}' "$E/meta")
 sed 's/\. The human is/. Keep this custom instruction. The human is/' "$E/roles/lead.md" > "$E/roles/lead.md.tmp"
@@ -864,7 +864,7 @@ check "down unlabels a pane adopted by add" test -z "$(tmux display -p -t "$adop
 check "add refuses ended crews" bash -c '! "$1" -s expand add later=cat' _ "$CREW"
 
 # Removing a role: close spawned panes, block its open tasks, keep the files.
-"$CREW" up rm --in "$TS" lead=cat impl=cat rev=cat >/dev/null 2>&1
+"$CREW" up rm --in "$TS" --no-watch lead=cat impl=cat rev=cat >/dev/null 2>&1
 R="$CREW_HOME/rm"
 asr() { local role="$1"; shift; CREW_SESSION=rm CREW_AGENT="$role" "$CREW" "$@"; }
 check "rev template carries the review-only marker" grep -q 'crew:review-only' "$ROOT/share/crew/roles/rev.md"
@@ -911,7 +911,7 @@ rm_keep_row=$(awk -F'\t' '$1=="keep"' "$R/panes")
 check "  and still drops the roster row" test -z "$rm_keep_row"
 tmux kill-pane -t "$rm_keep"
 # A one-step override verifies a spawned CLI before changing the binding.
-"$CREW" up swap --in "$TS" lead=cat impl=cat rev=cat >/dev/null 2>&1
+"$CREW" up swap --in "$TS" --no-watch lead=cat impl=cat rev=cat >/dev/null 2>&1
 SW="$CREW_HOME/swap"
 swap_lead=$(awk -F'\t' '$1=="lead"{print $2}' "$SW/panes")
 swap_impl=$(awk -F'\t' '$1=="impl"{print $2}' "$SW/panes")
@@ -1051,6 +1051,63 @@ printf 'ls-up\n' > "$CREW_HOME/.current"
 check "repeated sweep succeeds" "$CREW" sweep --apply
 check "sweep preserves an unrelated current crew" test "$(cat "$CREW_HOME/.current")" = ls-up
 check "sweep rejects unknown flags" bash -c '! "$1" sweep --bogus' _ "$CREW"
+
+# sweep --delete-older prunes only ended crew folders older than the cutoff.
+prune_fixture() { # name age-seconds|'' ended(1|0)
+  local dir="$CREW_HOME/$1"
+  mkdir -p "$dir/out"
+  printf 'mode=adopt\ncwd=%s/projects/prune\n' "$HOME" > "$dir/meta"
+  : > "$dir/panes"; : > "$dir/board.tsv"
+  if [ -n "$2" ]; then
+    printf '%s\tsys\t-\t-\tfixture\n' "$(date -r "$((fixture_epoch - $2))" '+%Y-%m-%dT%H:%M:%S')" > "$dir/channel.log"
+  else : > "$dir/channel.log"; fi
+  [ "${3:-1}" = 0 ] || touch "$dir/ended"
+}
+prune_exist() { local d; for d in "$@"; do [ -d "$d" ] || return 1; done; }
+prune_gone() { local d; for d in "$@"; do [ ! -e "$d" ] || return 1; done; }
+prune_fixture prune-old 3456000
+prune_fixture prune-recent 3600
+prune_fixture prune-live 3456000 0
+prune_fixture prune-nots ""
+prune_fixture prune-current 3456000
+# `crew up` reusing an ended name moves the old dir aside to this form.
+prune_fixture prune-archived.20260101-000000 3456000
+mkdir -p "$CREW_HOME/prune-plain/bin"; echo keep > "$CREW_HOME/prune-plain/bin/tool"
+printf 'prune-current\n' > "$CREW_HOME/.current"
+prune_dry="$CREW_HOME/prune-dry"
+check "sweep --delete-older dry run succeeds" bash -c '"$1" sweep --delete-older 14d > "$2"' _ "$CREW" "$prune_dry"
+check "sweep --delete-older dry run deletes nothing" prune_exist "$CREW_HOME/prune-old" "$CREW_HOME/prune-recent" "$CREW_HOME/prune-live" "$CREW_HOME/prune-nots" "$CREW_HOME/prune-current" "$CREW_HOME/prune-archived.20260101-000000"
+check "sweep --delete-older reports an old ended crew" grep -qE '^prune-old: ended, last activity 40d ago, [^;]+; would delete$' "$prune_dry"
+check "sweep --delete-older covers an archived crew folder" grep -qE '^prune-archived\.20260101-000000: ended, last activity 40d ago, [^;]+; would delete$' "$prune_dry"
+check "sweep --delete-older keeps a recent ended crew" grep -qE '^prune-recent: ended, last activity 1h ago, [^;]+; kept \(newer than 14d\)$' "$prune_dry"
+check "sweep --delete-older keeps a crew with no timestamp" grep -qF 'prune-nots: ended, no last activity; kept' "$prune_dry"
+check "sweep --delete-older keeps the current crew" grep -qE '^prune-current: ended, last activity 40d ago, [^;]+; kept \(current crew\)$' "$prune_dry"
+check "sweep --delete-older ignores live crews" bash -c '! grep -q "^prune-live:" "$1"' _ "$prune_dry"
+check "sweep --delete-older ignores non-crew dirs" bash -c '! grep -q "prune-plain" "$1"' _ "$prune_dry"
+check "sweep --delete-older totals the dry run" grep -qE '^would free .+ from 2 folders \(dry run: add --apply\)$' "$prune_dry"
+# A held panes lock is respected before anything is removed.
+prune_fixture prune-ablock 3456000
+mkdir "$CREW_HOME/prune-ablock/.panes.lock"
+check "sweep --delete-older --apply respects the panes lock" bash -c '! "$1" sweep --delete-older 14d --apply' _ "$CREW"
+check "sweep --delete-older deletes nothing while a lock is held" prune_exist "$CREW_HOME/prune-old" "$CREW_HOME/prune-archived.20260101-000000"
+check "sweep --delete-older leaves another caller's lock alone" test -d "$CREW_HOME/prune-ablock/.panes.lock"
+rmdir "$CREW_HOME/prune-ablock/.panes.lock"
+prune_panes=$(tmux list-panes -s -t "$TS" -F '#{pane_id} #{@crew_session}/#{@crew_role}')
+check "sweep --delete-older --apply succeeds" bash -c '"$1" sweep --delete-older 14d --apply > "$2"' _ "$CREW" "$CREW_HOME/prune-apply"
+check "sweep --delete-older deletes old ended crews" prune_gone "$CREW_HOME/prune-old" "$CREW_HOME/prune-archived.20260101-000000" "$CREW_HOME/prune-ablock"
+check "sweep --delete-older keeps recent, live, no-timestamp and current crews" prune_exist "$CREW_HOME/prune-recent" "$CREW_HOME/prune-live" "$CREW_HOME/prune-nots" "$CREW_HOME/prune-current"
+check "sweep --delete-older never touches non-crew dirs" test "$(cat "$CREW_HOME/prune-plain/bin/tool")" = keep
+check "sweep --delete-older preserves the current pointer" test "$(cat "$CREW_HOME/.current")" = prune-current
+check "sweep --delete-older reports each deletion" grep -qE '^prune-old: ended, last activity 40d ago, [^;]+; deleted$' "$CREW_HOME/prune-apply"
+check "sweep --delete-older totals freed space" grep -qE '^freed .+ from 3 folders$' "$CREW_HOME/prune-apply"
+check "sweep --delete-older releases its panes lock" test ! -e "$CREW_HOME/prune-recent/.panes.lock"
+check "sweep --delete-older never touches panes" test "$(tmux list-panes -s -t "$TS" -F '#{pane_id} #{@crew_session}/#{@crew_role}')" = "$prune_panes"
+check "repeated sweep --delete-older finds nothing" bash -c '"$1" sweep --delete-older 14d | grep -qF "nothing to prune: no ended crew older than 14d"' _ "$CREW"
+check "sweep --delete-older rejects a bad age" bash -c '! "$1" sweep --delete-older 14x' _ "$CREW"
+check "sweep --delete-older rejects a missing age" bash -c '! "$1" sweep --delete-older' _ "$CREW"
+check "sweep --delete-older rejects a zero age" bash -c '! "$1" sweep --delete-older 0' _ "$CREW"
+check "sweep --delete-older rejects unknown flags" bash -c '! "$1" sweep --delete-older 14d --bogus' _ "$CREW"
+printf 'ls-up\n' > "$CREW_HOME/.current"
 mkdir "$CREW_HOME/empty-root"
 check "ls handles empty active and ended row arrays" env CREW_HOME="$CREW_HOME/empty-root" "$CREW" ls
 check "install works with scratch bin and skill destinations" env CREW_BIN_DIR="$CREW_HOME/install-bin" CLAUDE_SKILLS_DIR="$CREW_HOME/install-skills" "$ROOT/install.sh"

@@ -13,32 +13,51 @@ crew timers
 crew timers cancel timer-1234567890-12345
 ```
 
+A record's `kind` is `at`, `every` or `watch`. `watch` records are the
+detached watcher `crew up` starts for a crew with a lead
+([watch.md](watch.md)): the same record, owner handshake, listing and
+cancel/`down` path, but its worker runs the scan loop and rings the lead
+instead of dispatching one message. It never rewrites `next`, so the listing
+shows NEXT `-` for it, and reports `watching` while its worker is alive.
+`up --no-watch` starts none; `CREW_WATCH_EVERY` changes the interval. All three
+kinds are created by the one `timer_create` helper: timer lock, ended check,
+id/directory, config/next/message, worker publication and unlock.
+
 Relative delays and repeat intervals are positive integer seconds with an
-optional `s`, `m`, `h` suffix (leading zeros are decimal). `HH:MM` is local
-wall time: a time already passed today moves to tomorrow. BSD `date` parses
-the date and calendar day, including timezone rules. Repeats schedule the
+optional `s`, `m`, `h` or `d` suffix (leading zeros are decimal), parsed by the
+shared `duration` helper in `bin/crew`; `at`/`every` reject zero. `HH:MM` is
+local wall time: a time already passed today moves to tomorrow. BSD `date`
+parses the date and calendar day, including timezone rules. Repeats schedule the
 next interval when claiming a due dispatch; missed intervals are not replayed.
 
 Each worker polls once per second. Its record is
 `timers/timer-<epoch>-<pid>/`, with `config`, `message`, `owner`, `next`,
 `ready`, `claimed` and `worker.log`; completion adds `done`, cancellation adds
 `cancelled`. `owner` records the worker pid and process start time. Listing
-shows the next local timestamp and waiting/done/cancelled/stopped and keeps the record for inspection.
+shows the next local timestamp (`-` for a watch record) and waiting/done/
+cancelled/stopped and keeps the record for inspection.
 The recorded message is data; no eval or shell interpolation executes it.
 
 ```mermaid
 flowchart LR
   add[at or every] --> files[record timer and ready handshake]
+  up[up with a lead role] --> watchrec[record kind=watch]
+  watchrec --> files
   files --> worker[detached worker]
-  worker --> claim[claim due entry under crew timer lock]
+  worker --> kind{kind}
+  kind -->|watch| scan[watch_loop rings lead]
+  scan --> worker
+  kind -->|at or every| claim[claim due entry under crew timer lock]
   claim --> release[release crew lock]
   release --> dispatch[per-timer dispatch lock]
   dispatch --> check[check ended and cancelled]
   check --> deliver[guarded inbox and nonblocking doorbell]
   deliver --> worker
   cancel[cancel] --> dispatch
+  cancel --> scan
   down[down] --> mark[mark ended and cancelled under crew lock]
   mark --> dispatch
+  mark --> scan
 ```
 
 `.timers.lock` protects schedule publication, due-entry claims, next-time
@@ -79,7 +98,8 @@ human approval or answers a dialog. Sender labels remain advisory.
 The smoke suite sources `test/timers.sh` for parsing, literal messages,
 one-shot/repeated delivery, cancellation, self-pane delivery, approval and
 reused-pane holds, unrelated-pid protection, shutdown, contended-ring cancel/down, and TERM/KILL during real launcher
-publication. All tests use its
+publication; `test/watch.sh` covers the `watch` record kind end to end
+(listing, ring, `down`, `--no-watch`, no lead role). All tests use its
 scratch crew home and detached tmux session.
 
 Related: [summary.md](summary.md), [messaging.md](messaging.md),

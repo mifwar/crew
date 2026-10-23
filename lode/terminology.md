@@ -37,7 +37,8 @@ flowchart LR
 - stale pane - a recorded pane id that now belongs to something else (id reuse); never rung, never closed.
 - stale crew - a non-ended crew with no pane passing `owns_pane`; `crew sweep --apply` may mark it ended without touching panes.
 - partial crew - a non-ended crew with some owned panes and some gone/reused panes; sweep reports it and keeps it running.
-- current crew - `~/.crew/.current`, the crew used when nothing else identifies one.
+- current crew - `~/.crew/.current`, the crew used when nothing else identifies one; `crew sweep --delete-older` never deletes it.
+- ended crew - a crew whose folder holds the `ended` marker; its files stay until `crew sweep --delete-older <age> --apply` prunes a folder whose last activity is older than the cutoff.
 - settle - the pane screen stopped changing (two identical `cksum`s after ≥3 s); `crew up` sends the intro then.
 - short cli - the program name used in labels (`codex --sandbox …` → `codex`; `2.1.284` → `claude`).
 - model detection - scraping the model name from the bottom lines of a pane's status bar.

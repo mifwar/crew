@@ -5,7 +5,9 @@ pending: rebind, whoami hint, `crew say` + sender labels, `task add --out`,
 `--evidence`, `note`, `restyle`, agent-name detection, the shared crew skill,
 opt-in web sending, manual mid-work role overrides, adding agents to a running
 crew, UTF-8-safe status truncation, liveness/project listing and opt-in stale
-cleanup and guarded identity fallback for missing/foreign tool-shell panes
+cleanup with `--delete-older` pruning of old ended crew folders (see
+[listing.md](../cli/listing.md#prune-contract---delete-older)) and guarded
+identity fallback for missing/foreign tool-shell panes
 and heuristic stuck/error status with a foreground watcher, provider-limit
 detection and lead recovery hints for status/watch
 (see [watch.md](../cli/watch.md)), detached timed doorbells (`at`/`every`,
@@ -88,5 +90,18 @@ the complete intro to match; see [../cli/lifecycle.md](../cli/lifecycle.md).
 5. **Context-aware completion gate**: normalize CLI percentages that report
    context used versus context left before warning or gating `task set … done`;
    `status` currently preserves the raw CLI-specific value.
+6. **Optional one-shot recovery for transient provider errors (bug report,
+   2026-10-23).** Field report (gemi-eye): a pi worker (commandcode DeepSeek)
+   died mid-way through review fixes on `Error: Retry failed after 3 attempts:
+   Connection error.` and sat idle until the human asked "all good?". Crew now
+   notices it — an error fires a watch event with or without open work, and
+   `crew up` keeps a detached watcher running for the lead — so only recovery
+   remains. Candidate (opt-in, at most one attempt per error): on a transient
+   provider/connection error with open work, the watcher rings that agent with
+   a fixed "your last turn failed on a connection error; check git status and
+   continue" doorbell and tells lead. It passes `owns_pane` and the draft hold
+   like every other ring. The report's other idea (reopen a task for a review
+   round: `crew send --task T1` / `task reopen T1`) stays unbuilt. Full report
+   with evidence: [../tmp/report-2026-10-23-gemi-eye-silent-error.md](../tmp/report-2026-10-23-gemi-eye-silent-error.md).
 
 Related: [declined.md](declined.md), [../summary.md](../summary.md).
