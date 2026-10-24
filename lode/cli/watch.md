@@ -2,7 +2,10 @@
 
 `share/crew/watch.sh`, sourced by `bin/crew`, keeps one rendered-text pattern
 table (`pane_patterns`) for `crew status` and `crew watch`. `pane_observation`
-reads a capture and returns `state|resources|reason`. Error patterns cover
+reads a capture and returns `state|resources|reason`. Scans keep pi rows raw
+with `pane_scan_capture`; joining full-width pi borders with `-J` can pad the
+empty editor with spaces. Whitespace-only box rows never become drafts,
+while real draft rows still hold doorbells. Error patterns cover
 retry/connection failures, timeouts, context exhaustion/limits, provider limits,
 429 rate limits, and quota exhaustion. Errors match UI forms from the start
 of a row after common UI gutters / `Error:` prefixes; crew doorbell echoes
@@ -61,7 +64,7 @@ inbox and existing guarded doorbell with `--ring`:
 - board has no open tasks (on the open → empty transition; a watcher that
   starts with an empty board stays quiet);
 
-Open means any task not `done`, including blocked/needs-input. Idle with only
+Open means any task neither `done` nor `cancelled`, including blocked/needs-input. Idle with only
 blocked/needs-input work does not imply stuck. Each role/event is emitted
 once until the observed event changes or clears; the empty-board notice
 rearms when work reopens. Pane/text/task-row changes restart the quiet timer.
@@ -98,12 +101,16 @@ Every scan checks ownership before reading a pane. Reused/missing panes are
 skipped and their cache removed. `--ring` uses `deliver`, including
 `owns_pane`, dialog/copy-mode/draft checks and inbox preservation; it checks
 once (`CREW_RING_WAIT=0`) so one busy lead cannot stall scanning. Launching
-from the lead pane still rings it. Failed rings are logged and not retried
-until a new event; the watcher never resumes workers or answers dialogs.
+from the lead pane still rings it. Failed event rings are logged and debounced
+as events. A ringing watcher separately retries held deliveries as coalesced
+inbox reminders after each owned-pane observation; see
+[messaging.md](messaging.md#held-doorbell-reminders). It never resumes workers
+or answers dialogs.
 
-State is private to a temporary directory per watcher; concurrent watchers
-have independent debounce histories. No persistent daemon or crew files are
-created by stdout mode. The loop exits on the crew's ended marker, a deleted
+Observation/debounce state is private to a temporary directory per watcher;
+concurrent watchers have independent histories. Held-delivery counters live in
+the crew directory separately. Stdout mode creates no persistent crew files and
+never consumes pending reminders. The loop exits on the crew's ended marker, a deleted
 crew directory, SIGINT or SIGTERM, cleans its cache, and terminates its
 current sleep process. The detached watcher polls its record's `cancelled`
 marker too, so `down` and `crew timers cancel` stop it the same way as a

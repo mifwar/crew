@@ -8,6 +8,8 @@ flowchart TD
   home["~/.crew/"] --> cur[".current  (name of the default crew)"]
   home --> d["name/"]
   d --> panes["panes  role⇥pane⇥cli⇥origin"]
+  d --> cwd["cwd.tsv  role⇥directory"]
+  d --> pending["pending/role  held-count"]
   d --> sessions["sessions.tsv  role⇥cli⇥cwd⇥session-id⇥launch-epoch"]
   d --> meta["meta  key=value"]
   d --> board["board.tsv  id⇥owner⇥status⇥dep⇥out⇥title⇥evidence"]
@@ -35,7 +37,7 @@ rev2	%133	codex -c sandbox_workspace_write.network_access=true …	spawned
   existed may hold `2.1.284` (Claude) or `node` (pi).
 - Added to by `crew add`, rewritten by `crew rebind` or `crew override`, under `.panes.lock`.
   Overrides also hold `.board.lock` while transferring unfinished replacement
-  tasks; completed task owners and output paths stay unchanged.
+  tasks; done/cancelled task owners and output paths stay unchanged.
 - `origin` is `spawned` or `adopted`. Files written before this column existed
   have 3 fields; readers default a missing origin to `spawned`.
 
@@ -45,7 +47,8 @@ rev2	%133	codex -c sandbox_workspace_write.network_access=true …	spawned
 lead\tclaude\t/private/tmp/project\t8eaf…\t1790676001
 ```
 
-Session rows are keyed by role, CLI and the crew's recorded cwd. The fifth
+Session rows are keyed by role, CLI and that role's recorded directory
+(`cwd.tsv`, falling back to `meta cwd`). The fifth
 field is the launch epoch; spawn writes it with an empty ID before starting a
 supported CLI. A later crew command lazily records one unique native session
 created at or after that epoch, excluding IDs already assigned to other roles.
@@ -54,6 +57,20 @@ explicitly; legacy fallback considers only sessions at or after crew start and
 refuses when same-CLI roles share the folder. A different CLI or cwd makes a
 record stale and ignored. Native store layouts and ambiguity handling are in
 [../cli/sessions.md](../cli/sessions.md).
+
+## Role directories and pending doorbells
+
+`cwd.tsv` contains optional `role<TAB>directory` rows. Missing entries use
+`meta cwd`; panes retain their original four-column schema. Writes and role
+removal serialize with `.panes.lock`; role swaps move directory rows with panes.
+
+`pending/<role>` contains one decimal held-delivery count. The counter follows
+the role's inbox; replay targets only its current owned pane. Its focused
+`pending/.<role>.lock` serializes held increments and a nonblocking replay;
+temporary writes are renamed into place. Only a ringing watcher consumes the
+counter after a successful guarded reminder. Stdout watch leaves it alone.
+The inbox is unchanged by replay. The existing ring lock still serializes pane
+input. See [../cli/messaging.md](../cli/messaging.md#held-doorbell-reminders).
 
 ## `meta`
 
@@ -78,12 +95,16 @@ T1	rev	done	-	out/T1-rev.md	Round 1: independent review of PR #358	out/T1-tests.
 T2	rev2	queued	T1	out/R2-rev2.md	Cross-check	-
 ```
 
-Ids are `T<line count + 1>`, allocated under `.board.lock` (mkdir lock, 5 s
+Ids are `T<max existing numeric id + 1>`, allocated under `.board.lock` (mkdir lock, 5 s
 timeout, released by an EXIT trap even on `die`). `out` is set at add time
 (`--out` or `out/<id>-<owner>.md`); `dep` and `evidence` use `-` for none.
 Rows written before the evidence column have 6 fields; `board`, `task set`
 and the web viewer treat a missing 7th as `-`. An optional 8th field is the
-task's `--gate` command (`-` for none; see [../cli/tasks.md](../cli/tasks.md)).
+task's `--gate` command (`-` for none). New rows add field 9: the physical
+directory snapshotted at task creation, preserved across owner changes.
+Legacy rows without it use the owner's recorded directory. `cancelled` rows
+are retained and count as closed, without satisfying dependencies. See
+[../cli/tasks.md](../cli/tasks.md) and [../cli/worktrees.md](../cli/worktrees.md).
 
 ## `channel.log`
 

@@ -28,6 +28,17 @@ routine questions. Decisions given in the lead's own chat need no repeat via
 `crew say`, and workers need no separate confirmation for lead assignments
 within the agreed scope.
 
+Workers can use separate worktrees. `crew add impl2=pi --cwd /path/to/worktree`
+starts the new agent there and records its directory for task gates and session
+recovery. `crew task add --cwd /path/to/other/tree` overrides the gate directory
+for one task. To drop a mistaken task, use `crew task cancel T3 --reason "…"`;
+its dependents stay waiting until you change them with `crew task dep T4 T2`
+(or `-` to remove dependencies).
+
+When a dialog or draft holds a message's doorbell, the message stays in the
+inbox. A watcher running with `--ring` retries held notices as one coalesced
+inbox reminder after the editor clears.
+
 If the leader hits a usage limit mid-work, hand control to another running
 crew agent or an agent you started in a new tmux pane:
 
@@ -41,7 +52,7 @@ Run from a terminal (or the current lead). The successor receives role
 instructions and a handover with the old leader's pane output. It reads the
 existing board, inboxes and results to continue. Private agent conversation
 history is not transferred. With an existing agent, its unfinished tasks
-move to the new lead too; completed tasks and output paths stay unchanged. A
+move to the new lead too; done/cancelled tasks and output paths stay unchanged. A
 spawned successor is checked before the roster changes; if its command exits
 at the shell, the pane closes and the old binding remains.
 

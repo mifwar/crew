@@ -78,22 +78,22 @@ renders role files, rings the intro into every pane. Nothing is started or
 moved. Adopted agents can't get `CREW_*` env vars, so identity comes from the
 pane-id lookup.
 
-## `crew add role=<cli spec|%pane|fork:role> …`
+## `crew add [--cwd <dir>] role=<cli spec|%pane|fork:role> …`
 
 ```sh
 crew -s voucher add "rev2=pi" impl2=%12
 crew -s voucher add rev2=fork:lead
 ```
 
-- Requires a running crew. Holds `.panes.lock` for initial validation, releases
-  it while spawned CLIs start, then re-locks and checks the roster before any
-  binding changes. If the crew changed, newly spawned panes are closed.
+- Requires a running crew. Holds `.panes.lock` through validation, roster
+  writes and command launches, then releases it before settling and intros.
   Validate all roles and adopted panes: no duplicates, missing panes, panes
   already bound here, or panes labelled by another crew.
 - CLI specs split the recorded `meta window` (including `--here`). The window
   must contain an owned crew pane; if agents moved, use the first owned pane's
   window instead. With no owned pane, rebind or adopt a pane before spawning.
-  Use `meta cwd` and propagate `CREW_HOME`, `CREW_SESSION`, `CREW_AGENT`.
+  New panes use `--cwd`, the source directory for forks, or `meta cwd`; see
+  [worktrees.md](worktrees.md). Propagate `CREW_HOME`, `CREW_SESSION`, `CREW_AGENT`.
 - `role=fork:<source-role>` creates a spawned role by forking the source's
   native conversation. It uses the source role's recorded or safely discovered
   exact session ID and native CLI command; if another same-CLI role makes the
@@ -104,10 +104,10 @@ crew -s voucher add rev2=fork:lead
   after the CLI creates its native file; pin it explicitly if capture is
   ambiguous.
 - Spawn each resolved command through the shared pane helper, which sets the
-  crew environment and working directory, waits for a stable screen, and checks
-  `detect_cli`. Plain CLI specs are typed verbatim; fork specs add only that
-  provider's native fork arguments. A failed command closes its pane and
-  leaves the roster unchanged. Record a successful start as `spawned`.
+  crew environment and working directory. Plain CLI specs are typed verbatim;
+  fork specs add only native fork arguments. Record new panes as `spawned`.
+  Settling checks `detect_cli`; a command back at the shell gets no intro,
+  and the warning gives recovery instructions for its registered role.
   `%pane` adopts an unlabelled existing pane, keeps its window, detects its
   CLI, and records it as `adopted`.
 - `resolve_pane_specs` is shared with `adopt`: resolve pane refs, refuse the
@@ -180,62 +180,8 @@ crew rebind rev %201        # from anywhere
 
 ## `crew override <role> <replacement-role|pane>`
 
-```sh
-crew -s voucher override lead impl   # promote the running implementation agent
-crew -s voucher override lead %12    # take over from an agent in a new pane
-crew -s voucher override lead=pi     # spawn and verify a fresh successor
-```
-
-Manual mid-work recovery when a role hits a usage limit. Only `you` or the
-current `lead` may invoke it; sender identity remains advisory. Both existing
-crew panes must pass `owns_pane`; a new pane must be unlabelled. Validation
-runs under `.panes.lock` and `.board.lock`, before changing bindings. For
-`<role>=<cli spec>`, a bare value is a CLI command; only `%pane` adopts a pane
-in that form. The shared spawn helper launches and verifies the CLI without a
-roster lock. It closes a failed pane; after relocking, a changed roster also
-closes the new pane and leaves the old binding in place. Caller identity is
-checked again after acquiring the locks; the shared lock helper cleans up all
-locks acquired by a command, including on validation failure. `task set` also
-refreshes identity under its board lock. Both TSV
-rewrites are prepared before publishing; updates are not crash-atomic across
-files.
-
-- An existing replacement swaps occupants with the overridden role. CLI and
-  spawned/adopted origin follow the pane. Its unfinished board rows move to
-  the overridden role; existing tasks for that role remain there. Completed
-  rows, result paths, dependencies and evidence stay unchanged. Any recorded
-  native session IDs move with the pane's role.
-- A new pane replaces the binding with `origin=adopted`; a CLI started by
-  `role=spec` uses `origin=spawned`. In both cases the previous pane is
-  unlabelled and kept open. Before a spawned successor starts, crew records
-  its launch epoch with no session ID. A later crew command lazily captures
-  one unique new session after the intro creates its file. Board ownership is
-  unchanged.
-- Save the old pane's visible output and up to 200 scrollback lines to
-  `out/override-<role>-<timestamp>-<pid>.md`, with recovery instructions.
-  Private conversation history is unavailable: the successor must read the
-  board, channel log, relevant inboxes, results and evidence.
-- Refresh rendered role files and pane labels, log the override, notify all
-  roles. Inboxes retain their history under the original role names.
-  Startup dialogs receive no typed input; the notice stays in the inbox.
-  A calling pane receives its own notice on stdout rather than a doorbell.
-- The old agent must stop its previous work and wait for a new assignment.
-  Crew changes routing and instructions; it does not interrupt an active turn.
-- `resolve_me` uses current pane bindings before `CREW_AGENT`, since running
-  processes retain the role environment from startup. An owned env-role hint
-  is accepted only without a calling pane or with a gone/foreign-crew pane;
-  deliberately detached unlabelled panes stay outside (see [messaging.md](messaging.md)).
-
-```mermaid
-flowchart TD
-  override[override role replacement] --> validate[validate caller and panes]
-  validate --> capture[save recovery context]
-  capture --> kind{replacement}
-  kind -- crew role --> swap[swap pane occupants and transfer unfinished tasks]
-  kind -- new pane --> adopt[adopt successor and detach previous pane]
-  swap & adopt --> refresh[refresh roles and notify agents]
-  refresh --> recover[successor reads board and history and continues]
-```
+See [role-override.md](role-override.md) for takeover, task transfer and recovery
+contracts. Role directories follow swapped panes; task gate directories stay fixed.
 
 ## `crew remove <role> [--keep-pane]`
 
@@ -273,71 +219,8 @@ flowchart TD
 
 ## Readiness heuristic
 
-`wait_ready` is a guess: spinners or clocks in a TUI can keep the screen
-changing until the timeout. Claude and Codex queue input typed during a turn;
-pi was not checked.
-
-A startup dialog also "settles", and Enter picks its highlighted choice
-(seen 2026-09-30, tmux 3.5a):
-
-| CLI | dialog | highlighted choice |
-|-----|--------|--------------------|
-| claude | folder trust, footer `Enter to confirm · Esc to cancel` | `❯ No, exit` |
-| codex | update, footer `enter continue · esc skip` | `› 1. Update now` (`brew upgrade`) |
-| codex | folder trust, `Trust this folder?`, `enter continue · esc back` | `› 1. Trust and continue` |
-
-A command that fails also "settles". The spec is typed into the user's shell,
-so a shell error such as zsh's `no matches found` for an unquoted `[...]` in a
-codex `-c` value (seen 2026-09-30) leaves the pane at a prompt. The intro would
-then run as a shell command too. So `up` checks `detect_cli` after
-`wait_ready`: no non-shell process means the agent isn't running. This check is
-used for spawned agents in `up` and `add`; adoption may take a pane the human
-runs a shell in. A live pane always lists at least its shell, so an empty `ps`
-list means ps itself is blocked (a sandboxed caller, seen 2026-10-21 inside a
-Codex workspace sandbox), not a failed command: crew says so and sends the
-intro anyway.
-
-Mid-session approval prompts are the same hazard for every doorbell (see
-[messaging.md](messaging.md)); their text, from the CLI binaries (claude
-2.1.285, codex 0.159.0): claude "Do you want to proceed?", codex "Would you
-like to run the following command?" / "make the following edits" / "grant
-these permissions" / "send input…", both "Yes, and don't ask again …".
-
-`in_dialog` feeds the capture to `dialog_capture` in `share/crew/pane.sh`.
-It trims leading whitespace and UI gutters (`│`, `›`, `❯`), then matches a UI
-row from its start, case-insensitively. Footer hints (`enter [to]
-confirm|continue|select … esc [to] back|cancel|skip`) must end at the end of the
-row and occur in the last **3 nonblank rows**. Approval/trust questions and
-“don't ask again” option rows use the last **15 nonblank rows**: a claude
-question can sit above a variable-height option list without an enter footer.
-Codex's model picker (`enter select · esc back`) is classified as a dialog.
-Anchoring avoids mid-sentence transcript quotations; a transcript quoting an
-exact standalone UI row can still cause a conservative false hold.
-`intro()` itself checks, so `up`, `add`, `adopt` and `rebind --intro` are all
-covered: on a match it types nothing and prints the `crew send` line that
-delivers the intro once the human has answered. crew never answers a dialog itself:
-that would be trusting a folder or updating on the user's behalf. A per-CLI
-"ready prompt" regex was rejected: claude's dialog uses the same `❯` as its
-prompt. `--self` never types an intro (it prints one on stdout).
-
-`intro` also goes through the ring hold to avoid appending to a recognised
-draft in an adopted or rebound pane: it waits for the editor to clear
-(bounded by `CREW_RING_WAIT`), then prints the same `crew send` line if it
-remains held ([messaging.md](messaging.md#ring-hold-never-type-into-a-draft)).
-`start_agent` uses `ring --now`: it types into a pane crew just created. With
-`CREW_RING_WAIT=0` intros inspect once and refuse a busy pane immediately.
-
-A CLI still starting can swallow ring's Enter, leaving crew's intro as a
-draft that then holds every later doorbell (pi did this for hours in
-`ringrace`). After a typed intro, `intro_submit` waits (~3 s, bounded), and if
-the editor still holds a draft it presses Enter once more — but only when
-`draft_text` shows the editor holds exactly the line crew typed. Codex composer
-continuation rows are reconstructed even when they are hard-wrapped by the UI
-and tmux `capture-pane -J` cannot join them. Extra text is retained for the exact
-comparison; a matching prefix alone never permits submission. Thus no other
-draft is ever submitted. Still a draft after that prints a warning with the
-`tmux send-keys -t %P Enter` hint; there is no loop. `crew status`/`crew watch`
-flag the state as `draft pending: doorbells are held` ([watch.md](watch.md)).
+See [readiness.md](readiness.md) for startup dialogs, settling, and the exact-intro
+Enter retry. [ring-hold.md](ring-hold.md) describes draft protection.
 
 `crew sweep --apply` ends only crews with zero owned panes, without touching
 any pane; default sweep is a dry run. Deleting old ended crew folders is a

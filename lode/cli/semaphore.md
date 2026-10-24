@@ -74,3 +74,7 @@ Tests use scratch crew files and a detached tmux session.
 
 Related: [summary.md](summary.md), [tasks.md](tasks.md),
 [../architecture/state-files.md](../architecture/state-files.md), [../practices.md](../practices.md).
+
+A dev server and a production build that share one worktree's output directory
+can use the same named slot. Stop the dev server before running the gated build;
+separate worktrees can use separate slot names. Related: [worktrees.md](worktrees.md).

@@ -4,7 +4,7 @@ Three parts, no long-running core:
 
 | Part | File | Runs when |
 |---|---|---|
-| CLI | `bin/crew` + sourced `share/crew/listing.sh` and `share/crew/pane.sh` (bash) | each call, by the human or by an agent's shell tool |
+| CLI | `bin/crew` + sourced modules in `share/crew/` (bash, including task commands) | each call, by the human or by an agent's shell tool |
 | Templates | `share/crew/protocol.md`, `share/crew/roles/*.md` | rendered per role at `up` / `adopt` / `add` / `override`; roster is a live pointer |
 | Web viewer | `share/crew/web.ts` + `web.html` (Bun) | only while `crew web` runs |
 

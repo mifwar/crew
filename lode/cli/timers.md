@@ -91,8 +91,10 @@ Delivery uses the existing `deliver` function with sender `timer` and an
 empty launching-pane hint, so scheduling the lead from its own background
 shell still rings it. Ownership, dialog/copy-mode and draft checks stay in
 the existing send path. Timers check drafts once (`CREW_RING_WAIT=0`); skipped
-rings stay in the inbox and are logged, without automatic retry. An `at`
-timer is then done even if its doorbell was held. No worker interprets a
+rings stay in the inbox and are logged. Owned-pane holds join the pending
+reminder counter; a ringing watcher retries them, never the timer worker itself
+([messaging.md](messaging.md#held-doorbell-reminders)). An `at` timer is done
+even if its doorbell was held. No worker interprets a
 human approval or answers a dialog. Sender labels remain advisory.
 
 The smoke suite sources `test/timers.sh` for parsing, literal messages,

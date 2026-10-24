@@ -92,7 +92,9 @@ conversation do not need to be repeated through `crew say`.
 ```sh
 crew task add --to rev --out out/R1-rev.md --msg "diff: git diff main...HEAD in /path" "Round 1 review of PR #42"
 crew task add --to impl --out out/{id}-fix.md "…"   # {id} expands to the new id (also in --msg)
-crew task add --to impl --gate "make test" "…"   # done runs the gate in the project dir; non-zero exit keeps it open
+crew task add --to impl --gate "make test" "…"   # done runs the gate in the task directory; non-zero keeps it open
+crew task cancel T3 --reason "Wrong scope" # close without satisfying dependents
+crew task dep T4 T1,T2          # repair prerequisites; use - to clear all
 crew task next-id               # the id the next add will take
 crew task set T2 done           # refuses unless that file ends STATUS: DONE / FINAL:; --force overrides
 crew board                      # EVIDENCE column shows what backs each claim
@@ -128,16 +130,22 @@ crew lock --name checks --max 2 -- ./run-checks
   to `done`, queued dependents receive a `system` unblock notice through their
   inbox and guarded doorbell. Repeating `done` is quiet; blocked/working/done
   tasks are not resumed. The owner sets `working` when starting. The notice is
-  computed under the board lock and delivered after release; skipped rings
-  stay in the inbox. Dependencies are advisory, not a completion gate.
+  computed under the board lock and delivered after release; held rings
+  stay in the inbox for a coalesced watcher reminder. Dependencies are advisory, not a completion gate.
 - Each task names one result file (`--out`); results end in `STATUS:` or `FINAL:`.
   `task set … done` reads that file and refuses unless its last non-empty line
   starts with `STATUS: DONE` or `FINAL:` (`STATUS: BLOCKED`/`PARTIAL` leave the
   task open and say so); `--force` closes it anyway and notes it in the log.
-  A task added with `--gate "<cmd>"` also runs that command (in the crew's
-  project dir) when its owner sets `done` (lead/you add it, and are refused
+  A task added with `--gate "<cmd>"` also runs that command (in its snapshotted
+  owner directory, or `task add --cwd <dir>`) when its owner sets `done` (lead/you add it, and are refused
   `done` without `--force`); its output is saved as `out/<id>-gate.log` and used
-  as the evidence, and a non-zero exit keeps the task open.
+  as the evidence, and a non-zero exit keeps the task open. Include that gate
+  log path in your done message so the lead can open the evidence directly.
+- `task cancel <id> [--reason "…"]` is lead/you only: the row stays, the
+  owner gets a stop notice, and dependents are listed for repair. Cancelled
+  tasks are terminal and count as closed, but never satisfy dependencies.
+  `task dep <id> <T1,T2|->` replaces an open task's prerequisites; removing the
+  last unmet one notifies its queued owner once. Cycles/unknown IDs are refused.
 - `status` flags a rendered input prompt while its role owns queued/working
   work, and recent errors. Context and 5h quota appear only when printed in
   the pane. These are text heuristics, not proof that an agent is stuck.
@@ -146,7 +154,7 @@ crew lock --name checks --max 2 -- ./run-checks
   open work) report at the next scan. The empty-board notice fires only when
   the board goes from open tasks to none, never on a watcher's first scan.
   Each role/event is announced once until its state changes. Open work
-  includes blocked/needs-input; stuck means an input prompt with
+  excludes done/cancelled and includes blocked/needs-input; stuck means an input prompt with
   queued/working work. Durations accept seconds or `s`/`m`/`h`/`d` suffixes;
   `--quiet-after 0` reports immediately.
   `--ring` uses the lead inbox and guarded doorbell (skipped rings stay in
@@ -161,7 +169,7 @@ crew lock --name checks --max 2 -- ./run-checks
   the crew's timers (`crew timers` shows NEXT `-` for the watcher record).
   Messages use the normal inbox and guarded doorbell, checking drafts once
   and refusing a contended doorbell immediately. A skipped
-  ring stays in the inbox without retry.
+  ring stays in the inbox; a ringing watcher can retry it as a coalesced reminder.
   Timer senders are labelled `timer`, not the scheduling human or agent.
 - `lock` runs a command under a crew-wide named counting semaphore. Defaults
   are name `build`, capacity 1; every caller of the same name must use the
@@ -171,13 +179,15 @@ crew lock --name checks --max 2 -- ./run-checks
   and `status` shows wrapper/command pids. A command that survives a killed
   wrapper keeps its capacity until it exits. Names are independent and crew-scoped.
 - Wait for doorbells instead of polling; they arrive as your next prompt.
-- "not ringing <role>: … approval prompt" means the message is in its inbox
-  but the agent wasn't told. Ask the user to answer that prompt, then send a
-  short nudge ("read your inbox", or `crew inbox --last` for its full text).
+- "not ringing <role>: … approval prompt" means the inbox has the message.
+  Leave the prompt to the human. After it clears, a ringing watcher sends one
+  coalesced `N new messages — crew inbox <role>` reminder. Without a ringing
+  watcher, resend a short nudge when the pane is free; never answer for it.
 - Doorbells wait for recognised Claude, Codex and pi drafts to clear (default
   `CREW_RING_WAIT=30`, capped at 3600 seconds). On timeout, nothing is typed;
   the message remains in the inbox and the sender gets a warning plus a log
-  entry. Leave the draft intact and resend after the editor is free.
+  entry. Leave the draft intact; a ringing watcher retries it after the editor
+  clears. Stdout watch never replays or consumes pending reminders.
   `CREW_RING_WAIT=0` checks once and refuses a busy editor immediately; web
   sends use that setting to avoid waiting. All protection stays active.
   Detection reads rendered text:
@@ -221,6 +231,7 @@ The previous agent must stop its old work and wait for a new assignment.
 ```sh
 crew -s <name> add "rev2=pi" impl2=%12
 crew -s <name> add rev2=fork:lead
+crew -s <name> add impl2=pi --cwd /path/to/worktree
 ```
 
 `role=<cli spec>` splits the crew's window and types the user's command
@@ -237,7 +248,12 @@ Fork launch options are native to Claude Code, Codex or pi; the new role keeps
 the source CLI spec for later resume. Crew records its launch epoch with a
 blank ID before starting it, then lazily captures the new session ID after the
 CLI creates its native file. Pin it with `crew session <new-role> <id>` if
-capture is ambiguous.
+capture is ambiguous. `add --cwd` applies to all roles in the invocation;
+spawned panes start there, while adopted panes stay put and use the explicitly
+recorded role directory. Plain additions default to the crew directory; forks
+inherit their source directory unless overridden. Role directories follow
+swapped panes/native sessions on override; tasks keep their original gate
+directories. Session discovery and resume use each role's recorded directory.
 
 Agent detection scans the pane tty for a known Claude Code, Codex or pi process
 before falling back to a helper. An agent behind `caffeinate`, `nice`, `env` or
