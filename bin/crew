@@ -53,7 +53,12 @@ crew — coding agents working together in tmux
       --in <session>   tmux session for the new window (default: the caller's)
       --no-watch       don't start the detached watcher that rings the lead
   crew adopt <name> role=<pane> ...                   use panes you already have (%7, .2, 6.1)
-  crew add role=<cli spec|%pane|fork:role> ...       add agents to a running crew (spawn, adopt, or fork)
+  crew add [--cwd <dir>] role=<cli spec|%pane|fork:role> ...   add agents to a running crew
+                                                      (spawn, adopt, or fork; --cwd is where the
+                                                      added roles work: their new panes start
+                                                      there and their tasks' gates run there.
+                                                      A fork:role starts in its source role's
+                                                      directory unless --cwd says otherwise)
   crew rebind <role> [pane]                           point a role at another pane (default: this one)
   crew session <role> [id]                            show or pin a role's native session ID
   crew resume <role>                                  resume that role in this unbound tmux pane
@@ -63,8 +68,12 @@ crew — coding agents working together in tmux
   crew send <role[,role…]|@all|you> <message>         message agents (@all: lead/you only)
   crew say <role[,role…]|@all> <message>              human message; run in a terminal outside crew panes
   crew note <text>                                    add a note to the timeline
-  crew task add --to <role> [--dep T1] [--out out/x.md] [--gate "<cmd>"] [--msg ..] <title>   ({id} → new id; warns on review-only roles)
-  crew task set <id> <queued|working|done|blocked|needs-input> [--out <file>] [--evidence <file>] [--force]   (owner's done runs the task's --gate)
+  crew task add --to <role> [--dep T1] [--out out/x.md] [--gate "<cmd>"] [--cwd <dir>] [--msg ..] <title>
+                                                      ({id} → new id; warns on review-only roles)
+  crew task set <id> <queued|working|done|blocked|needs-input> [--out <file>] [--evidence <file>] [--force]
+                                                      (owner's done runs the task's --gate)
+  crew task cancel <id> [--reason "<text>"]           close a task as cancelled, list its dependents (lead/you)
+  crew task dep <id> <T1,T2|->                        replace a task's dependencies (lead/you)
   crew task next-id                                   id the next task add will use
   crew lock [--name build] [--max N] -- <cmd...>     crew-wide command semaphore (default max 1)
   crew board                                          task board
@@ -133,12 +142,27 @@ crew — coding agents working together in tmux
   (default 30, capped at 3600); skipped rings warn and leave the message in the
   inbox. CREW_RING_WAIT=0 checks once and refuses a busy editor immediately;
   web sends use it to avoid waiting. Dialog and tmux mode checks stay active.
+  A ringing watcher retries held deliveries as one coalesced inbox reminder
+  after the editor clears. Stdout watch never replays pending reminders.
+  Pi's Working spinner and blank editor padding are not drafts.
   Startup retries one Enter only for the complete original intro; Codex composer
   continuation rows are joined for that comparison. Other drafts stay untouched.
 
   Task dependencies accept comma-separated ids (--dep T1,T2). Completing the
   last dependency notifies owners of queued tasks through the guarded inbox
   path. Tasks stay queued until their owners start; repeated done is quiet.
+  A cancelled task is closed but never satisfies a dependency: `task cancel`
+  lists the dependents so the lead can re-point them with `task dep`. Editing
+  deps to remove the last unmet one notifies a queued owner once. Closed rows
+  keep their number; `next-id` is the highest existing numeric id + 1.
+
+  Working directories: a task records the directory of its owner at add time
+  (or `task add --cwd`), and its gate runs there, so a task taken over by
+  another role still checks the original worktree. `crew add --cwd <dir>`
+  records a role's directory and starts its new panes there. Plain additions
+  default to the crew directory; forks inherit their source role's directory.
+  Role directories follow swapped panes and sessions on override; task gate
+  directories stay fixed. Session lookups and resume use the role directory.
 
   Watch defaults: --every 120 seconds, --quiet-after 10m of unchanged pane/task
   text before idle notices. Errors are immediate; the empty-board notice fires
@@ -155,7 +179,8 @@ crew — coding agents working together in tmux
   occurrence.
   Repeats first fire after one interval; crew down cancels all timers. Rings
   inspect drafts once and skip contended doorbells; skipped rings remain in
-  the inbox without retry.
+  the inbox. A ringing watcher can retry them as a coalesced reminder; the
+  timer worker itself does not retry missed doorbells.
 
   Lock slots live under the crew locks/<name>/ directory. Each name keeps
   its first --max capacity; later callers must use the same value. Waiting
@@ -163,7 +188,7 @@ crew — coding agents working together in tmux
   A surviving command keeps its slot if the wrapper dies. Dead/reused-pid
   slots are recovered automatically. Status lists wrapper and command pids.
 
-  Files: ~/.crew/<name>/ (panes, board.tsv, channel.log, inbox/, out/, roles/)
+  Files: ~/.crew/<name>/ (panes, cwd.tsv, board.tsv, channel.log, inbox/, out/, roles/, pending/)
   Role templates: share/crew/ next to this script (protocol.md, roles/<role>.md)
 EOF
 }
@@ -244,6 +269,57 @@ sender_label() {
 roles() { awk -F'\t' '{print $1}' "$D/panes"; }
 pane_of() { awk -F'\t' -v r="$1" '$1==r{print $2; exit}' "$D/panes"; }
 meta() { awk -F'=' -v k="$1" '$1==k{sub(/^[^=]*=/, ""); print; exit}' "$D/meta"; }
+
+# Working directory per role (worktree-per-worker). cwd.tsv holds only the
+# roles that were given their own directory (`crew add --cwd`);
+# every other role works in the crew's project directory from meta. Gates and
+# session lookups ask for the role's directory, so two same-CLI workers in
+# different worktrees never get confused for each other.
+resolve_cwd_arg() { # flag dir -> physical absolute directory; dies on a bad or awkward path
+  local flag="$1" dir="$2"
+  [ -n "$dir" ] || die "$flag needs a directory"
+  [ -d "$dir" ] || die "no such directory for $flag: $dir"
+  # Physical (pwd -P) on purpose: agent CLIs key their session stores on
+  # process.cwd(), so /tmp/tree and /private/tmp/tree must not be two trees.
+  # Keep a trailing marker until validation, so command substitution cannot
+  # silently strip a newline from the physical directory name.
+  dir=$(cd -P "$dir" && printf '%s/.' "$PWD") || die "cannot enter $flag directory: $2"
+  dir=${dir%/.}
+  # One record per line, tab separated: these would corrupt it.
+  case "$dir" in
+    *$'\t'*) die "a working directory can't contain a tab: $dir" ;;
+    *$'\n'*) die "a working directory can't contain a newline: $dir" ;;
+  esac
+  printf '%s' "$dir"
+}
+role_cwd() { # role -> absolute directory or the crew's project directory
+  local dir=""
+  [ ! -f "$D/cwd.tsv" ] || dir=$(awk -F'\t' -v r="$1" '$1==r{print $2; exit}' "$D/cwd.tsv")
+  [ -n "$dir" ] || dir=$(meta cwd)
+  printf '%s' "$dir"
+}
+record_role_cwd() { # role dir; caller holds the panes lock
+  local tmp="$D/cwd.tsv.tmp"
+  # One line per role, tab separated: a tab or newline in the path would corrupt
+  # the record. The value travels in the environment because awk -v would eat
+  # backslashes (`/home/a\b` arrived as a tab).
+  case "$2" in
+    ''|-) die "internal: empty working directory for $1" ;;
+    *$'\t'*) die "a working directory can't contain a tab: $1" ;;
+    *$'\n'*) die "a working directory can't contain a newline: $1" ;;
+  esac
+  [ -f "$D/cwd.tsv" ] || : > "$D/cwd.tsv"
+  RECORD_ROLE="$1" RECORD_DIR="$2" awk -F'\t' -v OFS='\t' '
+    $1==ENVIRON["RECORD_ROLE"] { if (!seen) { $2=ENVIRON["RECORD_DIR"]; print }; seen=1; next }
+    { print }
+    END { if (!seen) print ENVIRON["RECORD_ROLE"], ENVIRON["RECORD_DIR"] }' "$D/cwd.tsv" > "$tmp"
+  mv "$tmp" "$D/cwd.tsv"
+}
+forget_role_cwd() { # role; caller holds the panes lock
+  [ -f "$D/cwd.tsv" ] || return 0
+  awk -F'\t' -v r="$1" '$1!=r' "$D/cwd.tsv" > "$D/cwd.tsv.tmp"
+  mv "$D/cwd.tsv.tmp" "$D/cwd.tsv"
+}
 
 log_line() { # kind from to text
   printf '%s\t%s\t%s\t%s\t%s\n' "$(now)" "$1" "$2" "$3" "$(oneline "$4")" >> "$D/channel.log"
@@ -420,7 +496,7 @@ intro() { # role pane — never typed into a startup dialog (see in_dialog)
   elif in_dialog "$2"; then
     echo "crew: $1 ($2) is showing a startup dialog; answer it there yourself, then: crew -s $S send $1 \"$msg\"" >&2
   else
-    why=$(ring "$2" "[crew] $msg") || true
+    why=$(ring --role "$1" "$2" "[crew] $msg") || true
     if [ -n "$why" ]; then
       echo "crew: nothing typed into $1 ($2): $why. Send the intro yourself when the pane is free: crew -s $S send $1 \"$msg\"" >&2
     else
@@ -644,18 +720,28 @@ cmd_adopt() {
 
 cmd_add() {
   resolve_session; resolve_me
-  [ $# -gt 0 ] || die 'usage: crew add role=<cli spec|%pane|fork:role> ...'
-  local specs=() launch_specs=() spec role cli launch_cli source_role source_cli id pane origin got i new_roles="" win="" cwd needs_spawn=0 launch_time
-  for spec in "$@"; do
+  local requested=() specs=() launch_specs=() role_cwds=() spec spec_cwd spawn_dir role cli launch_cli source_role source_cli id pane origin got i new_roles="" win="" cwd="" spawn_cwd needs_spawn=0 launch_time
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --cwd) [ $# -ge 2 ] && [ -n "$2" ] || die '--cwd needs a directory'; cwd="$2"; shift 2 ;;
+      -*) die "bad option: $1" ;;
+      *) requested+=("$1"); shift ;;
+    esac
+  done
+  [ ${#requested[@]} -gt 0 ] || die 'usage: crew add [--cwd <dir>] role=<cli spec|%pane|fork:role> ...'
+  for spec in "${requested[@]}"; do
     case "$spec" in *=*) ;; *) die "expected role=<cli spec|%pane|fork:role>: $spec" ;; esac
   done
-  check_roles "$@"
+  # --cwd is where the added roles work: their new panes start there and it is
+  # recorded for the role, so gates and session lookups follow the worktree.
+  [ -z "$cwd" ] || cwd=$(resolve_cwd_arg --cwd "$cwd")
+  check_roles "${requested[@]}"
   lock panes
   [ ! -f "$D/ended" ] || die "crew '$S' has ended"
   # A fork uses the source role's exact native session while retaining its CLI
   # spec in the roster for future resume and status operations.
-  for spec in "$@"; do
-    role="${spec%%=*}"; cli="${spec#*=}"; launch_cli="$cli"
+  for spec in "${requested[@]}"; do
+    role="${spec%%=*}"; cli="${spec#*=}"; launch_cli="$cli"; spec_cwd="$cwd"
     case "$cli" in
       fork:*)
         source_role="${cli#fork:}"
@@ -664,10 +750,15 @@ cmd_add() {
         [ -n "$source_cli" ] || die "no source agent '$source_role' in crew $S"
         id=$(session_id_for_role "$source_role")
         launch_cli=$(session_fork_command "$source_cli" "$id")
+        # A fork continues the source conversation, so it starts in the source
+        # role's directory (which may be another worktree) unless --cwd says
+        # otherwise. A plain role keeps the crew's project directory.
+        [ -n "$spec_cwd" ] || spec_cwd=$(role_cwd "$source_role")
         cli="$source_cli" ;;
     esac
     specs+=("$role=$cli")
     launch_specs+=("$launch_cli")
+    role_cwds+=("$spec_cwd")
   done
   resolve_pane_specs add "${specs[@]}"
   # Validate the entire batch under the same lock as rebind and override.
@@ -684,19 +775,23 @@ cmd_add() {
     fi
     new_roles="${new_roles:+$new_roles }$role"
   done
-  if [ "$needs_spawn" = 1 ]; then
-    win=$(crew_window)
-    cwd=$(meta cwd); [ -d "$cwd" ] || die "crew working directory is missing: $cwd"
-  fi
+  if [ "$needs_spawn" = 1 ]; then win=$(crew_window); fi
   for i in "${!specs[@]}"; do
     IFS='|' read -r role pane origin cli <<< "${specs[$i]}"
     if [ "$origin" = spawned ]; then
-      pane=$(split_agent_pane "$role" "$win" "$cwd") || die "could not split a pane for '$role'"
+      spawn_dir="${role_cwds[$i]}"
+      if [ -z "$spawn_dir" ]; then
+        [ -n "$spawn_cwd" ] || spawn_cwd=$(meta cwd)
+        spawn_dir="$spawn_cwd"
+      fi
+      [ -d "$spawn_dir" ] || die "working directory for $role is missing: $spawn_dir"
+      pane=$(split_agent_pane "$role" "$win" "$spawn_dir") || die "could not split a pane for '$role'"
       specs[$i]="$role|$pane|$origin|$cli"
     fi
     label_pane "$pane" "$role" "$cli"
     style_window "$(tmux display-message -p -t "$pane" '#{window_id}')"
     printf '%s\t%s\t%s\t%s\n' "$role" "$pane" "$cli" "$origin" >> "$D/panes"
+    [ -z "${role_cwds[$i]}" ] || record_role_cwd "$role" "${role_cwds[$i]}"
     [ "$origin" = spawned ] || session_forget "$role"
     write_role_file "$role"
   done
@@ -727,7 +822,7 @@ cmd_add() {
 # The message always lands in the inbox; the ring is best-effort. A ring
 # that isn't made is logged, so the timeline shows who never got a doorbell.
 deliver() { # role text label
-  local pane line why
+  local pane line why queued=""
   pane=$(pane_of "$1")
   printf '\n## %s  %s → %s\n\n%s\n' "$(now)" "$(sender_label)" "$3" "$2" >> "$D/inbox/$1.md"
   if ! owns_pane "$pane" "$1"; then why="pane $pane is gone or now belongs to something else"
@@ -736,11 +831,16 @@ deliver() { # role text label
     refresh_model "$pane"
     line=$(oneline "$2")
     [ ${#line} -le "$RING_MAX" ] || line="long message; see: crew inbox --last"
-    why=$(ring "$pane" "[crew] $(sender_label) → $3: $line") || true
+    # A held doorbell becomes one pending re-ring for this role; an inline ring
+    # that succeeds says nothing about older held messages, so it leaves that
+    # backlog to the watcher's explicit reminder (no silent drop, no claim).
+    why=$(ring --role "$1" "$pane" "[crew] $(sender_label) → $3: $line") || true
     [ -n "$why" ] || return 0
+    if pending_add "$1"; then queued='; one re-ring pending'
+    else queued="; re-ring not recorded, $D/pending/.$1.lock is held (remove it if its holder is gone)"; fi
   fi
-  echo "crew: not ringing $1: $why (saved to inbox/$1.md)" >&2
-  log_line sys "$ME" "$1" "$1 not rung: $why; message is in inbox/$1.md"
+  echo "crew: not ringing $1: $why (saved to inbox/$1.md$queued)" >&2
+  log_line sys "$ME" "$1" "$1 not rung: $why; message is in inbox/$1.md$queued"
 }
 
 cmd_send() {
@@ -808,121 +908,6 @@ unlock() {
   trap - EXIT
 }
 
-cmd_task() {
-  resolve_session; resolve_me
-  local sub="${1:-}"; shift || true
-  case "$sub" in
-    add)
-      local to="" dep="" msg="" title="" out="" gate=""
-      while [ $# -gt 0 ]; do
-        case "$1" in
-          --to) to="$2"; shift 2 ;;
-          --dep) dep="$2"; shift 2 ;;
-          --msg) msg="$2"; shift 2 ;;
-          --out) out="$2"; shift 2 ;;
-          --gate) gate="$(oneline "$2")"; shift 2 ;;
-          *) title="${title:+$title }$1"; shift ;;
-        esac
-      done
-      [ -n "$to" ] && [ -n "$title" ] || die 'usage: crew task add --to <role> [--dep T1] [--msg ..] <title>'
-      [ -n "$(pane_of "$to")" ] || die "no agent '$to'"
-      # A gate runs shell commands, so only lead or you may plant one.
-      [ -z "$gate" ] || [ "$ME" = lead ] || [ "$ME" = you ] || die "only lead or you can set a --gate"
-      # A rendered role file can carry the explicit review-only marker. A task
-      # whose title or --msg names review work is what that role is for; warn
-      # only on the rest, so the guard doesn't become noise that gets tuned out.
-      if grep -q 'crew:review-only' "$D/roles/$to.md" 2>/dev/null; then
-        case " $(printf '%s %s' "$title" "$msg" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' ' ') " in
-          *" review "*|*" verdict "*|*" audit "*) ;;
-          *) echo "crew: $to is marked review-only; the task was added anyway" >&2 ;;
-        esac
-      fi
-      lock board
-      local id="T$(( $(wc -l < "$D/board.tsv") + 1 ))"
-      # {id} lets a brief name its own result file before the id exists.
-      out=${out//\{id\}/$id}; msg=${msg//\{id\}/$id}
-      # --out names the one result file (inside the crew's out/), so a task
-      # message never offers two paths.
-      case "$out" in ""|out/*) ;; */*) die "--out must be out/<name>.md" ;; *) out="out/$out" ;; esac
-      [ -z "$out" ] || printf '%s' "$out" | grep -Eq '^out/[A-Za-z0-9._-]+\.md$' || die "--out must be out/<name>.md"
-      [ -n "$out" ] || out="out/$id-$to.md"
-      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$id" "$to" queued "${dep:--}" "$out" "$(oneline "$title")" - "${gate:--}" >> "$D/board.tsv"
-      unlock
-      log_line sys "$ME" "$to" "$ME added $id → $to: $title"
-      set_pane_status "$to" "$id queued"
-      cmd_send "$to" "$id for you: $title${dep:+ (needs $dep)}${msg:+ — ${msg%.}}. Write $D/$out (not in your working directory), then: crew task set $id done [--evidence <file>] && crew send lead \"$id done\"" >/dev/null
-      echo "$id" ;;
-    set)
-      [ $# -ge 2 ] || die 'usage: crew task set <id> <status> [--out <file>] [--evidence <file>] [--force]'
-      local id="$1" st="$2" out="" ev="" force=""; shift 2
-      while [ $# -gt 0 ]; do
-        case "$1" in
-          --out) out="$(oneline "$2")"; shift 2 ;;
-          --evidence) ev="$(oneline "$2")"; shift 2 ;;
-          --force) force=1; shift ;;
-          *) die "bad option: $1" ;;
-        esac
-      done
-      case "$st" in queued|working|done|blocked|needs-input) ;; *) die "bad status: $st" ;; esac
-      [ "$ME" != outside ] || die "cannot set $id as outside: $WHY; run crew -s $S whoami. If your tool shell inherited a dead/foreign pane, prefix crew calls with CREW_SESSION=$S CREW_AGENT=<your-role> and verify whoami first."
-      # A gate command runs before the lock (it can be slow) and only for a caller
-      # the owner (so it runs in the owner's own shell); its output is the evidence unless one is given.
-      if [ "$st" = done ] && [ -z "$force" ]; then
-        local gcmd gowner gcwd glog grc=0
-        gcmd=$(awk -F'\t' -v id="$id" '$1==id{print $8; exit}' "$D/board.tsv")
-        gowner=$(awk -F'\t' -v id="$id" '$1==id{print $2; exit}' "$D/board.tsv")
-        if [ -n "$gcmd" ] && [ "$gcmd" != - ] && [ "$ME" != "$gowner" ]; then
-          die "$id has a gate; its owner runs it with 'task set $id done', or pass --force"
-        fi
-        if [ -n "$gcmd" ] && [ "$gcmd" != - ]; then
-          gcwd=$(meta cwd); [ -d "$gcwd" ] || die "crew working directory is missing: $gcwd"
-          glog="out/$id-gate.log"
-          printf '$ %s\n' "$gcmd" > "$D/$glog"
-          (cd "$gcwd" && bash -c "$gcmd") >> "$D/$glog" 2>&1 || grc=$?
-          printf '[exit %s]\n' "$grc" >> "$D/$glog"
-          [ -n "$ev" ] || ev="$glog"
-          [ "$grc" -eq 0 ] || die "$id stays open: gate '$gcmd' exited $grc (output: $D/$glog); fix it or --force"
-        fi
-      fi
-      lock board
-      resolve_me
-      local ready_notices="" owner rowout last; owner=$(awk -F'\t' -v id="$id" '$1==id{print $2; exit}' "$D/board.tsv")
-      [ -n "$owner" ] || die "no task $id"
-      # Advisory like sender labels: catches a worker closing someone else's task.
-      [ "$ME" = "$owner" ] || [ "$ME" = lead ] || [ "$ME" = you ] || die "$id is $owner's; only $owner, lead or you can set it (caller: $ME; $WHY; see crew -s $S whoami)"
-      # done needs the named result file to say so; --force is the logged escape
-      # hatch, so a task can't be closed on a missing or blocked result.
-      if [ "$st" = done ] && [ -z "$force" ]; then
-        rowout=$(awk -F'\t' -v id="$id" '$1==id{print $5; exit}' "$D/board.tsv")
-        [ -n "$out" ] || out="$rowout"
-        [ -n "$out" ] && [ "$out" != - ] || die "$id stays open: no result file; pass --out or --force"
-        [ -f "$D/$out" ] || die "$id stays open: $D/$out does not exist (write the result, or --force)"
-        # CRLF files: drop the trailing CR so the blank test and the prefix
-        # match see the line, not a carriage return.
-        last=$(awk '{sub(/\r$/,"")} $0 !~ /^[[:space:]]*$/ {l=$0} END{print l}' "$D/$out")
-        case "$last" in
-          'STATUS: DONE'*|'FINAL:'*) ;;
-          'STATUS:'*) die "$id stays open: $out ends with '$last'; fix the result or --force" ;;
-          '') die "$id stays open: $out has no result line; write 'STATUS: DONE …' or use --force" ;;
-          *) die "$id stays open: $out's last line is not 'STATUS: DONE' or 'FINAL: …'; --force to override" ;;
-        esac
-      fi
-      [ "$st" != done ] || ready_notices=$(task_unblocked_by "$id")
-      awk -F'\t' -v OFS='\t' -v id="$id" -v st="$st" -v out="$out" -v ev="$ev" \
-        '$1==id{$3=st; if(out!="") $5=out; if(ev!="") $7=ev; else if($7=="") $7="-"} {print}' "$D/board.tsv" > "$D/board.tsv.tmp"
-      mv "$D/board.tsv.tmp" "$D/board.tsv"
-      unlock
-      set_pane_status "$owner" "$id $st"
-      log_line sys "$ME" - "$ME set $id → $st${out:+ ($out)}${ev:+ evidence: $ev}${force:+ [forced]}"
-      task_notify_ready "$ready_notices" ;;
-    next-id)
-      [ $# -eq 0 ] || die 'usage: crew task next-id'
-      [ -s "$D/board.tsv" ] || { echo T1; return; }
-      echo "T$(( $(wc -l < "$D/board.tsv") + 1 ))" ;;
-    *) die 'usage: crew task add|set|next-id ...' ;;
-  esac
-}
-
 cmd_board() {
   resolve_session
   if [ ! -s "$D/board.tsv" ]; then echo "(no tasks)"; return; fi
@@ -969,7 +954,7 @@ cmd_override() {
   elif [ "$form_eq" = 1 ] && [ "${replacement#%}" = "$replacement" ]; then
     swap=0
     win=$(crew_window)
-    cwd=$(meta cwd); [ -d "$cwd" ] || die "crew working directory is missing: $cwd"
+    cwd=$(role_cwd "$role"); [ -d "$cwd" ] || die "crew working directory is missing: $cwd"
     unlock
     if ! new=$(split_agent_pane "$role" "$win" "$cwd"); then
       die "could not split a pane for '$role'"
@@ -1023,7 +1008,7 @@ cmd_override() {
       "$role" "$role" "$replacement" "$role" "$role" "$D"
     if [ "$swap" = 1 ]; then
       printf 'Also read inbox/%s.md for your earlier assignments.\n\n' "$replacement"
-      printf 'Unfinished tasks owned by %s move to %s; existing %s tasks also remain yours. Completed tasks, result paths, evidence and history stay unchanged.\n\n' "$replacement" "$role" "$role"
+      printf 'Unfinished tasks owned by %s move to %s; existing %s tasks also remain yours. Done/cancelled tasks, result paths, evidence and history stay unchanged.\n\n' "$replacement" "$role" "$role"
     else
       printf 'Existing tasks, result paths, evidence and history stay unchanged.\n\n'
     fi
@@ -1035,10 +1020,15 @@ cmd_override() {
     # Swap occupants, keeping CLI and lifecycle origin attached to each pane.
     awk -F'\t' -v OFS='\t' -v r="$role" -v s="$replacement" \
       '$1==r{$1=s; print; next} $1==s{$1=r} {print}' "$D/panes" > "$D/panes.tmp"
-    awk -F'\t' -v OFS='\t' -v r="$role" -v s="$replacement" \
-      '$2==s && $3!="done"{$2=r} {print}' "$D/board.tsv" > "$D/board.tsv.tmp"
+    awk -F'\t' -v OFS='\t' -v r="$role" -v s="$replacement" -v closed="$TASK_CLOSED_RE" \
+      '$2==s && $3 !~ closed{$2=r} {print}' "$D/board.tsv" > "$D/board.tsv.tmp"
     mv "$D/board.tsv.tmp" "$D/board.tsv"
     mv "$D/panes.tmp" "$D/panes"
+    if [ -f "$D/cwd.tsv" ]; then
+      awk -F'\t' -v OFS='\t' -v r="$role" -v s="$replacement" \
+        '$1==r{$1=s; print; next} $1==s{$1=r} {print}' "$D/cwd.tsv" > "$D/cwd.tsv.tmp"
+      mv "$D/cwd.tsv.tmp" "$D/cwd.tsv"
+    fi
     if [ -f "$D/sessions.tsv" ]; then
       awk -F'\t' -v OFS='\t' -v r="$role" -v s="$replacement" \
         '$1==r{$1=s; print; next} $1==s{$1=r} {print}' "$D/sessions.tsv" > "$D/sessions.tsv.tmp"
@@ -1054,6 +1044,8 @@ cmd_override() {
   while IFS="$(printf '\t')" read -r r p cli row_origin; do
     case "$r" in "$role"|"$replacement") label_pane "$p" "$r" "$cli" ;; esac
   done < "$D/panes"
+  printf '\nWorking directory for %s: %s. Tasks keep their recorded gate directories across ownership changes.\n' \
+    "$role" "$(role_cwd "$role")" >> "$D/$context"
   if [ "$origin" = spawned ]; then session_record_launch "$role" "$launch_time" || true; fi
   style_window "$(tmux display-message -p -t "$new" '#{window_id}')"
   refresh_model "$new"
@@ -1156,7 +1148,7 @@ cmd_resume() {
   agent=$(short_cli "$cli")
   case "$agent" in claude|codex|pi) ;; *) die "session resume is not supported for $agent" ;; esac
   id=$(session_id_for_role "$role")
-  cwd=$(meta cwd); [ -d "$cwd" ] || die "crew working directory is missing: $cwd"
+  cwd=$(role_cwd "$role"); [ -d "$cwd" ] || die "crew working directory is missing: $cwd"
   # exec runs in this non-interactive bash, so aliases and functions don't resolve.
   command -v "${cli%% *}" >/dev/null || die "can't run '${cli%% *}' from here (aliases and functions don't apply); nothing was changed"
   awk -F '\t' -v OFS='\t' -v r="$role" -v p="$new" '$1==r {$2=p; $4="adopted"} $1!=r && $2==p {$2="%gone"} {print}' \
@@ -1215,6 +1207,7 @@ cmd_remove() {
   mv "$D/panes.tmp" "$D/panes"
   mv "$D/board.tsv.tmp" "$D/board.tsv"
   session_forget "$role"
+  forget_role_cwd "$role"
   unlock
   log_line sys "$ME" "$role" "$ME removed $role ($how); tasks blocked: ${open_ids:-none}; inbox and out/ kept"
   [ -z "$kill_later" ] || tmux kill-pane -t "$pane" 2>/dev/null || true
@@ -1273,7 +1266,7 @@ cmd_status() {
     if owns_pane "$pane" "$role"; then
       refresh_model "$pane"
       model=$(tmux display-message -p -t "$pane" '#{@crew_model}' 2>/dev/null) || model=""
-      cap=$(pane_capture "$pane" "$cli" -J 2>/dev/null) || cap=""
+      cap=$(pane_scan_capture "$pane" "$cli" 2>/dev/null) || cap=""
       observation=$(printf '%s\n' "$cap" | pane_observation "$(short_cli "$cli")")
       IFS='|' read -r health resources reason <<< "$observation"
       draft=$(printf '%s\n' "$cap" | draft_note "$pane" "$cli")

@@ -3,13 +3,15 @@
 `crew` runs several coding-agent CLIs (Claude Code, Codex, pi) as a team inside
 tmux. It is a Bash entrypoint (`bin/crew`, macOS bash 3.2 compatible) with
 a sourced listing/sweep module and a sourced pane module (`share/crew/listing.sh`,
-`share/crew/pane.sh`), a shared status/watch module (`share/crew/watch.sh`), a task-readiness module (`share/crew/tasks.sh`), plus
+`share/crew/pane.sh`), a shared status/watch module (`share/crew/watch.sh`), a task-command/readiness module (`share/crew/tasks.sh`), plus
 markdown role templates (`share/crew/`) and a Bun web viewer (read-only by default)
 (`share/crew/web.ts` + `web.html`). Messages are plain files under
 `~/.crew/<name>/`; tmux `send-keys` is only the "doorbell" that types a
 one-line `[crew] from → to: …` notice into the recipient's prompt. Rings wait
 for recognised drafts to clear, or report a skipped doorbell while keeping the
-inbox message; zero wait checks once without disabling protection. There is no
+inbox message; zero wait checks once without disabling protection. Ringing
+watchers retry held deliveries with one coalesced inbox reminder after the
+editor clears; pi Working footers and blank padding are not drafts. There is no
 coordinating daemon and no IPC: commands run on demand, and agents call them
 from their own shell tool. A crew has one **lead** that assigns tasks on a
 board (`board.tsv`, with guarded notices when queued dependencies become ready), workers that write results to `out/` ending in an exact
@@ -21,7 +23,12 @@ Before typing into or closing a pane, `crew` checks the pane still carries
 this crew's labels, because tmux pane ids are reused after a server restart;
 `crew rebind` moves a role to a new pane. `crew add rev2=pi impl2=%12` grows
 a running crew by spawning or adopting agents. New role files point to the
-live roster; existing role files stay untouched.
+live roster; existing role files stay untouched. Added roles can use `--cwd`
+for separate worktrees, with directory-aware native sessions. Tasks snapshot
+their owner directory (or `task add --cwd`) so gates check the intended tree
+even after ownership transfer. Lead/you can cancel tasks without deleting rows
+and repair prerequisites with `task dep`; cancelled tasks are closed but never
+satisfy dependencies.
 `crew status` adds heuristic stuck/error notes and printed context/quota;
 `crew watch` emits debounced state changes, optionally ringing the lead through
 the normal guarded delivery path, and `crew up` keeps one such watcher running

@@ -256,33 +256,55 @@ check 'fork refuses an ambiguous source session' \
 fork_dir="$CREW_HOME/session-fork"
 fork_bin="$CREW_HOME/fork-bin"
 fork_home="$CREW_HOME/fork-claude-config"
-mkdir -p "$fork_dir/inbox" "$fork_dir/out" "$fork_dir/roles" "$fork_bin" "$fork_home/projects/$claude_slug"
+mkdir -p "$fork_dir/inbox" "$fork_dir/out" "$fork_dir/roles" "$fork_bin"
 fork_source_pane=$(tmux new-window -d -P -F '#{pane_id}' -t "$TS:" 'sleep 300')
 fork_source_window=$(tmux display-message -p -t "$fork_source_pane" '#{window_id}')
 fork_source_cli="$fork_bin/claude --source-flag"
+# The source role works in its own worktree, not in the crew's project dir, so
+# a fork that ignored the role directory would land in the wrong tree.
+fork_source_dir="$CREW_HOME/fork.worktree"
+mkdir -p "$fork_source_dir"
+fork_source_dir=$(cd "$fork_source_dir" && pwd -P)   # what tmux and the CLIs report
+# A CLI stores sessions under a slug of its own cwd, so the fake writes there.
+fork_slug=$(printf '%s' "$fork_source_dir" | sed 's|[^A-Za-z0-9]|-|g')
+mkdir -p "$fork_home/projects/$fork_slug"
 printf 'mode=up\nwindow=%s\ncwd=%s\n' "$fork_source_window" "$session_project" > "$fork_dir/meta"
 : > "$fork_dir/board.tsv"
 : > "$fork_dir/channel.log"
 printf 'lead\t%s\t%s\tadopted\n' "$fork_source_pane" "$fork_source_cli" > "$fork_dir/panes"
-printf 'lead\tclaude\t%s\tfork-source-id\n' "$session_project" > "$fork_dir/sessions.tsv"
+printf 'lead\t%s\n' "$fork_source_dir" > "$fork_dir/cwd.tsv"
+printf 'lead\tclaude\t%s\tfork-source-id\n' "$fork_source_dir" > "$fork_dir/sessions.tsv"
 tmux set-option -p -t "$fork_source_pane" @crew_session session-fork
 tmux set-option -p -t "$fork_source_pane" @crew_role lead
 cat > "$fork_bin/claude" <<EOF
 #!/bin/bash
 printf '%s\n' "\$@" > "$CREW_HOME/fork-cli-args"
+FORK_HOME="$fork_home"; export FORK_HOME
 exec -a claude /bin/bash -c '
   IFS= read -r first_message
-  printf "%s\\n" "\$first_message" > "$fork_home/projects/$claude_slug/fork-created-id.jsonl"
+  slug=\$(pwd -P | sed "s|[^A-Za-z0-9]|-|g")
+  mkdir -p "\$FORK_HOME/projects/\$slug"
+  printf "%s\\n" "\$first_message" > "\$FORK_HOME/projects/\$slug/fork-created-id.jsonl"
   exec -a claude /bin/sleep 300
 '
 EOF
 chmod +x "$fork_bin/claude"
 check 'fork has no native session file before its first input' \
-  test ! -f "$fork_home/projects/$claude_slug/fork-created-id.jsonl"
+  test ! -f "$fork_home/projects/$fork_slug/fork-created-id.jsonl"
 check 'crew add accepts fork:source role syntax' \
   env CREW_BOOT_WAIT=4 "$CREW" -s session-fork add forked=fork:lead ordinary=cat
+forked_pane=$(awk -F '\t' '$1=="forked"{print $2}' "$fork_dir/panes")
+ordinary_pane=$(awk -F '\t' '$1=="ordinary"{print $2}' "$fork_dir/panes")
+check 'a fork starts in its source role directory' \
+  test "$(tmux display -p -t "$forked_pane" '#{pane_current_path}')" = "$fork_source_dir"
+check '  and records that directory for the forked role' \
+  awk -F '\t' -v d="$fork_source_dir" '$1=="forked" && $2==d{f=1} END{exit !f}' "$fork_dir/cwd.tsv"
+check 'a plain add in the same batch keeps the crew directory' \
+  test "$(tmux display -p -t "$ordinary_pane" '#{pane_current_path}')" = "$(cd "$session_project" && pwd -P)"
+check '  and records nothing for it' \
+  bash -c '! awk -F "\t" "\$1==\"ordinary\"{f=1} END{exit !f}" "$1/cwd.tsv"' _ "$fork_dir"
 check 'fork CLI creates its native file only after its first input' \
-  test -f "$fork_home/projects/$claude_slug/fork-created-id.jsonl"
+  test -f "$fork_home/projects/$fork_slug/fork-created-id.jsonl"
 check 'forked role keeps a pending ID and launch epoch after add' \
   awk -F '\t' '$1=="forked" && $2=="claude" && $4=="" && $5 ~ /^[0-9]+$/{f=1} END{exit !f}' \
     "$fork_dir/sessions.tsv"

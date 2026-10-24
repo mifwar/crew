@@ -1,4 +1,5 @@
 # Sourced by bin/crew. Observations are heuristics, never permission to type.
+# Board helpers use TASK_CLOSED_RE from tasks.sh, loaded before dispatch.
 # Defaults shared by `crew watch` and the watcher `crew up` starts for a crew
 # with a lead (CREW_WATCH_EVERY overrides the interval, see cmd_up).
 watch_interval=120
@@ -68,9 +69,9 @@ pane_observation() { # cli; capture on stdin -> state|resources|reason
     }'
 }
 
-role_tasks() { # role [active]; open includes blocked/needs-input
-  awk -F'\t' -v r="$1" -v active="${2:-}" '
-    $2==r && $3!="done" && (active=="" || $3=="working" || $3=="queued") {n++}
+role_tasks() { # role [active]; open is anything not done/cancelled (blocked, needs-input, …)
+  awk -F'\t' -v r="$1" -v active="${2:-}" -v closed="$TASK_CLOSED_RE" '
+    $2==r && $3 !~ closed && (active=="" || $3=="working" || $3=="queued") {n++}
     END {print n+0}' "$D/board.tsv"
 }
 
@@ -126,11 +127,11 @@ watch_scan() { # private cache quiet-seconds ring?; one observation per owned pa
       rm -f "$cache/$role"
       continue
     fi
-    cap=$(pane_capture "$pane" "$cli" -J 2>/dev/null) || continue
+    cap=$(pane_scan_capture "$pane" "$cli" 2>/dev/null) || continue
     observation=$(printf '%s\n' "$cap" | pane_observation "$(short_cli "$cli")")
     IFS='|' read -r health resources reason <<< "$observation"
     draft=$(printf '%s\n' "$cap" | draft_note "$pane" "$cli")
-    tasks=$(awk -F'\t' -v r="$role" '$2==r && $3!="done"' "$D/board.tsv")
+    tasks=$(awk -F'\t' -v r="$role" -v closed="$TASK_CLOSED_RE" '$2==r && $3 !~ closed' "$D/board.tsv")
     fingerprint=$(printf '%s\n%s\n%s\n' "$pane" "$cap" "$tasks" | cksum)
     previous=""; changed=$current_time; sent=-
     if [ -f "$cache/$role" ]; then
@@ -164,6 +165,10 @@ watch_scan() { # private cache quiet-seconds ring?; one observation per owned pa
       fi
     fi
     printf '%s|%s|%s\n' "$fingerprint" "$changed" "$sent" > "$cache/$role"
+    # Only a ringing watcher replays held doorbells, and only after this scan's
+    # own observation, so the doorbell it types never changes what it reported.
+    # stdout watch stays read-only: it neither reads nor writes pending state.
+    if [ "$ring_events" = 1 ] && [ -n "$role" ]; then pending_replay "$role" "$pane" || true; fi
   done < "$D/panes"
   board=$(watch_board_state)
   previous=-; [ ! -f "$cache/.board" ] || previous=$(cat "$cache/.board")
@@ -174,7 +179,7 @@ watch_scan() { # private cache quiet-seconds ring?; one observation per owned pa
 }
 
 watch_board_state() { # -> empty|open, the same open-task rule as status
-  if [ "$(awk -F'\t' '$3!="done"{n++} END{print n+0}' "$D/board.tsv")" -eq 0 ]; then
+  if [ "$(awk -F'\t' -v closed="$TASK_CLOSED_RE" '$3 !~ closed{n++} END{print n+0}' "$D/board.tsv")" -eq 0 ]; then
     printf 'empty\n'
   else printf 'open\n'; fi
 }
@@ -201,6 +206,10 @@ watch_loop() { # cache every quiet ring? [cancel-file]
 watch_cleanup() {
   [ -z "${watch_sleep_pid:-}" ] || kill "$watch_sleep_pid" 2>/dev/null || true
   watch_sleep_pid=""
+  # A pending lock is held only while replaying one reminder; releasing it here
+  # keeps a stopped watcher from blocking a role's re-rings until a human
+  # removes the lock.
+  if [ -n "${pending_held:-}" ]; then pending_unlock; fi
   [ -z "${watch_cache:-}" ] || rm -rf "$watch_cache"
   watch_cache=""
 }

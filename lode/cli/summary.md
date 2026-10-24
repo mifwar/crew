@@ -7,7 +7,8 @@ draft hold come from `share/crew/pane.sh` the same way. Status observations and
 the watch scan loop (foreground and the detached watcher `up` starts) come from
 `share/crew/watch.sh`; timer records and their detached workers live in
 `share/crew/timers.sh`; command semaphores and holder listing
-live in `share/crew/semaphore.sh`. See [listing.md](listing.md),
+live in `share/crew/semaphore.sh`; task commands and readiness transitions
+live in `share/crew/tasks.sh`. See [listing.md](listing.md),
 [messaging.md](messaging.md), [watch.md](watch.md), [timers.md](timers.md)
 and [semaphore.md](semaphore.md).
 `-s <name>` before the command selects a crew; `-h`/`--help` anywhere right
@@ -17,7 +18,7 @@ after a command prints the full usage (exit 0); unknown commands exit 1.
 |---|---|---|
 | `up <name> [--self R] [--here] [--in S] [--no-watch] role=cli …` | create panes, start CLIs, send intros, start the lead watcher | [lifecycle.md](lifecycle.md) |
 | `adopt <name> role=<pane> …` | label existing panes, send intros | [lifecycle.md](lifecycle.md) |
-| `add role=<cli spec\|%pane\|fork:role> …` | spawn, adopt or fork a role in a running crew | [lifecycle.md](lifecycle.md), [sessions.md](sessions.md) |
+| `add [--cwd D] role=<cli spec\|%pane\|fork:role> …` | spawn, adopt or fork a role in a running crew | [lifecycle.md](lifecycle.md), [sessions.md](sessions.md) |
 | `override <role> <replacement-role\|pane>` / `<role>=<cli spec>` | hand ongoing work to another agent or spawn a successor | [lifecycle.md](lifecycle.md) |
 | `remove <role> [--keep-pane]` | drop a role: block its open tasks, close/unlabel its pane (lead/you only) | [lifecycle.md](lifecycle.md) |
 | `rebind <role> [pane] [--intro]` | move a role to another pane (default: caller's) | [lifecycle.md](lifecycle.md) |
@@ -26,8 +27,10 @@ after a command prints the full usage (exit 0); unknown commands exit 1.
 | `send <role[,role…]\|@all\|you> <msg>` | log + inbox + doorbell (unrung doorbells are logged) | [messaging.md](messaging.md) |
 | `say <role[,role…]\|@all> <msg>` | `send`, but refuses unless the caller is the human | [messaging.md](messaging.md) |
 | `note <text>` | `sys` line in the timeline | [messaging.md](messaging.md) |
-| `task add --to R [--dep T] [--out out/x.md] [--msg M] <title>` | new board row + notify owner; `{id}` → the new id | [tasks.md](tasks.md) |
+| `task add --to R [--dep T] [--out out/x.md] [--gate C] [--cwd D] [--msg M] <title>` | new board row + notify owner; `{id}` → the new id | [tasks.md](tasks.md) |
 | `task set <id> <status> [--out F] [--evidence F] [--force]` | update row, pane label, log; `done` gate-checks F | [tasks.md](tasks.md) |
+| `task cancel <id> [--reason M]` | close a task, retain its row, list dependents (lead/you) | [tasks.md](tasks.md) |
+| `task dep <id> <T1,T2\|->` | replace prerequisites, notify newly ready queued owner (lead/you) | [tasks.md](tasks.md) |
 | `task next-id` | id the next `add` will take | [tasks.md](tasks.md) |
 | `lock [--name build] [--max N] -- <cmd...>` | crew-wide counting semaphore | [semaphore.md](semaphore.md) |
 | `board` / `status` | board table / agents, model, stuck/error notes, context/quota + lock holders + board | [tasks.md](tasks.md), [watch.md](watch.md), [semaphore.md](semaphore.md) |

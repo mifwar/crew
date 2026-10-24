@@ -3,7 +3,7 @@
 `crew resume <role>` restarts the role's native conversation in the current
 tmux pane. Run it from a new, unbound pane after the old role pane is gone or
 unlabelled. It changes that role's roster binding to the current pane, marks
-it adopted, changes to the crew's recorded project directory and execs the
+it adopted, changes to the role's recorded directory and execs the
 CLI's native resume command. It sends no intro because the conversation
 already contains its context. `crew rebind` only changes the pane mapping.
 
@@ -37,7 +37,7 @@ not proof of responsiveness. See [messaging.md](messaging.md#ownership-guard-own
 ## Discovery and ambiguity
 
 IDs come from the CLI's native store under the current user's home. Crew uses
-the role's recorded CLI and the crew's `meta cwd`:
+the role's recorded CLI and `role_cwd` (its `cwd.tsv` entry, or `meta cwd`):
 
 | CLI | Store lookup | Native resume command |
 |---|---|---|
@@ -103,7 +103,9 @@ ID to start a new native conversation with its existing context:
 
 The source ID uses the same recorded-ID and ambiguity rules as `crew resume`.
 The new role keeps the source CLI spec so later resume does not repeat the fork
-operation. Crew records its launch epoch with a blank session ID before
+operation. It inherits the source role directory unless `add --cwd` overrides it.
+Same-CLI ambiguity is scoped to roles sharing the same recorded directory;
+different worktrees can discover sessions independently ([worktrees.md](worktrees.md)). Crew records its launch epoch with a blank session ID before
 starting the fork; a later role command lazily captures the new ID after the
 CLI creates its native file. If capture is ambiguous, pin it with
 `crew session <new-role> <id>` before resuming.

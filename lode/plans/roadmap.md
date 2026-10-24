@@ -24,6 +24,11 @@ Lead is the human's coordination point: assignments within agreed scope need
 no repeated human confirmation; workers route questions through lead. `crew say`
 prints its own usage and explains where the human can run it; see
 [../roles/summary.md](../roles/summary.md) and [../cli/messaging.md](../cli/messaging.md).
+Held deliveries receive coalesced reminders from ringing watchers; pi Working
+spinner padding is not a draft ([../cli/messaging.md](../cli/messaging.md),
+[../cli/ring-hold.md](../cli/ring-hold.md)). Lead/you can cancel tasks and repair
+dependencies, and role/task directories keep gates and native sessions aligned
+with worktrees ([../cli/tasks.md](../cli/tasks.md), [../cli/worktrees.md](../cli/worktrees.md)).
 What remains are open questions and candidate improvements. When one ships,
 describe it in the matching lode file and delete it here.
 
@@ -70,8 +75,9 @@ the complete intro to match; see [../cli/lifecycle.md](../cli/lifecycle.md).
   rules; see [messaging.md](../cli/messaging.md#ring-hold-never-type-into-a-draft).
 - **Doorbell floods**: rings to one pane are serialized (`.ring<pane>.lock`),
   but many rings to a busy agent still become many queued prompts. Consider
-  coalescing ("3 new messages, read inbox/x.md") when a ring for that pane is
-  already waiting on the lock.
+  coalescing immediate sends already waiting on the ring lock. Held
+  deliveries now coalesce into one guarded watcher reminder; immediate
+  successful sends still ring individually.
 - **pi startup dialogs**: none seen so far; if one appears, add its footer to
   `dialog_capture` ([../cli/lifecycle.md](../cli/lifecycle.md#readiness-heuristic)).
 

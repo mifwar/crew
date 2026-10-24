@@ -7,16 +7,19 @@ stateDiagram-v2
   working --> done: set Tn done (result file must end STATUS: DONE / FINAL:)
   working --> blocked
   working --> needs_input: needs-input
+  queued --> cancelled: lead or you cancels
+  working --> cancelled: lead or you cancels
   blocked --> working
   needs_input --> working
 ```
 
-## `crew task add --to <role> [--dep T1] [--out out/x.md] [--gate "<cmd>"] [--msg "…"] <title…>`
+## `crew task add --to <role> [--dep T1] [--out out/x.md] [--gate "<cmd>"] [--cwd <dir>] [--msg "…"] <title…>`
 
 `--out` (bare `x.md` becomes `out/x.md`; anything else must match
 `^out/[A-Za-z0-9._-]+\.md$`) names the task's one result file; the default is
-`out/<id>-<owner>.md`. Under the board lock: id = `T<rows+1>`, append
-`id⇥owner⇥queued⇥dep|-⇥out⇥title⇥-⇥gate|-`. Then: log a `sys` line, set the owner's
+`out/<id>-<owner>.md`. Under the board lock: id = `T<max numeric id + 1>`, append
+`id⇥owner⇥queued⇥dep|-⇥out⇥title⇥-⇥gate|-⇥cwd`. The directory snapshots
+`--cwd` or the owner's recorded directory; see [worktrees.md](worktrees.md). Then: log a `sys` line, set the owner's
 `@crew_status` to `Tn queued`, and `crew send` the owner (so there is no need
 for the lead to also message them):
 
@@ -33,7 +36,7 @@ read-only rule). Prints the new id on stdout.
 `{id}` in `--out` and `--msg` is replaced with the id this add has just taken,
 so a lead can name the result file before the id exists:
 `--out out/{id}-fix.md`. `crew task next-id` prints the same id without adding
-anything (`T<rows+1>`; `T1` on empty). Both expansions happen before the
+anything (`T<max numeric id + 1>`; `T1` on empty). Both expansions happen before the
 `--out` validation, so `out/{id}.md` is checked as `out/Tn.md`.
 
 ## Dependency readiness notices
@@ -50,7 +53,7 @@ After the updated board is published and unlocked, `task_notify_ready` logs a
 `dm` from `system` and uses `deliver` for each ready owner's inbox/doorbell. Thus
 same-owner successors work, and stale panes, drafts, dialogs and modes retain
 the usual protection. A skipped ring stays in the inbox with the normal warning;
-no retry or auto-start occurs. The task stays queued until its owner starts it.
+a ringing watcher can replay a coalesced reminder, but no auto-start occurs. The task stays queued until its owner starts it.
 Concurrent completions serialize the readiness calculation, so only the last
 completion sees the transition. Delivery is best-effort after commit: a process
 crash between the board update and inbox write can lose a notice.
@@ -63,13 +66,13 @@ flowchart LR
   inbox --> start[Owner sets working]
 ```
 
-The sourced `share/crew/tasks.sh` holds readiness calculation and delivery; the
-command entrypoint owns validation, locking and publishing. Tests live in
+The sourced `share/crew/tasks.sh` owns `cmd_task`, validation, board transitions
+and readiness delivery; the entrypoint supplies identity and locking helpers. Tests live in
 `test/dependencies.sh`, sourced by smoke.
 
 ## Ids follow the order of `crew task add` calls
 
-The id only exists after the row does (`T<rows+1>`), and `add` immediately
+The id only exists after the row does (`T<max numeric id + 1>`), and `add` immediately
 messages the owner with it. Decide the numbering first and add tasks in that
 order; a later add never takes an earlier id.
 
@@ -119,16 +122,40 @@ history shows the shortcut. The gate applies to `lead` and `you` too. Only
 
 ### `--gate "<cmd>"`: a command that must pass for `done`
 
-Stored (one line) in column 8. `set … done` runs it with `bash -c` in the crew's
-project dir (`meta cwd`) **before** taking the board lock, so a slow test run
+Stored (one line) in column 8. `set … done` runs it with `bash -c` in the task's
+recorded directory **before** taking the board lock, so a slow test run
 can't make other writers time out; only for a caller allowed to set the task.
-Output goes to `out/<id>-gate.log` (`$ cmd`, output, `[exit N]`) and becomes the
+Output goes to `out/<id>-gate.log` (`# cwd`, `$ cmd`, output, `[exit N]`) and becomes the
 evidence unless `--evidence` is given. Non-zero exit: `Tn stays open: gate … exited N`.
 Only `lead`/`you` may add a gate, and only the task's owner runs it (in the
 owner's own shell and permissions); lead/you marking a gated task done are
 refused unless `--force`. A gate guards against honest mistakes, not proof: the
 owner can fake its own log, and role labels are advisory.
 `--force` skips the gate like the result-file check. Other statuses never run it.
+
+## Cancellation and dependency edits
+
+```sh
+crew task cancel T3 --reason "Queued against the wrong scope"
+crew task dep T4 T1,T2
+crew task dep T4 -                 # remove every prerequisite
+```
+
+Both commands are lead/you only, refresh identity under `.board.lock`, publish
+with the existing atomic board rewrite, and retain every task row. `cancel`
+changes an open task to terminal `cancelled`, logs the optional reason, tells
+its owner to stop and lists dependents with the repair command. Repeating it
+is quiet; done history cannot be cancelled. A cancelled row cannot be reopened
+with `task set`, even with `--force`; a late gate completion cannot resurrect it.
+Already-cancelled tasks are rejected before starting their gate too.
+
+Cancelled counts as closed for listing, watch and task transfers, but never
+satisfies a dependency. `dep` replaces an open task's complete prerequisite list
+with existing IDs or `-`; malformed/unknown IDs, self-dependencies and cycles
+are refused. Removing the last unmet prerequisite notifies a queued owner once
+through the usual guarded path, after unlocking. Existing done/working work is
+not auto-started. IDs are allocated above the largest existing numeric ID, so
+removing an interior row cannot cause a collision; cancellation keeps its row.
 
 ## Locking
 

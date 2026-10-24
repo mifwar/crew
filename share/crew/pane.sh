@@ -81,6 +81,18 @@ pane_hold() { # pane
   [ -z "$why" ] || printf 'draft\tunsubmitted draft in the editor'
 }
 
+# The capture `status` and `watch` parse once for dialogs, errors and the editor.
+# Claude keeps SGR (its dim ghost span); claude and codex want soft wraps joined.
+# pi's box parser compares full-width borders and reads rows between them, and
+# tmux -J pads a wrapped border row into the row below: a `── ⠧ Working ──` top
+# border then looked like a draft on every mid-turn scan (field report ask 4).
+pane_scan_capture() { # pane cli
+  case "$(short_cli "$2")" in
+    pi) tmux capture-pane -p -t "$1" ;;
+    *)  pane_capture "$1" "$2" -J ;;
+  esac
+}
+
 # The one CLI→parser dispatch for the editor's pending text. Capture rows on
 # stdin; Claude receives ANSI styling, `dims` is pi's "pane_width pane_height
 # cursor_y". Prints the text the editor would submit, nothing when it is idle
@@ -160,6 +172,9 @@ pi_box_text() { # "pane_width pane_height cursor_y" — capture rows on stdin
     function dashes(s, t) { t = s; gsub(/─/, "", t); return (length(s) - length(t)) / 3 }
     function label(s, t) { t = s; gsub(/─/, "", t); gsub(/[[:space:]]/, "", t); return length(t) > 0 }
     function border(s) { return dashes(s) >= w - 3 ? !label(s) : (dashes(s) >= w * 0.55 && label(s)) }
+    # A whitespace-only row is an empty editor row, never draft text: tmux -J
+    # can pad the row under a wrapped full-width border with spaces.
+    function blank(s, t) { t = s; gsub(/[[:space:]]/, "", t); return t == "" }
     { row[NR] = $0 }
     END {
       cur = (cy >= 0 && cy < h && h <= NR) ? NR - h + cy + 1 : 0   # 0: no cursor row known
@@ -169,7 +184,7 @@ pi_box_text() { # "pane_width pane_height cursor_y" — capture rows on stdin
       for (j = bot - 1; j >= 1; j--) if (border(row[j]) && j != cur) { top = j; break }
       if (!top) exit
       out = ""
-      for (k = top + 1; k < bot; k++) if (row[k] != "") out = out (out != "" ? " " : "") row[k]
+      for (k = top + 1; k < bot; k++) if (!blank(row[k])) out = out (out != "" ? " " : "") row[k]
       if (out != "") print out
     }'
 }
@@ -220,14 +235,23 @@ ring_secs() {
 # pane is checked once and any non-free class is reported immediately. Prints
 # why the doorbell is not typed, nothing when the pane is safe. The wait
 # happens before ring() takes its lock, so a hold blocks neither another ring
-# nor the 10 s stale-lock rule.
-ring_hold() { # pane
-  local pane="$1" secs slots role why
+# nor the 10 s stale-lock rule. An expected role keeps a doorbell addressed to
+# one role from landing on the pane after an override swapped the roles; a
+# caller that names no role keeps the roster lookup below (startup panes may
+# not be bound yet).
+ring_hold() { # pane [expected-role]
+  local pane="$1" want="${2:-}" secs slots role why
   secs=$(ring_secs); slots=$((secs * 2))          # poll twice a second
   while :; do
-    role=$(awk -F'\t' -v p="$pane" '$2==p{print $1; exit}' "$D/panes")
-    if [ -z "$role" ] || ! owns_pane "$pane" "$role"; then
-      printf 'pane %s is gone or now belongs to something else' "$pane"; return 0
+    if [ -n "$want" ]; then
+      if ! owns_pane "$pane" "$want"; then
+        printf 'pane %s is gone or no longer belongs to %s' "$pane" "$want"; return 0
+      fi
+    else
+      role=$(awk -F'\t' -v p="$pane" '$2==p{print $1; exit}' "$D/panes")
+      if [ -z "$role" ] || ! owns_pane "$pane" "$role"; then
+        printf 'pane %s is gone or now belongs to something else' "$pane"; return 0
+      fi
     fi
     why=$(pane_hold "$pane")
     case "$why" in
@@ -244,13 +268,22 @@ ring_hold() { # pane
 # into one garbled prompt, so a ring holds a per-pane mkdir lock. A ring takes
 # ~0.3 s, so a lock still held after 10 s is left by a killed call: ring anyway.
 # Safe by default: the hold runs first. `--now` types at once (a pane crew just
-# created); it is the exception, not the normal path.
-ring() { # [--now] pane text — hold for a draft, then type one line into the pane and submit it
-  local now=0
-  case "${1:-}" in --now) now=1; shift ;; esac
+# created); it is the exception, not the normal path. `--role <role>` pins whom
+# the doorbell is for: ownership is checked again after the lock, because an
+# override can swap two roles between the hold and the keystrokes, and the
+# recipient's wording must never land on the successor's prompt.
+ring() { # [--now] [--role <role>] pane text — hold for a draft, then type one line and submit it
+  local now=0 want=""
+  while :; do
+    case "${1:-}" in
+      --now) now=1; shift ;;
+      --role) want="${2:-}"; shift 2 ;;
+      *) break ;;
+    esac
+  done
   local pane="$1" text="$2" why="" l rc=0
   if [ "$now" = 0 ]; then
-    why=$(ring_hold "$pane") || true
+    why=$(ring_hold "$pane" "$want") || true
     if [ -n "$why" ]; then printf '%s' "$why"; return 1; fi
   fi
   l="$D/.ring${pane#%}.lock"
@@ -259,8 +292,93 @@ ring() { # [--now] pane text — hold for a draft, then type one line into the p
   if [ "${RING_TRY_LOCK:-0}" = 1 ]; then
     if ! mkdir "$l" 2>/dev/null; then printf 'pane %s doorbell is already ringing' "$pane"; return 1; fi
   else take_lock "$l" 100 || true; fi
-  if tmux send-keys -t "$pane" -l -- "$text" && sleep 0.3 && tmux send-keys -t "$pane" Enter; then rc=0
+  if [ -n "$want" ] && ! owns_pane "$pane" "$want"; then
+    why="pane $pane is gone or no longer belongs to $want"
+  elif [ "$now" = 0 ]; then
+    # The editor can change while an ordinary ring waits for its lock.
+    why=$(pane_hold "$pane") || why='could not read the editor after taking the doorbell lock'
+  fi
+  if [ -n "$why" ]; then
+    rc=1; printf '%s' "${why#*"$TAB"}"
+  elif tmux send-keys -t "$pane" -l -- "$text" && sleep 0.3 && tmux send-keys -t "$pane" Enter; then rc=0
   else rc=1; printf 'could not reach pane %s' "$pane"; fi
   rmdir "$l" 2>/dev/null || true
   return "$rc"
+}
+
+# ---------- held doorbells: one pending re-ring per role ----------
+# A ring that is held (draft, dialog, copy mode, unreadable editor, failed
+# send-keys) leaves its message in the inbox and types nothing. `deliver`
+# records one held delivery per role, so a `--ring` watcher can replay a single
+# coalesced reminder once that role's editor is free again. The record is one
+# line holding a count, `pending/<role>`: it follows the role, not the pane, so
+# a rebind or override sends the reminder to the role's current pane (its inbox
+# is the role's) and never to a stale one. Only a short read-modify-write of
+# that one file is locked, and the lock is never stolen: a held lock means
+# "defer" and is named in the diagnostic the sender gets, with the repair
+# (remove `$D/pending/.<role>.lock` if its holder is gone). A watcher releases
+# a pending lock it still holds when it exits, so stopping one is safe. Best
+# effort across a crash: a call killed between reading and writing the counter
+# loses at most that one increment; the message stays in the inbox and its
+# `not rung` timeline line still records it. Nothing here is a queue or a
+# daemon.
+pending_lock() { # role — focused mkdir lock, kept in $pending_held for cleanup
+  local l="$D/pending/.$1.lock"
+  mkdir "$D/pending" 2>/dev/null || true
+  take_lock "$l" 20 || return 1
+  pending_held="$l"
+}
+
+pending_unlock() {
+  [ -z "${pending_held:-}" ] || rmdir "$pending_held" 2>/dev/null || true
+  pending_held=""
+}
+
+pending_count() { # role -> held doorbells (0 when none)
+  local n
+  n=$(cat "$D/pending/$1" 2>/dev/null) || n=0
+  case "$n" in ''|*[!0-9]*) n=0 ;; esac
+  printf '%s' "$n"
+}
+
+pending_add() { # role — remember one held delivery (coalesced count)
+  local n rc=0
+  pending_lock "$1" || return 1
+  n=$(pending_count "$1")
+  printf '%s\n' "$((n + 1))" > "$D/pending/$1.tmp.$$" &&
+    mv "$D/pending/$1.tmp.$$" "$D/pending/$1" || rc=1
+  pending_unlock
+  return "$rc"
+}
+
+# Ring one coalesced reminder for a role's held deliveries. Only `crew watch
+# --ring` calls this: stdout watch is read-only and never replays. The pending
+# lock serialises replayers, so exactly one reminder goes out and it can clear
+# the count it announced; the ring itself stays the ordinary guarded path
+# (ownership, expected role after the lock, draft/dialog hold) and is bounded
+# because the watcher checks once and refuses a contended pane instead of
+# waiting. A busy pane is left pending, silently, until a later scan finds it
+# free; only a locked counter is reported, because that needs a human.
+pending_replay() { # role [pane]
+  local role="$1" pane="${2:-}" n why plural
+  [ -f "$D/pending/$role" ] || return 0
+  [ -n "$pane" ] || pane=$(pane_of "$role")
+  [ -n "$pane" ] || return 0
+  owns_pane "$pane" "$role" || return 0   # never a stale, reused or rebound-away pane
+  [ -z "$(pane_hold "$pane")" ] || return 0
+  if ! pending_lock "$role"; then
+    log_line sys watch "$role" "$role re-ring deferred: pending/.$role.lock is held; if its holder is gone, remove it"
+    return 0
+  fi
+  n=$(pending_count "$role")
+  if [ "$n" -gt 0 ]; then
+    plural=""; [ "$n" -eq 1 ] || plural=s
+    why=$(CREW_RING_WAIT=0 RING_TRY_LOCK=1 ring --role "$role" "$pane" \
+      "[crew] watch → $role: $n new message$plural — crew inbox $role") || true
+    if [ -z "$why" ]; then
+      rm -f "$D/pending/$role"
+      log_line sys watch "$role" "$role rung for $n held message(s); see inbox/$role.md"
+    fi
+  fi
+  pending_unlock
 }

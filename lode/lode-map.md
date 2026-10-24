@@ -15,6 +15,10 @@ flowchart TD
 - cli/
   - [summary.md](cli/summary.md) — command table, env knobs, pane labels/border, model detection
   - [lifecycle.md](cli/lifecycle.md) — `up` / `add` / `adopt` / `rebind` / `override` / `down`, `--self` / `--here`, pane ids, readiness
+  - [worktrees.md](cli/worktrees.md) — per-role directories, task snapshots and worktree-aware gates/sessions
+  - [role-override.md](cli/role-override.md) — manual takeovers, task transfer and recovery context
+  - [readiness.md](cli/readiness.md) — startup settling, dialogs and exact-intro retry
+  - [ring-hold.md](cli/ring-hold.md) — editor parsers, draft protection and wait budget
   - [sessions.md](cli/sessions.md) — native session discovery, exact per-role IDs and resume
   - [messaging.md](cli/messaging.md) — `send`/`say`/`note`, doorbell, `owns_pane`, sender identity, `log`
   - [timers.md](cli/timers.md) — detached timed doorbells, state, cancellation and shutdown

@@ -60,7 +60,14 @@ cmd_ls() {
     project=$(oneline "$project")
     short=$(truncate_text "$project" 48)
     [ "$short" = "$project" ] || short="${short}…"
-    tasks=$(awk -F'\t' '$3=="done"{done++} END{printf "%d/%d (%d open)", done, NR, NR-done}' "$D/board.tsv" 2>/dev/null) || tasks='-'
+    tasks=$(awk -F'\t' -v closed="$TASK_CLOSED_RE" '
+      $3 ~ closed{c++} $3=="cancelled"{x++}
+      END {
+        if (NR == 0) { printf "0/0 (0 open)"; exit }
+        printf "%d/%d (%d open", c, NR, NR-c
+        if (x) printf ", %d cancelled", x
+        printf ")"
+      }' "$D/board.tsv" 2>/dev/null) || tasks='-'
     stamp=$(last_epoch "$D")
     if [ -n "$stamp" ]; then last=$(age_text "$((epoch - stamp))"); else last=-; fi
     row=$(printf '%s\t%s\t%s\t%s\t%s\t%s' "$S" "${short:--}" "$STATE" "${MEMBERS:--}" "$tasks" "$last")

@@ -52,8 +52,9 @@ Columns: `CREW PROJECT STATE AGENTS TASKS LAST`. One aligned row per crew.
   are shortened as in status. `alive` means an owned pane, not a responsive
   agent process; no process/model scraping is done. `gone` means the pane
   does not exist; `reused` means it exists but fails ownership.
-- `TASKS` is `done/total (N open)`, counting every board row and treating
-  statuses other than `done` as open. An empty board is `0/0 (0 open)`.
+- `TASKS` is `closed/total (N open)`: done and cancelled are closed. When
+  cancellations exist, append `, X cancelled` inside the parentheses.
+  An empty board is `0/0 (0 open)`.
 - `LAST` is the age of the last `channel.log` timestamp (`5s`, `5m`, `3h`,
   `2d`) from `last_epoch`, parsed as local time because `now` writes local
   timestamps, then rendered by `age_text`. An empty or invalid timestamp

@@ -133,7 +133,7 @@ record_session_id() { # role id; caller holds the panes lock
   if [ -f "$D/sessions.tsv" ] && awk -F '\t' -v r="$role" -v i="$id" '$1!=r && $4==i {f=1} END {exit !f}' "$D/sessions.tsv"; then
     die "session $id is already recorded for another role; fork it with 'crew add <role>=fork:<source>' instead"
   fi
-  cwd=$(meta cwd)
+  cwd=$(role_cwd "$role")
   launch_epoch=$(awk -F '\t' -v r="$role" '$1==r {print $5; exit}' "$D/sessions.tsv" 2>/dev/null || true)
   case "$launch_epoch" in ''|*[!0-9]*) launch_epoch="" ;; esac
   if [ -f "$D/sessions.tsv" ]; then
@@ -151,7 +151,7 @@ session_record_launch() { # role launch-epoch; caller holds the panes lock
   agent=$(short_cli "$cli")
   case "$agent" in claude|codex|pi) ;; *) return 1 ;; esac
   case "$start" in ''|*[!0-9]*) return 1 ;; esac
-  cwd=$(meta cwd)
+  cwd=$(role_cwd "$role")
   if [ -f "$D/sessions.tsv" ]; then
     awk -F '\t' -v r="$role" '$1!=r {print}' "$D/sessions.tsv" > "$tmp"
   else
@@ -165,7 +165,7 @@ session_saved_id() { # role -> exact id if CLI and cwd still match
   local role="$1" cli cwd row saved_cli saved_cwd id
   [ -f "$D/sessions.tsv" ] || return 1
   cli=$(session_role_cli "$role"); [ -n "$cli" ] || return 1
-  cwd=$(meta cwd)
+  cwd=$(role_cwd "$role")
   row=$(awk -F '\t' -v r="$role" '$1==r {print $2 "\t" $3 "\t" $4; exit}' "$D/sessions.tsv")
   [ -n "$row" ] || return 1
   IFS="$(printf '\t')" read -r saved_cli saved_cwd id <<EOF
@@ -185,7 +185,7 @@ session_launch_epoch() { # role -> launch epoch when CLI and cwd still match
   local role="$1" cli cwd row saved_cli saved_cwd start
   [ -f "$D/sessions.tsv" ] || return 1
   cli=$(session_role_cli "$role"); [ -n "$cli" ] || return 1
-  cwd=$(meta cwd)
+  cwd=$(role_cwd "$role")
   row=$(awk -F '\t' -v r="$role" '$1==r {print $2 "\t" $3 "\t" $5; exit}' "$D/sessions.tsv")
   [ -n "$row" ] || return 1
   IFS="$(printf '\t')" read -r saved_cli saved_cwd start <<EOF
@@ -200,7 +200,7 @@ session_capture_role_locked() { # role; caller holds the panes lock
   local role="$1" cli agent cwd start candidates recorded_ids="" stamp id selected="" count=0
   session_saved_id "$role" >/dev/null && return 1
   cli=$(session_role_cli "$role"); [ -n "$cli" ] || return 1
-  agent=$(short_cli "$cli"); cwd=$(meta cwd)
+  agent=$(short_cli "$cli"); cwd=$(role_cwd "$role")
   case "$agent" in claude|codex|pi) ;; *) return 1 ;; esac
   start=$(session_launch_epoch "$role") || return 1
   candidates=$(session_candidates "$agent" "$cwd" birth "$start" "$role" | awk -F '\t' -v start="$start" '$1 >= start' | sort -rn)
@@ -247,7 +247,7 @@ session_capture_current() { # best-effort capture for the role running this comm
 session_id_for_role() { # role -> recorded ID, lazy launch ID, or safe legacy fallback
   local role="$1" cli agent cwd other candidates id other_role other_pane other_cli other_origin start
   cli=$(session_role_cli "$role"); [ -n "$cli" ] || die "no agent '$role' in crew $S"
-  agent=$(short_cli "$cli"); cwd=$(meta cwd)
+  agent=$(short_cli "$cli"); cwd=$(role_cwd "$role")
   case "$agent" in claude|codex|pi) ;; *) die "session lookup is not supported for $agent" ;; esac
   if id=$(session_saved_id "$role"); then
     printf '%s' "$id"
@@ -264,7 +264,9 @@ session_id_for_role() { # role -> recorded ID, lazy launch ID, or safe legacy fa
   other=0
   while IFS="$(printf '\t')" read -r other_role other_pane other_cli other_origin; do
     [ -n "${other_role:-}" ] && [ "$other_role" != "$role" ] || continue
-    [ "$(short_cli "$other_cli")" = "$agent" ] && other=$((other + 1))
+    # Only a same-CLI role in the same directory makes the fallback ambiguous;
+    # worktree-per-worker crews routinely run two of the same CLI.
+    [ "$(short_cli "$other_cli")" = "$agent" ] && [ "$(role_cwd "$other_role")" = "$cwd" ] && other=$((other + 1))
   done < "$D/panes"
   [ "$other" = 0 ] || die "can't identify $role's $agent session: another $agent role shares $cwd; pin the exact ID with 'crew -s $S session $role <id>'"
   start=$(session_crew_start)

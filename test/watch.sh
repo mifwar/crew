@@ -237,13 +237,15 @@ auto_send() { # ownership first: this types into a crew pane
   tmux send-keys -t "$auto_worker" Enter
   sleep 0.2
 }
-# An immediate error ring proves the watcher's first scan ran and seeded the
-# cache while the board was open. Only then empty the board, so the notice
-# below can only come from the open → empty transition.
+# Error delivery happens before the scan finishes caching the board. A second
+# distinct error proves a whole scan completed while the board stayed open.
 watch_board_auto queued
 auto_send 'Error: Request timed out'
 check 'the up watcher scans after startup' \
   watch_until "$auto_dir/inbox/lead.md" 'worker errored with an open task: Request timed out'
+auto_send 'Error: Connection error'
+check 'the up watcher completes a scan with an open board' \
+  watch_until "$auto_dir/inbox/lead.md" 'worker errored with an open task: Connection error'
 watch_board_auto done
 check 'the up watcher rings a board that empties after startup' \
   watch_until "$auto_dir/inbox/lead.md" 'board has no open tasks'

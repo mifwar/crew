@@ -37,6 +37,13 @@ links load the skill once, with no collision warning.
   wrong on arithmetic/counting claims it later retracted. Leads must verify
   reviewer claims against code.
 
+## Working spinner and drafts
+
+Pi puts its Working spinner in the editor's top border. Scans preserve raw
+rows, and whitespace-only padding is empty editor space. This prevents a busy
+pi from being labelled draft-pending; genuine text between its borders still
+holds delivery. See [../cli/ring-hold.md](../cli/ring-hold.md).
+
 ## Unknowns
 
 - Whether pi queues text typed into its prompt during a turn.
