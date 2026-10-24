@@ -178,8 +178,10 @@ cmd_task() {
         *) die "bad status: $st" ;;
       esac
       [ "$ME" != outside ] || die "cannot set $id as outside: $WHY; run crew -s $S whoami. If your tool shell inherited a dead/foreign pane, prefix crew calls with CREW_SESSION=$S CREW_AGENT=<your-role> and verify whoami first."
-      # Cancelled is terminal, so refuse before a gate could run for it; the
-      # check under the lock below catches a cancel that lands meanwhile.
+      # Cancelled is terminal. Two checks on purpose: this one refuses before
+      # a slow gate could run for a task that cancel already closed, and its
+      # twin inside the board lock below sees a cancel that lands while the
+      # gate runs (task set → done and task cancel are concurrent).
       case "$(task_row "$id" 3)" in
         cancelled) die "$id is cancelled and stays closed; add a new task instead (see crew log for the reason)" ;;
       esac
@@ -207,8 +209,9 @@ cmd_task() {
       resolve_me
       local ready_notices="" owner rowout last; owner=$(task_row "$id" 2)
       [ -n "$owner" ] || die "no task $id"
-      # Cancelled is terminal: a gate that was slow enough for the lead to
-      # cancel the task meanwhile must not bring it back afterwards.
+      # The pre-lock twin of the cancelled check above, and the one that is
+      # permissive: a cancel that landed while the gate ran closes the task
+      # here, inside the lock, so the gate's exit cannot resurrect it.
       case "$(task_row "$id" 3)" in
         cancelled) die "$id is cancelled and stays closed; add a new task instead (see crew log for the reason)" ;;
       esac

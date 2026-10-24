@@ -281,8 +281,9 @@ resolve_cwd_arg() { # flag dir -> physical absolute directory; dies on a bad or 
   [ -d "$dir" ] || die "no such directory for $flag: $dir"
   # Physical (pwd -P) on purpose: agent CLIs key their session stores on
   # process.cwd(), so /tmp/tree and /private/tmp/tree must not be two trees.
-  # Keep a trailing marker until validation, so command substitution cannot
-  # silently strip a newline from the physical directory name.
+  # The '%s/.' suffix is a newline marker: command substitution strips at most
+  # one trailing newline, so the marker proves the cd worked; the substitution
+  # result is validated (${dir%/.} removes the marker) before anything uses it.
   dir=$(cd -P "$dir" && printf '%s/.' "$PWD") || die "cannot enter $flag directory: $2"
   dir=${dir%/.}
   # One record per line, tab separated: these would corrupt it.
@@ -911,7 +912,9 @@ unlock() {
 cmd_board() {
   resolve_session
   if [ ! -s "$D/board.tsv" ]; then echo "(no tasks)"; return; fi
-  # Rows before the evidence column have 6 fields; show EVIDENCE last.
+  # The board is for reading, not operating: gate ($8) and task cwd ($9) are
+  # command metadata reachable through task/task-gate diagnostics, and STAY
+  # out of the display; columns stay id→title with EVIDENCE last.
   { printf 'ID\tOWNER\tSTATUS\tNEEDS\tOUTPUT\tEVIDENCE\tTITLE\n'
     awk -F'\t' -v OFS='\t' '{print $1, $2, $3, $4, $5, ($7 == "" ? "-" : $7), $6}' "$D/board.tsv"
   } | column -t -s "$(printf '\t')"
