@@ -29,6 +29,9 @@ spinner padding is not a draft ([../cli/messaging.md](../cli/messaging.md),
 [../cli/ring-hold.md](../cli/ring-hold.md)). Lead/you can cancel tasks and repair
 dependencies, and role/task directories keep gates and native sessions aligned
 with worktrees ([../cli/tasks.md](../cli/tasks.md), [../cli/worktrees.md](../cli/worktrees.md)).
+Usage-limit recovery is opt-in for lead only: a recognised Codex/Claude reset
+schedules one guarded retry; workers notify lead for an explicit, model-aware
+wait/handover decision ([../cli/limit-wake.md](../cli/limit-wake.md)).
 What remains are open questions and candidate improvements. When one ships,
 describe it in the matching lode file and delete it here.
 

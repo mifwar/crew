@@ -19,7 +19,9 @@ detached watcher `crew up` starts for a crew with a lead
 cancel/`down` path, but its worker runs the scan loop and rings the lead
 instead of dispatching one message. It never rewrites `next`, so the listing
 shows NEXT `-` for it, and reports `watching` while its worker is alive.
-`up --no-watch` starts none; `CREW_WATCH_EVERY` changes the interval. All three
+`up --no-watch` starts none; `CREW_WATCH_EVERY` changes the interval.
+Watcher config also records the optional lead-only `wake-on-limit` policy
+(default off); see [limit-wake.md](limit-wake.md). All three
 kinds are created by the one `timer_create` helper: timer lock, ended check,
 id/directory, config/next/message, worker publication and unlock.
 

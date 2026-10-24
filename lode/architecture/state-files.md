@@ -72,6 +72,12 @@ counter after a successful guarded reminder. Stdout watch leaves it alone.
 The inbox is unchanged by replay. The existing ring lock still serializes pane
 input. See [../cli/messaging.md](../cli/messaging.md#held-doorbell-reminders).
 
+`limit-wake/lead` holds `pane|HH:MM [timezone]|due-epoch|claimed` for opt-in lead recovery;
+`.limit-wake.lock` serializes watcher claims. The record survives watcher
+restarts; a cleared banner removes it. Timer config’s optional fourth field
+defaults to `0` for older records and only affects watchers. See
+[../cli/limit-wake.md](../cli/limit-wake.md).
+
 ## `meta`
 
 ```
@@ -121,7 +127,7 @@ web); the doorbell and inbox heading do.
 
 ## Timers
 
-`timers/timer-<epoch>-<pid>/` holds `config` (`at|every|watch⇥interval-seconds⇥role`),
+`timers/timer-<epoch>-<pid>/` holds `config` (`at|every|watch⇥interval-seconds⇥role⇥wake-on-limit`),
 `owner` (`pid⇥process-start-time`), `next`/`claimed` (epoch), `message` (literal full text),
 `ready` (publication marker) and `worker.log`. `done` / `cancelled` markers
 retain completed/cancelled history. A `watch` record writes `next` once at
