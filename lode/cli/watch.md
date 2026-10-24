@@ -2,7 +2,10 @@
 
 `share/crew/watch.sh`, sourced by `bin/crew`, keeps one rendered-text pattern
 table (`pane_patterns`) for `crew status` and `crew watch`. `pane_observation`
-reads a capture and returns `state|resources|reason`. Scans keep pi rows raw
+reads a capture and returns `state|resources|reason`. Its private `details`
+view also returns `reset-clock|prompt-state`, using the same normalisation and
+error table. The clock is extracted only from a classified provider-limit
+banner; prompt state preserves busy/idle even when an error takes precedence. Scans keep pi rows raw
 with `pane_scan_capture`; joining full-width pi borders with `-J` can pad the
 empty editor with spaces. Whitespace-only box rows never become drafts,
 while real draft rows still hold doorbells. Error patterns cover
@@ -105,7 +108,11 @@ from the lead pane still rings it. Failed event rings are logged and debounced
 as events. A ringing watcher separately retries held deliveries as coalesced
 inbox reminders after each owned-pane observation; see
 [messaging.md](messaging.md#held-doorbell-reminders). It never resumes workers
-or answers dialogs.
+or answers dialogs. With `--wake-on-limit`, it can send one guarded retry to a
+lead after a recognised Codex/Claude reset time; see [limit-wake.md](limit-wake.md).
+Waking is at most once per printed reset time until a scan clears the banner.
+Worker alerts include recognised reset clocks and leave model-aware handovers
+to lead.
 
 Observation/debounce state is private to a temporary directory per watcher;
 concurrent watchers have independent histories. Held-delivery counters live in

@@ -24,6 +24,7 @@ flowchart LR
 bash -n bin/crew                  # syntax
 bash -n share/crew/listing.sh      # sourced listing/sweep helpers
 bash -n share/crew/pane.sh         # sourced pane readers, ring and its hold
+bash -n share/crew/limit.sh        # opt-in lead usage-limit recovery
 bash -n share/crew/watch.sh        # status observations and foreground watch
 bash -n share/crew/timers.sh       # detached timer workers
 bash -n share/crew/semaphore.sh    # command slots and holder listing

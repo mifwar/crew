@@ -1117,6 +1117,7 @@ check "installed symlink finds the sourced listing module" env CREW_HOME="$CREW_
 . "$ROOT/test/tasks-dep.sh"
 . "$ROOT/test/tasks-cwd.sh"
 . "$ROOT/test/watch.sh"
+. "$ROOT/test/limit.sh"
 . "$ROOT/test/rings.sh"
 . "$ROOT/test/timers.sh"
 . "$ROOT/test/semaphore.sh"

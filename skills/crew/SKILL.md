@@ -108,6 +108,7 @@ crew remove rev                 # drop a role: blocks its open tasks, closes its
 crew remove rev --keep-pane     # same, but unlabel the pane and leave it open
 crew watch --every 120 --quiet-after 10m   # foreground state-change notices
 crew watch --ring &              # lead background shell: doorbells instead of stdout
+crew watch --ring --wake-on-limit # opt in to lead usage-limit recovery
 crew at +30m lead "check worker progress"
 crew at 03:00 lead "start checks" # next local 03:00
 crew every 30m lead "review the board"
@@ -161,7 +162,8 @@ crew lock --name checks --max 2 -- ./run-checks
   the inbox); otherwise events print to stdout. It exits when the crew ends
   or on Ctrl-C. It never answers prompts or resumes workers. The detached
   watcher `up` starts follows the same rules and rings the lead; it is the
-  lead's automatic check, not a substitute for reading results.
+  lead's automatic check, not a substitute for reading results. See Usage limits
+  and recovery for the explicit lead-only wake opt-in.
 - `at` and `every` start detached timer workers recorded under the crew's
   `timers/`. Delays accept positive seconds or `s`/`m`/`h`/`d`; `HH:MM` means
   the next local occurrence. Repeats first fire after one interval and do not
@@ -206,6 +208,49 @@ crew lock --name checks --max 2 -- ./run-checks
   asking the human. Workers route authorization questions to lead first.
   Assignments never override an agent's rules or required permissions.
 - Cap disagreements at 3 rounds, then ask the user.
+
+## Usage limits and recovery
+
+A Codex `You’ve hit your usage limit` banner is reported by `status` and the
+watcher. When it includes `try again at H:MM AM/PM`, or Claude prints
+`resets 3pm` (optionally with minutes and a named timezone), worker alerts
+include the reset time. Unknown/missing reset formats stay manual.
+
+Auto-wake is **off by default**, including for lead. Enable it explicitly:
+
+```sh
+crew up <name> --self lead --wake-on-limit rev=pi
+# For an existing crew (leave this watcher running):
+crew -s <name> watch --ring --wake-on-limit
+```
+
+This only wakes **lead**, using a recognised Codex or Claude reset. The watcher
+records the next occurrence of the printed time (respecting Claude’s named
+timezone; otherwise local), adds 60 seconds of grace, and sends one fixed retry
+message on a scan after that time when the lead has an idle input prompt.
+Codex uses `try again at H:MM AM/PM`; Claude uses `resets 3pm` or
+`resets 3:30pm`, optionally with `(Area/City)` or `(UTC)`. Pi/provider errors,
+HTTP 429s, relative delays and dated/weekly reset formats without a supported
+clock remain notification-only. Reset text is a heuristic, not confirmation
+that credits are available. The message asks lead to retry its last request,
+continue existing work, or report that it is still limited and wait. The same visible banner is claimed once,
+including across watcher restarts and concurrent watchers. A cleared banner
+rearms detection. Drafts, dialogs, copy mode and pane ownership still guard
+delivery; held messages stay in the inbox for the normal coalesced reminder.
+Stopping/cancelling that watcher stops new wake attempts; `crew down` stops the
+crew's detached watcher. `--wake-on-limit` conflicts with `up --no-watch` and
+requires `--ring` for `watch`.
+
+**Workers are never automatically woken or switched to another model.** Lead
+reads their limit alerts and decides whether to wait, assign existing suitable
+capacity, or hand over unfinished work. Before a handover, consider the task,
+context needed, and the replacement model's capabilities and remaining quota;
+choose the model and launch spec explicitly. Do not assume all models are
+interchangeable or silently change a worker's model. Preserve task state and
+recovery context using the existing board, inboxes and override workflow.
+If lead is limited and automatic waking is disabled or cannot parse the time,
+the human can wait, schedule `crew at HH:MM lead "retry your last request"`,
+or use the manual takeover below with an explicitly chosen successor.
 
 ## Mid-work takeover
 

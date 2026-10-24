@@ -52,6 +52,7 @@ crew — coding agents working together in tmux
       --here           split the calling window instead of opening a new one
       --in <session>   tmux session for the new window (default: the caller's)
       --no-watch       don't start the detached watcher that rings the lead
+      --wake-on-limit  opt in to waking lead after a recognised usage reset
   crew adopt <name> role=<pane> ...                   use panes you already have (%7, .2, 6.1)
   crew add [--cwd <dir>] role=<cli spec|%pane|fork:role> ...   add agents to a running crew
                                                       (spawn, adopt, or fork; --cwd is where the
@@ -78,7 +79,8 @@ crew — coding agents working together in tmux
   crew lock [--name build] [--max N] -- <cmd...>     crew-wide command semaphore (default max 1)
   crew board                                          task board
   crew status                                         agents + board, stuck/error notes and context/quota
-  crew watch [--every 120] [--quiet-after 10m] [--ring]  foreground state-change notices (or doorbells to lead)
+  crew watch [--every 120] [--quiet-after 10m] [--ring] [--wake-on-limit]
+                                                      foreground state-change notices (or doorbells to lead)
   crew at <HH:MM|+30m> <role> <message>               schedule one guarded doorbell (local time)
   crew every <30m> <role> <message>                    repeat guarded doorbells until cancelled
   crew timers [cancel <id>]                            list or cancel this crew's timers
@@ -173,6 +175,16 @@ crew — coding agents working together in tmux
   (120 s scans, same rules, ringing the lead); it appears in `crew timers`
   (NEXT is '-') and `crew down` stops it. --no-watch skips it;
   CREW_WATCH_EVERY=<duration> changes its scan interval.
+  --wake-on-limit (up, or watch --ring) opts in to one guarded retry for a
+  lead after a recognised reset time + 60s grace. Codex uses
+  'try again at H:MM AM/PM'.
+  Also recognises Claude 'resets 3pm (Area/City)' (with optional minutes).
+  Named timezones are honoured; otherwise uses the next local occurrence.
+  Dispatch waits for a scan and idle prompt.
+  The same visible banner is retried once, including across watcher restarts.
+  Workers are never auto-woken: their alert includes the reset time when known;
+  lead decides whether to wait or hand over, explicitly choosing a suitable model.
+  No model is switched automatically. Unknown reset formats stay manual.
 
   Timers run detached, recorded under the crew timers/ directory. Delays use
   seconds or s/m/h/d suffixes (positive integers). HH:MM uses the next local
@@ -330,6 +342,7 @@ log_line() { # kind from to text
 
 # Pane readers, the doorbell ring and its draft hold.
 . "$CREW_SHARE/pane.sh"
+. "$CREW_SHARE/limit.sh"
 . "$CREW_SHARE/watch.sh"
 . "$CREW_SHARE/timers.sh"
 . "$CREW_SHARE/semaphore.sh"
@@ -566,13 +579,14 @@ settle_agent() { # role pane
 }
 
 cmd_up() {
-  local name="" target="" self="" here=0 no_watch=0 specs=() spec role cli pane win="" origin created_at created_epoch launch_time caller="${TMUX_PANE:-}" self_cli="" watch_every=$watch_interval watch_id=""
+  local name="" target="" self="" here=0 no_watch=0 wake_on_limit=0 specs=() spec role cli pane win="" origin created_at created_epoch launch_time caller="${TMUX_PANE:-}" self_cli="" watch_every=$watch_interval watch_id=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --in) target="$2"; shift 2 ;;
       --self) self="$2"; shift 2 ;;
       --here) here=1; shift ;;
       --no-watch) no_watch=1; shift ;;
+      --wake-on-limit) wake_on_limit=1; shift ;;
       -*) die "unknown option: $1" ;;
       *=*) specs+=("$1"); shift ;;
       *) [ -z "$name" ] || die "unexpected argument: $1"; name="$1"; shift ;;
@@ -589,6 +603,10 @@ cmd_up() {
     caller=$(pane_id "$caller") || die "TMUX_PANE=$TMUX_PANE is not a live pane; run --self/--here from the agent's actual tmux pane"
   fi
   check_roles ${self:+"$self=$caller"} "${specs[@]}"
+  if [ "$wake_on_limit" = 1 ]; then
+    [ "$no_watch" = 0 ] || die '--wake-on-limit conflicts with --no-watch'
+    { [ "$self" = lead ] || printf '%s\n' "${specs[@]}" | grep -q '^lead='; } || die '--wake-on-limit needs a lead role'
+  fi
   if [ -z "$target" ]; then
     [ -n "${TMUX:-}" ] || die "run inside tmux, or pass --in <tmux-session>"
     target=$(tmux display-message -p ${TMUX_PANE:+-t "$TMUX_PANE"} '#S')
@@ -646,7 +664,7 @@ cmd_up() {
   # already up, so a watcher that cannot start is a warning, not an error.
   if [ "$no_watch" = 0 ] && [ -n "$(pane_of lead)" ]; then
     # The subshell keeps a die, lock or trap inside timer_create from ending `up`.
-    watch_id=$(timer_add_watch "$watch_every" lead) || {
+    watch_id=$(timer_add_watch "$watch_every" lead "$wake_on_limit") || {
       echo "crew: could not start the watcher (crew watch --ring still works)" >&2; watch_id=""; }
   fi
   if [ -z "$self" ] && [ "$here" = 0 ] && [ -z "${CREW_NO_SWITCH:-}" ] && [ -n "${TMUX:-}" ]; then
@@ -822,9 +840,13 @@ cmd_add() {
 
 # The message always lands in the inbox; the ring is best-effort. A ring
 # that isn't made is logged, so the timeline shows who never got a doorbell.
-deliver() { # role text label
+deliver() { # role text label [expected-pane]
   local pane line why queued=""
   pane=$(pane_of "$1")
+  if [ -n "${4:-}" ] && [ "$pane" != "$4" ]; then
+    log_line sys "$ME" "$1" "wake skipped: $1 moved from $4 to $pane"
+    return 0
+  fi
   printf '\n## %s  %s → %s\n\n%s\n' "$(now)" "$(sender_label)" "$3" "$2" >> "$D/inbox/$1.md"
   if ! owns_pane "$pane" "$1"; then why="pane $pane is gone or now belongs to something else"
   elif [ "$pane" = "${TMUX_PANE:-}" ]; then printf '%s\n' "$2"; return 0

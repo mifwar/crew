@@ -24,6 +24,7 @@ flowchart TD
   - [timers.md](cli/timers.md) — detached timed doorbells, state, cancellation and shutdown
   - [tasks.md](cli/tasks.md) — board, `task add --out` / `set --evidence`, `done` gate + `--force`, dependency readiness notices, `{id}`/`next-id`, locking, result-file contract
   - [watch.md](cli/watch.md) — shared status observations, foreground watcher, quiet threshold and guarded lead notices
+  - [limit-wake.md](cli/limit-wake.md) — opt-in Codex lead wake after printed reset, dedupe and worker handover policy
   - [semaphore.md](cli/semaphore.md) — crew-scoped command slots, stale recovery and holder listing
   - [listing.md](cli/listing.md) — sourced listing/sweep module, project/liveness listing, relative activity, dry-run stale cleanup and `--delete-older` folder pruning
 - agents/
