@@ -53,6 +53,8 @@ crew — coding agents working together in tmux
       --in <session>   tmux session for the new window (default: the caller's)
       --no-watch       don't start the detached watcher that rings the lead
       --wake-on-limit  opt in to waking lead after a recognised usage reset
+      --handover-on-limit <cli spec>  also hand lead over to a new pane running
+                       <cli spec> when its reset is over --max-wait (default 6h) or unreadable
   crew adopt <name> role=<pane> ...                   use panes you already have (%7, .2, 6.1)
   crew add [--cwd <dir>] role=<cli spec|%pane|fork:role> ...   add agents to a running crew
                                                       (spawn, adopt, or fork; --cwd is where the
@@ -80,6 +82,7 @@ crew — coding agents working together in tmux
   crew board                                          task board
   crew status                                         agents + board, stuck/error notes and context/quota
   crew watch [--every 120] [--quiet-after 10m] [--ring] [--wake-on-limit]
+             [--handover-on-limit <cli spec> [--max-wait 6h]]
                                                       foreground state-change notices (or doorbells to lead)
   crew at <HH:MM|+30m> <role> <message>               schedule one guarded doorbell (local time)
   crew every <30m> <role> <message>                    repeat guarded doorbells until cancelled
@@ -177,14 +180,21 @@ crew — coding agents working together in tmux
   CREW_WATCH_EVERY=<duration> changes its scan interval.
   --wake-on-limit (up, or watch --ring) opts in to one guarded retry for a
   lead after a recognised reset time + 60s grace. Codex uses
-  'try again at H:MM AM/PM'.
-  Also recognises Claude 'resets 3pm (Area/City)' (with optional minutes).
-  Named timezones are honoured; otherwise uses the next local occurrence.
+  'try again at H:MM AM/PM' (optionally 'on October 25');
+  Claude 'resets 3pm (Area/City)' or 'resets Oct 31 at 3:30pm'. Named
+  timezones are honoured; otherwise local time. A clock alone is its next
+  occurrence; a dated (weekly) reset is that day.
   Dispatch waits for a scan and idle prompt.
   The same visible banner is retried once, including across watcher restarts.
+  --handover-on-limit <cli spec> (implies --wake-on-limit) decides by the wait,
+  not the limit's name: a reset within --max-wait (default 6h) waits and wakes;
+  a later or unreadable one, still shown on an idle lead 5 minutes later, runs
+  `crew override lead=<cli spec>` as 'watch' once. The spec is used exactly
+  as given. A lead started this way never hands over again; it waits.
   Workers are never auto-woken: their alert includes the reset time when known;
   lead decides whether to wait or hand over, explicitly choosing a suitable model.
-  No model is switched automatically. Unknown reset formats stay manual.
+  No model is chosen automatically. Unknown reset formats stay manual unless a
+  handover spec is set.
 
   Timers run detached, recorded under the crew timers/ directory. Delays use
   seconds or s/m/h/d suffixes (positive integers). HH:MM uses the next local
@@ -579,7 +589,7 @@ settle_agent() { # role pane
 }
 
 cmd_up() {
-  local name="" target="" self="" here=0 no_watch=0 wake_on_limit=0 specs=() spec role cli pane win="" origin created_at created_epoch launch_time caller="${TMUX_PANE:-}" self_cli="" watch_every=$watch_interval watch_id=""
+  local name="" target="" self="" here=0 no_watch=0 wake_on_limit=0 handover="" max_wait="" specs=() spec role cli pane win="" origin created_at created_epoch launch_time caller="${TMUX_PANE:-}" self_cli="" watch_every=$watch_interval watch_id=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --in) target="$2"; shift 2 ;;
@@ -587,6 +597,8 @@ cmd_up() {
       --here) here=1; shift ;;
       --no-watch) no_watch=1; shift ;;
       --wake-on-limit) wake_on_limit=1; shift ;;
+      --handover-on-limit) [ $# -ge 2 ] || die "$1 needs a CLI spec"; handover="$2"; wake_on_limit=1; shift 2 ;;
+      --max-wait) [ $# -ge 2 ] || die "$1 needs a duration"; max_wait="$2"; shift 2 ;;
       -*) die "unknown option: $1" ;;
       *=*) specs+=("$1"); shift ;;
       *) [ -z "$name" ] || die "unexpected argument: $1"; name="$1"; shift ;;
@@ -603,9 +615,10 @@ cmd_up() {
     caller=$(pane_id "$caller") || die "TMUX_PANE=$TMUX_PANE is not a live pane; run --self/--here from the agent's actual tmux pane"
   fi
   check_roles ${self:+"$self=$caller"} "${specs[@]}"
+  max_wait=$(limit_handover_options "$handover" "$max_wait") || exit 1
   if [ "$wake_on_limit" = 1 ]; then
-    [ "$no_watch" = 0 ] || die '--wake-on-limit conflicts with --no-watch'
-    { [ "$self" = lead ] || printf '%s\n' "${specs[@]}" | grep -q '^lead='; } || die '--wake-on-limit needs a lead role'
+    [ "$no_watch" = 0 ] || die '--wake-on-limit/--handover-on-limit conflict with --no-watch'
+    { [ "$self" = lead ] || printf '%s\n' "${specs[@]}" | grep -q '^lead='; } || die '--wake-on-limit/--handover-on-limit need a lead role'
   fi
   if [ -z "$target" ]; then
     [ -n "${TMUX:-}" ] || die "run inside tmux, or pass --in <tmux-session>"
@@ -664,7 +677,7 @@ cmd_up() {
   # already up, so a watcher that cannot start is a warning, not an error.
   if [ "$no_watch" = 0 ] && [ -n "$(pane_of lead)" ]; then
     # The subshell keeps a die, lock or trap inside timer_create from ending `up`.
-    watch_id=$(timer_add_watch "$watch_every" lead "$wake_on_limit") || {
+    watch_id=$(timer_add_watch "$watch_every" lead "$wake_on_limit" "$handover" "$max_wait") || {
       echo "crew: could not start the watcher (crew watch --ring still works)" >&2; watch_id=""; }
   fi
   if [ -z "$self" ] && [ "$here" = 0 ] && [ -z "${CREW_NO_SWITCH:-}" ] && [ -n "${TMUX:-}" ]; then
@@ -944,8 +957,18 @@ cmd_board() {
 
 # ---------- repair ----------
 
+# The opted-in usage-limit watcher hands lead over as `watch`; that identity
+# comes only from limit_handover_by, which main clears before dispatch.
+override_identity() {
+  resolve_me
+  [ -z "${limit_handover_by:-}" ] || { ME=$limit_handover_by; VIA=""; }
+}
+override_caller_ok() {
+  [ "$ME" = you ] || [ "$ME" = lead ] || { [ "$ME" = watch ] && [ "${limit_handover_by:-}" = watch ]; }
+}
+
 cmd_override() {
-  resolve_session; resolve_me
+  resolve_session; override_identity
   local form_eq=0 arg1="" arg2="" role="" replacement="" cmdline
   if [ $# -eq 2 ]; then
     arg1="$1"; arg2="$2"; role="$arg1"; replacement="$arg2"
@@ -963,13 +986,13 @@ cmd_override() {
   run: $cmdline"
   check_name "$role"
   [ -n "$replacement" ] || die 'replacement must not be empty'
-  [ "$ME" = you ] || [ "$ME" = lead ] || die "$refusal"
+  override_caller_ok || die "$refusal"
   [ "$role" != "$replacement" ] || die 'replacement must be a different role'
   [ ! -f "$D/ended" ] || die "crew '$S' has ended"
   lock panes board
-  resolve_me
+  override_identity
   caller="$ME"
-  [ "$ME" = you ] || [ "$ME" = lead ] || die "$refusal"
+  override_caller_ok || die "$refusal"
   old=$(pane_of "$role"); [ -n "$old" ] || die "no agent '$role' in crew $S"
   owns_pane "$old" "$role" || die "$role's pane is stale; rebind it first"
   new=$(pane_of "$replacement")
@@ -997,9 +1020,9 @@ cmd_override() {
     fi
     cli="$replacement"; origin=spawned
     lock panes board
-    resolve_me
+    override_identity
     caller="$ME"
-    if [ "$ME" != you ] && [ "$ME" != lead ]; then
+    if ! override_caller_ok; then
       tmux kill-pane -t "$new" 2>/dev/null || true
       die "$refusal"
     fi
@@ -1426,6 +1449,7 @@ cmd_web() {
 # ---------- main ----------
 
 SESSION_FLAG=""
+limit_handover_by="" # set only by limit_handover_lead, never inherited
 if [ "${1:-}" = -s ]; then SESSION_FLAG="${2:-}"; shift 2 || die "-s needs a name"; fi
 cmd="${1:-help}"; shift || true
 case "${1:-}" in -h|--help) usage; exit 0 ;; esac

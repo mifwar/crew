@@ -16,6 +16,7 @@ error	^rate[ -]+limit([[:space:]]+(exceeded|reached|hit)|$)	rate limit
 error	^quota[[:space:]]+(exhausted|exceeded|reached|depleted)|^(you have )?(exhausted|exceeded|reached).*quota|^insufficient[_ ]quota	quota
 error	^(you'?ve|you’ve|you have) (hit|reached) your .*limit	provider limit
 error	^usage limit (exceeded|reached|hit)	provider limit
+error	^(weekly|5-hour|daily|session|opus|sonnet) limit (reached|exceeded|hit)	provider limit
 error	^[0-9]+[[:space:]]+rate[ -]+limit	rate limit
 busy	(esc|ctrl-c|ctrl[+]c)[[:space:]]+to[[:space:]]+(interrupt|stop)([[:space:])]*$|\)[[:space:]]*·.*$)
 busy	^[[:space:]]*─.*(working|thinking).*─[[:space:]]*$
@@ -40,32 +41,62 @@ pane_observation() { # cli [details]; capture -> state|resources|reason[|reset-c
       sub(/^[Ee]rror:[[:space:]]*/, "", s)
       return s
     }
-    function clock_value(clock, zone, a, hour, meridiem) {
-      gsub(/[[:space:]]/, "", clock)
+    function clock_value(clock, a, hour, meridiem) {
       if (clock !~ /^[0-9][0-9]?(:[0-9][0-9])?[ap]m$/) return ""
       meridiem=substr(clock,length(clock)-1); sub(/[ap]m$/, "", clock)
       split(clock,a, ":"); if (a[2]=="") a[2]=0
       if (a[1]<1 || a[1]>12 || a[2]<0 || a[2]>59) return ""
       hour=a[1]%12; if (meridiem=="pm") hour+=12
-      return sprintf("%02d:%02d",hour,a[2]) (zone!="" ? " " zone : "")
+      return sprintf("%02d:%02d",hour,a[2])
     }
-    function reset_clock(cli, text, s, clock, zone) {
-      s=tolower(text)
-      if (cli=="codex" && match(s,/try again at [0-9][0-9]?:[0-9][0-9] [ap]m[.]?[[:space:]]*$/)) {
-        clock=substr(s,RSTART+13); sub(/[.[:space:]]*$/, "", clock)
-        return clock_value(clock, "")
+    function month_value(word, m) {
+      sub(/[.]$/, "", word)
+      m=index("janfebmaraprmayjunjulaugsepoctnovdec", substr(word,1,3))
+      if (m==0 || (m-1)%3) return 0
+      m=(m-1)/3+1
+      if (length(word)==3 || word=="sept") return m
+      return word==months[m] ? m : 0
+    }
+    # A reset is a clock, optionally with a month/day (weekly limits) and a
+    # year, in any order: "3pm", "oct 31 at 3pm", "11:15 am on october 25",
+    # "31 oct 2026, 3:30pm". Every word must be understood, or it stays manual.
+    function when_value(text, zone,   w, n, i, clock, month, day, year, value, m) {
+      gsub(/,/, " ", text); gsub(/[[:space:]]+am/, "am", text); gsub(/[[:space:]]+pm/, "pm", text)
+      n=split(text, w, /[[:space:]]+/)
+      for (i=1; i<=n; i++) {
+        if (w[i]=="" || w[i]=="at" || w[i]=="on") continue
+        if ((value=clock_value(w[i]))!="") { if (clock!="") return ""; clock=value }
+        else if ((m=month_value(w[i]))) { if (month) return ""; month=m }
+        else if (w[i] ~ /^[0-9][0-9]?(st|nd|rd|th)?$/ && day=="") { sub(/[a-z]+$/, "", w[i]); day=w[i]+0 }
+        else if (w[i] ~ /^20[0-9][0-9]$/ && year=="") year=w[i]
+        else return ""
       }
-      if (cli=="claude" && s ~ /resets /) {
-        clock=s; sub(/^.*resets /,"",clock); zone=""
+      if (clock=="" || (month=="") != (day=="") || (year!="" && month=="")) return ""
+      if (day!="" && (day<1 || day>31)) return ""
+      value=clock
+      if (month) value=sprintf("%02d-%02d %s", month, day, clock)
+      if (year!="") value=year "-" value
+      return value (zone!="" ? " " zone : "")
+    }
+    function reset_clock(cli, text, s, when, zone) {
+      s=tolower(text)
+      if (cli=="codex" && match(s,/try again at /)) {
+        when=substr(s,RSTART+RLENGTH); sub(/[.[:space:]]*$/, "", when)
+        return when_value(when, "")
+      }
+      if (cli=="claude" && match(s,/resets /)) {
+        when=substr(s,RSTART+RLENGTH); zone=""
         if (match(text,/\((UTC|GMT|[A-Za-z_+-]+\/[A-Za-z0-9_+.\/-]+)\)[[:space:]]*$/)) {
           zone=substr(text,RSTART+1,RLENGTH-1); sub(/\)[[:space:]]*$/,"",zone)
-          sub(/[[:space:]]*\([^)]*\)[[:space:]]*$/,"",clock)
+          sub(/[[:space:]]*\([^)]*\)[[:space:]]*$/,"",when)
         }
-        return clock_value(clock,zone)
+        sub(/[.[:space:]]*$/, "", when)
+        return when_value(when,zone)
       }
       return ""
     }
-    BEGIN { n = split(ENVIRON["CREW_PANE_PATTERNS"], lines, "\n"); for (i=1; i<=n; i++) {
+    BEGIN { split("january february march april may june july august september october november december", months, " ")
+      n = split(ENVIRON["CREW_PANE_PATTERNS"], lines, "\n"); for (i=1; i<=n; i++) {
       split(lines[i], fields, "\t"); kind[i]=fields[1]; re[i]=fields[2]; label[i]=fields[3]
     } }
     {
@@ -161,8 +192,8 @@ watch_event() { # ring? text
   else printf '%s  %s\n' "$(now)" "$2"; fi
 }
 
-watch_scan() { # private cache quiet-seconds ring?; one observation per owned pane
-  local cache="$1" quiet="$2" ring_events="$3" wake_on_limit="${4:-0}" role pane cli origin cap observation health resources reason draft reset_clock prompt
+watch_scan() { # private cache quiet-seconds ring? [wake-on-limit] [handover-spec] [max-wait]; one observation per owned pane
+  local cache="$1" quiet="$2" ring_events="$3" wake_on_limit="${4:-0}" handover="${5:-}" max_wait="${6:-}" role pane cli origin cap observation health resources reason draft reset_clock prompt
   local fingerprint changed sent previous current_time event open active tasks board
   current_time=$(date +%s)
   while IFS="$(printf '\t')" read -r role pane cli origin; do
@@ -214,7 +245,7 @@ watch_scan() { # private cache quiet-seconds ring?; one observation per owned pa
     fi
     printf '%s|%s|%s\n' "$fingerprint" "$changed" "$sent" > "$cache/$role"
     if [ "$wake_on_limit" = 1 ] && [ "$ring_events" = 1 ] && [ "$role" = lead ]; then
-      limit_wake_lead "$pane" "$(short_cli "$cli")" "$reset_clock"
+      limit_wake_lead "$pane" "$(short_cli "$cli")" "$reset_clock" "$reason" "$handover" "$max_wait"
     fi
     # Only a ringing watcher replays held doorbells, and only after this scan's
     # own observation, so the doorbell it types never changes what it reported.
@@ -242,12 +273,12 @@ watch_board_state() { # -> empty|open, the same open-task rule as status
 # can never poll a reused path forever. The board cache is seeded from the
 # current state before the first scan in every mode: the empty-board notice is
 # a transition (open → empty), never a first-scan observation.
-watch_loop() { # cache every quiet ring? [cancel-file] [wake-on-limit=0]
-  local cache="$1" every="$2" quiet="$3" ring_events="$4" cancel="${5:-}" wake_on_limit="${6:-0}"
+watch_loop() { # cache every quiet ring? [cancel-file] [wake-on-limit=0] [handover-spec] [max-wait]
+  local cache="$1" every="$2" quiet="$3" ring_events="$4" cancel="${5:-}" wake_on_limit="${6:-0}" handover="${7:-}" max_wait="${8:-}"
   watch_cache="$cache"
   printf '%s\n' "$(watch_board_state)" > "$cache/.board"
   while [ -d "$D" ] && [ ! -f "$D/ended" ] && { [ -z "$cancel" ] || [ ! -f "$cancel" ]; }; do
-    watch_scan "$cache" "$quiet" "$ring_events" "$wake_on_limit"
+    watch_scan "$cache" "$quiet" "$ring_events" "$wake_on_limit" "$handover" "$max_wait"
     sleep "$every" & watch_sleep_pid=$!
     wait "$watch_sleep_pid" || true
     watch_sleep_pid=""
@@ -267,7 +298,7 @@ watch_cleanup() {
 
 cmd_watch() {
   resolve_session
-  local every=$watch_interval quiet=$watch_quiet_default ring_events=0 wake_on_limit=0 watch_cache="" watch_sleep_pid=""
+  local every=$watch_interval quiet=$watch_quiet_default ring_events=0 wake_on_limit=0 handover="" max_wait="" watch_cache="" watch_sleep_pid=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --every|--quiet-after)
@@ -280,16 +311,21 @@ cmd_watch() {
         shift 2 ;;
       --ring) ring_events=1; shift ;;
       --wake-on-limit) wake_on_limit=1; shift ;;
+      --handover-on-limit|--max-wait)
+        [ $# -ge 2 ] || die "$1 needs a value"
+        if [ "$1" = --max-wait ]; then max_wait="$2"; else handover="$2"; wake_on_limit=1; fi
+        shift 2 ;;
       *) die "bad option: $1" ;;
     esac
   done
   [ "$ring_events" = 0 ] || [ -n "$(pane_of lead)" ] || die '--ring needs a lead role'
-  [ "$wake_on_limit" = 0 ] || [ "$ring_events" = 1 ] || die '--wake-on-limit needs --ring'
+  [ "$wake_on_limit" = 0 ] || [ "$ring_events" = 1 ] || die '--wake-on-limit and --handover-on-limit need --ring'
+  max_wait=$(limit_handover_options "$handover" "$max_wait") || exit 1
   watch_cache=$(mktemp -d "${TMPDIR:-/tmp}/crew-watch.XXXXXX")
   trap watch_cleanup EXIT
   trap 'exit 130' INT
   trap 'exit 143' TERM
-  watch_loop "$watch_cache" "$every" "$quiet" "$ring_events" "" "$wake_on_limit"
+  watch_loop "$watch_cache" "$every" "$quiet" "$ring_events" "" "$wake_on_limit" "$handover" "$max_wait"
   watch_cleanup
   trap - EXIT INT TERM
 }
