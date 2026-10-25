@@ -34,6 +34,7 @@ after a command prints the full usage (exit 0); unknown commands exit 1.
 | `task next-id` | id the next `add` will take | [tasks.md](tasks.md) |
 | `lock [--name build] [--max N] -- <cmd...>` | crew-wide counting semaphore | [semaphore.md](semaphore.md) |
 | `board` / `status` | board table / agents, model, stuck/error notes, context/quota + lock holders + board | [tasks.md](tasks.md), [watch.md](watch.md), [semaphore.md](semaphore.md) |
+| `ui` | optional Bun terminal dashboard: agents, tasks, messages and live pane preview; read-only | [ui.md](ui.md) |
 | `watch [--every 120] [--quiet-after 10m] [--ring]` | debounced state-change notices, optionally ring lead; `up` starts one detached for crews with a lead | [watch.md](watch.md) |
 | `at <HH:MM\|+30m> <role> <message>` / `every <30m> <role> <message>` | detached guarded doorbells | [timers.md](timers.md) |
 | `timers [cancel <id>]` | list timers or stop one | [timers.md](timers.md) |

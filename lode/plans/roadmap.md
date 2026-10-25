@@ -33,6 +33,12 @@ Usage-limit recovery is opt-in for lead only: a recognised Codex/Claude reset
 (clock or dated) schedules one guarded retry, or with a user-given successor
 spec a long/unreadable reset hands lead over once; workers notify lead for an
 explicit, model-aware wait/handover decision ([../cli/limit-wake.md](../cli/limit-wake.md)).
+The optional `crew ui` terminal dashboard complements the CLI and web viewer
+with shared status heuristics, tasks, recent messages and live pane previews.
+It is read-only; Enter only navigates to an owned pane in the same tmux
+session. See [../cli/ui.md](../cli/ui.md).
+Unknown editor dispatch drains its capture stream so `pipefail` cannot turn
+an unsupported CLI into an unreadable hold ([../cli/ring-hold.md](../cli/ring-hold.md)).
 What remains are open questions and candidate improvements. When one ships,
 describe it in the matching lode file and delete it here.
 
