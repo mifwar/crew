@@ -29,6 +29,10 @@ flowchart LR
 - The editor table is gated on `pane_cli` → `short_cli`: only claude, codex and
   pi are read. Unknown CLIs or unrecognised editor renderings do not cause a
   draft hold. A renamed codex placeholder becomes a loud draft hold instead.
+  The unknown-CLI branch drains stdin without printing text: returning before
+  its producer finishes can make `printf` fail with SIGPIPE under `pipefail`,
+  falsely turning an unsupported editor (including smoke's `cat`) into an
+  `unreadable` hold. `test/ui.sh` pins this with a large input stream.
 - A recogniser that exits nonzero returns `unreadable` with `could not read the
   <cli> editor`, not an empty result. A crashed parser is not evidence of an
   empty editor. This refusal is immediate, including at zero wait, and uses
