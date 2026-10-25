@@ -1123,5 +1123,6 @@ check "installed symlink finds the sourced listing module" env CREW_HOME="$CREW_
 . "$ROOT/test/semaphore.sh"
 . "$ROOT/test/sessions.sh"
 . "$ROOT/test/restart.sh"
+. "$ROOT/test/ui.sh"
 
 [ "$fail" = 0 ] && echo "all passed" || { echo "some checks failed"; exit 1; }

@@ -5,7 +5,11 @@ tmux. It is a Bash entrypoint (`bin/crew`, macOS bash 3.2 compatible) with
 a sourced listing/sweep module and a sourced pane module (`share/crew/listing.sh`,
 `share/crew/pane.sh`), a shared status/watch module (`share/crew/watch.sh`), a task-command/readiness module (`share/crew/tasks.sh`), plus
 markdown role templates (`share/crew/`) and a Bun web viewer (read-only by default)
-(`share/crew/web.ts` + `web.html`). Messages are plain files under
+(`share/crew/web.ts` + `web.html`). An optional Bun terminal dashboard
+(`crew ui`, `share/crew/ui.ts` + `ui.sh`) uses the existing shell observers
+and guarded pane captures to show agents, tasks, messages and a live preview;
+Enter navigates to an owned pane within the same tmux session. It sends no
+agent input and writes no crew metadata. Messages are plain files under
 `~/.crew/<name>/`; tmux `send-keys` is only the "doorbell" that types a
 one-line `[crew] from → to: …` notice into the recipient's prompt. Rings wait
 for recognised drafts to clear, or report a skipped doorbell while keeping the

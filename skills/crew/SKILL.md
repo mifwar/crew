@@ -104,6 +104,7 @@ crew send impl,rev "API contract changed: see out/api.md"   # several at once
 crew note "Rejected R3: out of scope per the user"
 crew send you "Summary: … (out/summary.md)"
 crew status                     # roles, models, panes, stuck/error notes, context/quota, active lock holders, board
+crew ui                         # optional read-only terminal dashboard (needs bun); run in a spare pane
 crew remove rev                 # drop a role: blocks its open tasks, closes its spawned pane
 crew remove rev --keep-pane     # same, but unlabel the pane and leave it open
 crew watch --every 120 --quiet-after 10m   # foreground state-change notices
@@ -150,6 +151,13 @@ crew lock --name checks --max 2 -- ./run-checks
 - `status` flags a rendered input prompt while its role owns queued/working
   work, and recent errors. Context and 5h quota appear only when printed in
   the pane. These are text heuristics, not proof that an agent is stuck.
+- `ui` shows the same observation heuristics with open tasks, recent messages,
+  held doorbell counts and a live pane preview. ↑/↓ or j/k selects an agent,
+  Tab cycles non-ended crews, r refreshes and q/Esc quits. Enter opens the
+  selected owned pane in the same tmux session and exits; cross-session panes
+  are previewable but navigation is refused. It never sends input to agents
+  or edits crew state. Run it yourself in a spare terminal pane; agents should
+  keep using `status`, `board` and `peek` for tool-readable output.
 - `watch` scans every 120 seconds by default. Idle/stuck notices wait for
   10 minutes of unchanged pane text and task rows; errors (with or without
   open work) report at the next scan. The empty-board notice fires only when

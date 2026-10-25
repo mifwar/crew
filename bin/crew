@@ -79,6 +79,7 @@ crew — coding agents working together in tmux
   crew lock [--name build] [--max N] -- <cmd...>     crew-wide command semaphore (default max 1)
   crew board                                          task board
   crew status                                         agents + board, stuck/error notes and context/quota
+  crew ui                                             terminal dashboard: status, tasks and live pane preview (needs bun)
   crew watch [--every 120] [--quiet-after 10m] [--ring] [--wake-on-limit]
                                                       foreground state-change notices (or doorbells to lead)
   crew at <HH:MM|+30m> <role> <message>               schedule one guarded doorbell (local time)
@@ -227,7 +228,8 @@ resolve_session() {
   else die "no crew here (run inside a crew pane, or pass -s <name>)"; fi
   D="$CREW_HOME/$S"
   [ -d "$D" ] || die "unknown crew: $S"
-  session_capture_current
+  # Passive viewers must not pin the caller's native session as a side effect.
+  [ "${1:-}" = --read-only ] || session_capture_current
 }
 
 # Caller identity: a crew role; else "you" when typed at a terminal (agents'
@@ -1319,7 +1321,7 @@ cmd_status() {
 }
 
 cmd_peek() {
-  resolve_session
+  resolve_session --read-only
   [ $# -ge 1 ] || die 'usage: crew peek <role> [lines]'
   local pane; pane=$(pane_of "$1"); [ -n "$pane" ] || die "no agent '$1'"
   owns_pane "$pane" "$1" || die "$1's pane $pane is gone or now belongs to something else (crew rebind $1 <pane>)"
@@ -1409,6 +1411,7 @@ cmd_down() {
 
 # Listing and stale cleanup share the CLI helpers above.
 . "$CREW_SHARE/listing.sh"
+. "$CREW_SHARE/ui.sh"
 
 cmd_web() {
   local port="${CREW_WEB_PORT:-7777}" open=0 allow=0
@@ -1446,6 +1449,9 @@ case "$cmd" in
   lock) cmd_lock "$@" ;;
   board) cmd_board ;;
   status) cmd_status ;;
+  ui) cmd_ui "$@" ;;
+  _ui-state) cmd_ui_state "$@" ;;
+  _ui-jump) cmd_ui_jump "$@" ;;
   watch) cmd_watch "$@" ;;
   at|every) cmd_timer_add "$cmd" "$@" ;;
   timers) cmd_timers "$@" ;;

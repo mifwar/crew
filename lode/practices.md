@@ -29,15 +29,19 @@ bash -n share/crew/watch.sh        # status observations and foreground watch
 bash -n share/crew/timers.sh       # detached timer workers
 bash -n share/crew/semaphore.sh    # command slots and holder listing
 bash -n share/crew/tasks.sh        # dependency readiness and guarded notices
+bash -n share/crew/ui.sh           # terminal dashboard shell bridge
 test/smoke.sh                     # behaviour; must print "all passed"
 node --check <(sed -n '/<script>/,/<\/script>/p' share/crew/web.html | sed '1d;$d')
 bun build --no-bundle share/crew/web.ts >/dev/null
+bun build --no-bundle share/crew/ui.ts >/dev/null
 ```
 
 `test/smoke.sh` uses its own `CREW_HOME` (mktemp) and a detached tmux session,
 so it never touches real crews. `KEEP=1 test/smoke.sh` keeps both for
 debugging. Extend it whenever behaviour changes — it is the only test suite.
 It sources `test/watch.sh` for the shared observer and detached watcher checks.
+It also sources `test/ui.sh` for the optional dashboard's ownership,
+read-only and terminal lifecycle contracts (Bun runtime checks skip without Bun).
 
 ## Testing against real agents
 

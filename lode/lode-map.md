@@ -14,6 +14,7 @@ flowchart TD
   - [state-files.md](architecture/state-files.md) — exact formats of `~/.crew/<name>/*`
 - cli/
   - [summary.md](cli/summary.md) — command table, env knobs, pane labels/border, model detection
+  - [ui.md](cli/ui.md) — optional terminal dashboard, shared observations, guarded preview/navigation and terminal lifecycle
   - [lifecycle.md](cli/lifecycle.md) — `up` / `add` / `adopt` / `rebind` / `override` / `down`, `--self` / `--here`, pane ids, readiness
   - [worktrees.md](cli/worktrees.md) — per-role directories, task snapshots and worktree-aware gates/sessions
   - [role-override.md](cli/role-override.md) — manual takeovers, task transfer and recovery context

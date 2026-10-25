@@ -1,8 +1,8 @@
 # crew
 
 Run Claude Code, Codex, pi (or any CLI agent) as a team in tmux panes: one
-lead assigns tasks, workers report back, you can message anyone, and a local
-web page shows it all.
+lead assigns tasks, workers report back, you can message anyone, and optional
+terminal and web dashboards show what the team is doing.
 
 ![A crew in one tmux window: Claude Code leads, Codex implements, pi reviews, with the channel timeline in the fourth pane](docs/demo-tmux.png)
 
@@ -15,6 +15,7 @@ The same crew in `crew web`: roster, channel timeline and task board.
 crew up voucher "lead=claude --allowedTools 'Bash(crew:*)'" impl=codex rev=pi
 crew send lead "Port the voucher redeem route; have rev review it."
 crew log -f                                    # timeline in a spare pane
+crew ui                                        # terminal dashboard (needs bun)
 crew web --open                                # http://127.0.0.1:7777 (read-only, needs bun)
 crew down
 ```
@@ -64,6 +65,16 @@ types a one-line `[crew] from → to: …` doorbell into the recipient's prompt.
 Agents call `crew` from their shell tool, so each needs permission to run it;
 `crew --help` lists the flags for Claude and Codex.
 
-Requirements: tmux ≥ 3.1, bash (macOS 3.2 is fine), bun for `crew web`.
+`crew ui` is an optional read-only terminal dashboard alongside the CLI and
+web viewer. It shows agent status, open tasks, recent messages, held doorbells,
+context/quota when printed, and a live preview of the selected pane. Status
+comes from the same text heuristics as `crew status`; inspect the preview
+when a label is uncertain. Run it in a spare tmux pane with `crew -s voucher ui`.
+Use ↑/↓ or j/k to select, Tab to cycle non-ended crews, r to refresh, and
+q/Esc to quit. Enter opens an owned agent pane in the same tmux session and
+exits the dashboard; panes in other sessions remain previewable. It never
+sends keystrokes to agents or edits tasks.
+
+Requirements: tmux ≥ 3.1, bash (macOS 3.2 is fine), bun for `crew web` and `crew ui`.
 
 Tests: `test/smoke.sh`. Design notes, pitfalls and plans: [`lode/`](lode/lode-map.md).
