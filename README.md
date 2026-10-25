@@ -39,8 +39,11 @@ When a dialog or draft holds a message's doorbell, the message stays in the
 inbox. A watcher running with `--ring` retries held notices as one coalesced
 inbox reminder after the editor clears.
 
-If the leader hits a usage limit mid-work, hand control to another running
-crew agent or an agent you started in a new tmux pane:
+`crew up … --wake-on-limit` wakes a limited lead after its printed reset;
+`--handover-on-limit '<cli spec>'` also hands lead over to a new pane running
+that spec when the reset is more than `--max-wait` (default 6h) away, e.g. a
+weekly limit. Otherwise, if the leader hits a usage limit mid-work, hand
+control to another running crew agent or an agent you started in a new tmux pane:
 
 ```sh
 crew -s voucher override lead impl   # existing impl becomes lead; old lead becomes impl

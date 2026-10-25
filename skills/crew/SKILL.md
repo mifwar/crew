@@ -109,6 +109,7 @@ crew remove rev --keep-pane     # same, but unlabel the pane and leave it open
 crew watch --every 120 --quiet-after 10m   # foreground state-change notices
 crew watch --ring &              # lead background shell: doorbells instead of stdout
 crew watch --ring --wake-on-limit # opt in to lead usage-limit recovery
+crew watch --ring --handover-on-limit 'codex …' # also hand long limits to a new lead
 crew at +30m lead "check worker progress"
 crew at 03:00 lead "start checks" # next local 03:00
 crew every 30m lead "review the board"
@@ -211,10 +212,12 @@ crew lock --name checks --max 2 -- ./run-checks
 
 ## Usage limits and recovery
 
-A Codex `You’ve hit your usage limit` banner is reported by `status` and the
-watcher. When it includes `try again at H:MM AM/PM`, or Claude prints
-`resets 3pm` (optionally with minutes and a named timezone), worker alerts
-include the reset time. Unknown/missing reset formats stay manual.
+A Codex `You’ve hit your usage limit` banner (or Claude `You’ve hit your limit`,
+`Weekly limit reached`) is reported by `status` and the watcher. When it
+includes `try again at H:MM AM/PM` (optionally `on October 25`), or Claude
+prints `resets 3pm` / `resets Oct 31 at 3:30pm` (optionally with a named
+timezone), worker alerts include the reset time. Unknown/missing reset formats
+stay manual.
 
 Auto-wake is **off by default**, including for lead. Enable it explicitly:
 
@@ -222,24 +225,33 @@ Auto-wake is **off by default**, including for lead. Enable it explicitly:
 crew up <name> --self lead --wake-on-limit rev=pi
 # For an existing crew (leave this watcher running):
 crew -s <name> watch --ring --wake-on-limit
+# Also hand lead over when the wait is long (weekly) or unreadable:
+crew up <name> --self lead --handover-on-limit 'codex --model …' --max-wait 6h rev=pi
 ```
 
 This only wakes **lead**, using a recognised Codex or Claude reset. The watcher
-records the next occurrence of the printed time (respecting Claude’s named
-timezone; otherwise local), adds 60 seconds of grace, and sends one fixed retry
-message on a scan after that time when the lead has an idle input prompt.
-Codex uses `try again at H:MM AM/PM`; Claude uses `resets 3pm` or
-`resets 3:30pm`, optionally with `(Area/City)` or `(UTC)`. Pi/provider errors,
-HTTP 429s, relative delays and dated/weekly reset formats without a supported
-clock remain notification-only. Reset text is a heuristic, not confirmation
+records the printed time (the next occurrence of a bare clock, or the printed
+day of a dated/weekly reset; Claude’s named timezone, otherwise local), adds 60
+seconds of grace, and sends one fixed retry message on a scan after that time
+when the lead has an idle input prompt. Pi/provider errors, HTTP 429s and
+relative delays (`resets in 3 days`) have no readable reset.
+
+`--handover-on-limit <cli spec>` (implies `--wake-on-limit`) chooses by the
+wait, not the limit's name, because a weekly reset can also be hours away: a
+reset within `--max-wait` (default 6h) waits and wakes; a later or unreadable
+one hands lead over once to a new pane running exactly that spec, through
+`crew override lead=<spec>` with `watch` as the caller. The banner must still
+show on an idle lead 5 minutes after it is first seen. A lead started by this
+handover never hands over again; it waits for its own reset. The human picks
+the successor's model and flags in the spec; crew never chooses one. Reset text is a heuristic, not confirmation
 that credits are available. The message asks lead to retry its last request,
 continue existing work, or report that it is still limited and wait. The same visible banner is claimed once,
 including across watcher restarts and concurrent watchers. A cleared banner
 rearms detection. Drafts, dialogs, copy mode and pane ownership still guard
 delivery; held messages stay in the inbox for the normal coalesced reminder.
 Stopping/cancelling that watcher stops new wake attempts; `crew down` stops the
-crew's detached watcher. `--wake-on-limit` conflicts with `up --no-watch` and
-requires `--ring` for `watch`.
+crew's detached watcher. `--wake-on-limit` and `--handover-on-limit` conflict
+with `up --no-watch` and require `--ring` for `watch`.
 
 **Workers are never automatically woken or switched to another model.** Lead
 reads their limit alerts and decides whether to wait, assign existing suitable
@@ -248,7 +260,7 @@ context needed, and the replacement model's capabilities and remaining quota;
 choose the model and launch spec explicitly. Do not assume all models are
 interchangeable or silently change a worker's model. Preserve task state and
 recovery context using the existing board, inboxes and override workflow.
-If lead is limited and automatic waking is disabled or cannot parse the time,
+If lead is limited and automatic recovery is disabled or cannot parse the time,
 the human can wait, schedule `crew at HH:MM lead "retry your last request"`,
 or use the manual takeover below with an explicitly chosen successor.
 

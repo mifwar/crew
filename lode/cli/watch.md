@@ -109,7 +109,9 @@ as events. A ringing watcher separately retries held deliveries as coalesced
 inbox reminders after each owned-pane observation; see
 [messaging.md](messaging.md#held-doorbell-reminders). It never resumes workers
 or answers dialogs. With `--wake-on-limit`, it can send one guarded retry to a
-lead after a recognised Codex/Claude reset time; see [limit-wake.md](limit-wake.md).
+lead after a recognised Codex/Claude reset time; with `--handover-on-limit`, a
+long or unreadable lead reset instead hands lead over once to the given spec;
+see [limit-wake.md](limit-wake.md).
 Waking is at most once per printed reset time until a scan clears the banner.
 Worker alerts include recognised reset clocks and leave model-aware handovers
 to lead.

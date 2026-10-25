@@ -34,8 +34,11 @@ satisfy dependencies.
 the normal guarded delivery path, and `crew up` keeps one such watcher running
 detached for any crew with a lead (`--no-watch` opts out).
 `up --wake-on-limit` or `watch --ring --wake-on-limit` explicitly enables one
-guarded retry of a limited lead after a recognised Codex/Claude reset; workers
-only alert lead, who decides whether to wait or hand over with a suitable model.
+guarded retry of a limited lead after a recognised Codex/Claude reset (clock or
+dated/weekly); `--handover-on-limit <spec>` also hands lead over once to a new
+pane running that exact spec when the reset is beyond `--max-wait` (6h) or
+unreadable. Workers only alert lead, who decides whether to wait or hand over
+with a suitable model.
 `crew at` and `crew every` run detached timer workers for guarded doorbells,
 recorded under the crew; `crew timers` lists/cancels them and `down` stops them.
 `crew lock` bounds concurrent heavy commands with named, crew-scoped
