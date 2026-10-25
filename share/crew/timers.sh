@@ -83,7 +83,7 @@ timer_worker_cleanup() {
 cmd_timer_run() { # private subprocess entry; only the recorded pid may run it
   resolve_session
   [ $# -eq 1 ] || die 'invalid timer worker'
-  local id="$1" dir pid started kind interval role due message wake_on_limit timer_locked=0 timer_sleep="" timer_dispatching=0 ready_tries=0 launcher
+  local id="$1" dir pid started kind interval role due message wake_on_limit handover max_wait timer_locked=0 timer_sleep="" timer_dispatching=0 ready_tries=0 launcher
   printf '%s' "$id" | grep -Eq '^timer-[0-9]+-[0-9]+$' || die 'invalid timer id'
   dir="$D/timers/$id"
   [ -d "$dir" ] || return 0
@@ -102,7 +102,7 @@ cmd_timer_run() { # private subprocess entry; only the recorded pid may run it
   done
   IFS="$(printf '\t')" read -r pid started < "$dir/owner"
   [ "$pid" = "$$" ] || die 'timer worker is not the recorded process'
-  IFS="$(printf '\t')" read -r kind interval role wake_on_limit < "$dir/config"
+  IFS="$(printf '\t')" read -r kind interval role wake_on_limit handover max_wait < "$dir/config"
   message=""
   IFS= read -r -d '' message < "$dir/message" || true
   if [ "$kind" = watch ]; then
@@ -113,7 +113,7 @@ cmd_timer_run() { # private subprocess entry; only the recorded pid may run it
     trap 'exit 130' INT
     trap 'exit 143' TERM
     watch_cache=$(mktemp -d "${TMPDIR:-/tmp}/crew-watch.XXXXXX")
-    watch_loop "$watch_cache" "$interval" "$watch_quiet_default" 1 "$dir/cancelled" "${wake_on_limit:-0}"
+    watch_loop "$watch_cache" "$interval" "$watch_quiet_default" 1 "$dir/cancelled" "${wake_on_limit:-0}" "${handover:-}" "${max_wait:-}"
     watch_cleanup
     timer_worker_cleanup
     trap - EXIT INT TERM
@@ -179,7 +179,7 @@ timer_create() { # kind interval role due message — prints the record id
   [ ! -f "$D/ended" ] || die 'crew has ended'
   id="timer-$(date +%s)-$$"; dir="$D/timers/$id"
   mkdir -p "$D/timers"; mkdir "$dir"; timer_add_dir="$dir"
-  printf '%s\t%s\t%s\t%s\n' "$kind" "$interval" "$role" "${6:-0}" > "$dir/config"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$kind" "$interval" "$role" "${6:-0}" "${7:-}" "${8:-}" > "$dir/config"
   printf '%s\n' "$due" > "$dir/next"
   printf '%s' "$message" > "$dir/message"
   timer_publish "$dir"; timer_published=1
@@ -208,17 +208,19 @@ cmd_timer_add() { # at|every schedule role message...
 # `crew up` starts one of these per crew with a lead: a detached watcher that
 # rings the lead on errors and caught-up work. Caller has set S and D (init_dir)
 # and must not call resolve_session, which could pick an unrelated crew.
-timer_add_watch() { # interval role [wake-on-limit=0] — prints the record id
-  local interval="$1" role="$2" wake_on_limit="${3:-0}" id timer_add_dir="" timer_published=0
+timer_add_watch() { # interval role [wake-on-limit=0] [handover-spec] [max-wait] — prints the record id
+  local interval="$1" role="$2" wake_on_limit="${3:-0}" handover="${4:-}" max_wait="${5:-}" id timer_add_dir="" timer_published=0 policy
+  policy="wake-on-limit=$wake_on_limit"
+  [ -z "$handover" ] || policy="$policy; handover over $(limit_wait_label "$max_wait") to '$handover'"
   timer_create watch "$interval" "$role" \
-    "$(( $(date +%s) + interval ))" "watch $role: errors, drafts, stuck and caught-up work; wake-on-limit=$wake_on_limit" "$wake_on_limit"
+    "$(( $(date +%s) + interval ))" "watch $role: errors, drafts, stuck and caught-up work; $policy" "$wake_on_limit" "$handover" "$max_wait"
   id=$timer_create_id
   log_line sys - "$role" "started $id: watch every ${interval}s (crew timers, crew down stops it)"
 }
 
 cmd_timers() {
   resolve_session
-  local dir id kind interval role due pid started state next_time wake_on_limit
+  local dir id kind interval role due pid started state next_time wake_on_limit rest
   case "${1:-}" in
     cancel)
       [ $# -eq 2 ] || die 'usage: crew timers cancel <id>'
@@ -231,7 +233,7 @@ cmd_timers() {
       { printf 'ID\tKIND\tROLE\tNEXT (local time)\tSTATE\tMESSAGE\n'
       for dir in "$D"/timers/*; do
         [ -d "$dir" ] && [ -f "$dir/ready" ] || continue
-        IFS="$(printf '\t')" read -r kind interval role wake_on_limit < "$dir/config"
+        IFS="$(printf '\t')" read -r kind interval role wake_on_limit rest < "$dir/config"
         due=$(cat "$dir/next"); state=stopped
         next_time=-
         [ "$kind" = watch ] || next_time=$(date -r "$due" '+%Y-%m-%d %H:%M:%S')

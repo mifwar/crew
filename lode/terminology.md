@@ -43,3 +43,6 @@ flowchart LR
 - short cli - the program name used in labels (`codex --sandbox …` → `codex`; `2.1.284` → `claude`).
 - model detection - scraping the model name from the bottom lines of a pane's status bar.
 - round 1 / round 2 - review protocol: independent findings first, cross-check of accepted/rejected items second.
+- reset - the time a usage-limit banner says the limit lifts: a clock (`try again at 11:15 AM`, `resets 3pm`) or a dated/weekly one (`resets Oct 31 at 3pm`).
+- max wait - `--max-wait` (default 6h): the longest reset the opted-in watcher waits for before handing lead over.
+- handover spec - `--handover-on-limit <cli spec>`: the user's exact launch command for an automatically spawned successor lead; crew never picks a model.

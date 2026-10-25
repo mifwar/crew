@@ -30,8 +30,9 @@ spinner padding is not a draft ([../cli/messaging.md](../cli/messaging.md),
 dependencies, and role/task directories keep gates and native sessions aligned
 with worktrees ([../cli/tasks.md](../cli/tasks.md), [../cli/worktrees.md](../cli/worktrees.md)).
 Usage-limit recovery is opt-in for lead only: a recognised Codex/Claude reset
-schedules one guarded retry; workers notify lead for an explicit, model-aware
-wait/handover decision ([../cli/limit-wake.md](../cli/limit-wake.md)).
+(clock or dated) schedules one guarded retry, or with a user-given successor
+spec a long/unreadable reset hands lead over once; workers notify lead for an
+explicit, model-aware wait/handover decision ([../cli/limit-wake.md](../cli/limit-wake.md)).
 The optional `crew ui` terminal dashboard complements the CLI and web viewer
 with shared status heuristics, tasks, recent messages and live pane previews.
 It is read-only; Enter only navigates to an owned pane in the same tmux

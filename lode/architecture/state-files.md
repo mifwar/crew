@@ -72,10 +72,14 @@ counter after a successful guarded reminder. Stdout watch leaves it alone.
 The inbox is unchanged by replay. The existing ring lock still serializes pane
 input. See [../cli/messaging.md](../cli/messaging.md#held-doorbell-reminders).
 
-`limit-wake/lead` holds `pane|HH:MM [timezone]|due-epoch|claimed` for opt-in lead recovery;
+`limit-wake/lead` holds `pane|reset|due-epoch|state` for opt-in lead recovery
+(reset `[[YYYY-]MM-DD ]HH:MM [timezone]` or `unknown`; state `0` wake scheduled,
+`1` woken, `h` handover pending, `H` handed over). `limit-wake/successor` holds
+the pane id of the lead an automatic handover spawned.
 `.limit-wake.lock` serializes watcher claims. The record survives watcher
-restarts; a cleared banner removes it. Timer config’s optional fourth field
-defaults to `0` for older records and only affects watchers. See
+restarts; a cleared banner removes it. Timer config’s optional fourth to sixth
+fields (wake-on-limit, handover spec, max-wait seconds) default to `0`/empty
+for older records and only affect watchers. See
 [../cli/limit-wake.md](../cli/limit-wake.md).
 
 ## `meta`
@@ -127,7 +131,7 @@ web); the doorbell and inbox heading do.
 
 ## Timers
 
-`timers/timer-<epoch>-<pid>/` holds `config` (`at|every|watch⇥interval-seconds⇥role⇥wake-on-limit`),
+`timers/timer-<epoch>-<pid>/` holds `config` (`at|every|watch⇥interval-seconds⇥role⇥wake-on-limit⇥handover-spec⇥max-wait`),
 `owner` (`pid⇥process-start-time`), `next`/`claimed` (epoch), `message` (literal full text),
 `ready` (publication marker) and `worker.log`. `done` / `cancelled` markers
 retain completed/cancelled history. A `watch` record writes `next` once at

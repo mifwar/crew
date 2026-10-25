@@ -7,7 +7,11 @@ crew -s voucher override lead=pi     # spawn and verify a fresh successor
 ```
 
 Manual mid-work recovery when a role hits a usage limit. Only `you` or the
-current `lead` may invoke it; sender identity remains advisory. Both existing
+current `lead` may invoke it; sender identity remains advisory. The one
+automatic caller is the opted-in usage-limit watcher, which runs
+`override lead=<spec>` as `watch` through `override_identity`; that identity
+comes only from the shell variable `limit_handover_by`, which `bin/crew` main
+clears so it is never inherited (see [limit-wake.md](limit-wake.md)). Both existing
 crew panes must pass `owns_pane`; a new pane must be unlabelled. Validation
 runs under `.panes.lock` and `.board.lock`, before changing bindings. For
 `<role>=<cli spec>`, a bare value is a CLI command; only `%pane` adopts a pane
