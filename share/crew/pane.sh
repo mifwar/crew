@@ -104,6 +104,7 @@ pane_editor_text() { # cli dims
     claude) claude_prompt_text ;;
     codex)  codex_prompt_text ;;
     pi)     pi_box_text "$2" ;;
+    command-code) prompt_row_text '❯' 'Ask your question' ;;
     # Drain unknown editors too: exiting before printf finishes can turn its
     # SIGPIPE into an "unreadable editor" hold under the caller's pipefail.
     *)      cat >/dev/null ;;

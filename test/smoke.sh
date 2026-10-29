@@ -402,6 +402,9 @@ check "combined dim/color style stays a draft" claude_text_is "$claude_suggestio
 check "mixed dim and normal text remains a draft" claude_text_is "typed text" "$claude_mixed"
 check "SGR intensity reset 22 restores draft protection" claude_text_is "typed text" "$claude_reset22"
 check "Claude's generated ghost suggestion is idle" claude_text_is "" "$claude_generated_ghost"
+cmdcode_text() { printf '%s\n' '❯ an earlier turn' "$1" '────' '  ? for shortcuts' | pane_editor_text command-code ""; }
+check "Command Code placeholder is an idle editor" test -z "$(cmdcode_text '❯ Ask your question...')"
+check "Command Code typed text is a draft" test "$(cmdcode_text '❯ your crew leader has reached')" = "your crew leader has reached"
 
 # G2: pi's braille Working spinner in the top border used to kill the parser
 # ("awk: towc: multibyte conversion failure", empty output read as free) and a

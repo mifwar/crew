@@ -26,8 +26,8 @@ flowchart LR
   `#{pane_in_mode}` (non-empty and not `0`) → the editor table. Dialogs and
   modes swallow keys before the editor sees them, and a claude dialog reuses
   `❯` (e.g. `❯ 1. Yes`), so these checks apply to every CLI first.
-- The editor table is gated on `pane_cli` → `short_cli`: only claude, codex and
-  pi are read. Unknown CLIs or unrecognised editor renderings do not cause a
+- The editor table is gated on `pane_cli` → `short_cli`: only claude, codex, pi and
+  command-code are read. Unknown CLIs or unrecognised editor renderings do not cause a
   draft hold. A renamed codex placeholder becomes a loud draft hold instead.
   The unknown-CLI branch drains stdin without printing text: returning before
   its producer finishes can make `printf` fail with SIGPIPE under `pipefail`,
@@ -46,6 +46,7 @@ flowchart LR
 |---|---|---|---|
 | claude | the bottom-most `❯` row | blank text or a standalone dim span | any other text |
 | codex | the bottom-most `›` row and its indented continuation rows | nothing, or `Ask Codex to do anything…` (prefix match) | any other text |
+| command-code | the bottom-most `❯` row (process title `command-code`, run via node) | blank, or `Ask your question` (prefix match) | any other text |
 | pi | a box drawn with `─` | its two border rows are found and the rows between them are empty | any non-empty row between them |
 
 Claude captures retain SGR styling so its standalone dim ghost span can be
