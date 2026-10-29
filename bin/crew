@@ -381,7 +381,7 @@ detect_cli() { # pane
   while read -r w rest; do
     w="${w##*/}"; w="${w#-}"
     case "$w" in zsh|bash|sh|fish|dash|login|tmux|"") continue ;; esac
-    case "$(short_cli "$w")" in claude|codex|pi) printf '%s' "$w"; return 0 ;; esac
+    case "$(short_cli "$w")" in claude|codex|pi|command-code) printf '%s' "$w"; return 0 ;; esac
     [ -n "$first" ] || first="$w"
   done <<EOF
 $(ps -o args= -t "${tty#/dev/}" 2>/dev/null)

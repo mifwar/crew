@@ -8,6 +8,7 @@ CLI needs so its `crew send` works, and its quirks, is per-CLI knowledge:
 | claude | permission to run `crew` (allowlist or auto mode) | process named after its version (`2.1.284`); `detect_cli` fixes it | [claude.md](claude.md) |
 | codex | sandbox must reach the tmux socket **and** write `~/.crew` | none | [codex.md](codex.md) |
 | pi | nothing (no approval system) | process is `node`; `detect_cli` fixes it | [pi.md](pi.md) |
+| command-code | permission to run `crew` | process title `command-code` (runs via node); editor is the bottom `❯` row, placeholder `Ask your question...` | [../cli/ring-hold.md](../cli/ring-hold.md) |
 
 ```mermaid
 flowchart LR

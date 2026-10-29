@@ -194,7 +194,7 @@ crew lock --name checks --max 2 -- ./run-checks
   Leave the prompt to the human. After it clears, a ringing watcher sends one
   coalesced `N new messages — crew inbox <role>` reminder. Without a ringing
   watcher, resend a short nudge when the pane is free; never answer for it.
-- Doorbells wait for recognised Claude, Codex and pi drafts to clear (default
+- Doorbells wait for recognised Claude, Codex, pi and Command Code drafts to clear (default
   `CREW_RING_WAIT=30`, capped at 3600 seconds). On timeout, nothing is typed;
   the message remains in the inbox and the sender gets a warning plus a log
   entry. Leave the draft intact; a ringing watcher retries it after the editor
